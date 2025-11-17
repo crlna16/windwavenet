@@ -1,3 +1,10 @@
+<!--
+SPDX-FileCopyrightText: 2025 Hereon
+SPDX-FileContributor: Caroline Arnold
+
+SPDX-License-Identifier: MIT
+-->
+
 # Wave Wind Model Emulator
 
 

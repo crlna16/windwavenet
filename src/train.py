@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileContributor: Caroline Arnold
+#
+# SPDX-License-Identifier: MIT
+
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
