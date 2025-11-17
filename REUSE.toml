@@ -1,0 +1,26 @@
+version = 1
+
+[[annotations]]
+path = "notebooks/**/*.ipynb"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ".python-version"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "uv.lock"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "requirements.txt"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "requirements.in"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
