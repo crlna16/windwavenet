@@ -1,0 +1,104 @@
+# SPDX-FileCopyrightText: 2025 Hereon
+#
+# SPDX-License-Identifier: MIT
+
+# Adapted from template
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: always
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: always
+    - when: never
+
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - lint
+  - test
+  - deploy
+
+build-job:       # This job runs in the build stage, which runs first.
+  stage: build
+  script:
+    - echo "Dummy build stage ... does not do anything"
+
+# From https://docs.astral.sh/ruff/integrations/#pre-commit
+.base_ruff:
+  stage: lint
+  interruptible: true
+  image:
+    name: ghcr.io/astral-sh/ruff:0.11.8-alpine
+  before_script:
+    - cd $CI_PROJECT_DIR
+    - ruff --version
+
+ruff-check:
+  extends: .base_ruff
+  script:
+    - ruff check --output-format=gitlab --exclude notebooks > code-quality-report.json
+  artifacts:
+    reports:
+      codequality: $CI_PROJECT_DIR/code-quality-report.json
+
+ruff-format:
+  extends: .base_ruff
+  script:
+    - ruff format --exclude notebooks --diff
+
+# SPDX-FileCopyrightText: 2020 Free Software Foundation Europe e.V.
+# SPDX-License-Identifier: CC0-1.0
+reuse-check-licenses:
+  stage: lint
+  image:
+    name: fsfe/reuse:latest
+    entrypoint: [""]
+  script:
+    - reuse lint
+
+unit-tests:   # This job runs in the test stage.
+  stage: test    # It only starts when the job in the build stage completes successfully.
+  image: python:3.12
+  script:
+    - echo "Running unit tests..."
+    - pip install uv
+    # install the development environment
+    - uv sync --group dev --active --frozen
+    - export RUN_DEMO_DATA=1 # use demo data
+    # automatically looks in ./tests for tests to run
+    # with coverage report
+    - uv run pytest --cov-report term --cov=hydracastai tests/
+  only:
+    - merge_requests
+    - main
+  coverage: '/TOTAL\s+\d+\s+\d+\s+(\d+%)/'  # regex to extract coverage percentage from pytest output
+
+
+deep-learning-pipeline: # runs in test
+  stage: test
+  image: python:3.12
+  script:
+    - pip install uv
+    # install the project, without the development group, mimicking production environment
+    - uv sync --no-group dev --active --frozen
+    # download dummy data
+    - echo "This is a dummy for the deep learning pipeline"
+  only:
+    - merge_requests
+    - main
+
+pages:
+  stage: deploy
+  image: python:3.12
+  script:
+    - pip install uv
+    - uv sync --active --frozen
+    - echo "Generating documentation..."
+    - pdoc src -o public
+    - echo "Documentation generated successfully."
+  artifacts:
+    paths:
+      - public
+  only:
+    - main

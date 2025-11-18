@@ -10,6 +10,9 @@ import xarray as xr
 import numpy as np
 from torch.utils.data import Dataset
 
+from src.utils.pylogger import RankedLogger
+
+log = RankedLogger(__name__, rank_zero_only=False)
 
 class SimpleWWMDataset(Dataset):
     """Simple Wave Wind Model Dataset that loads netCDF files for a time range.
@@ -49,6 +52,8 @@ class SimpleWWMDataset(Dataset):
         # Extract points
         self.X = self._retrieve_data(self.ds, self.features)
         self.y = self._retrieve_data(self.ds, self.targets)
+
+        log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
 
     @staticmethod
     def _collect_files(data_dir: Path, start_day: int, end_day: int) -> List[Path]:

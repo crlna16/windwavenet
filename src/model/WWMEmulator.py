@@ -88,8 +88,7 @@ class WWMEmulator(L.LightningModule):
         """
         loss, preds, targets = self.model_step(batch)
 
-        # Log training metrics
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         return loss
 
@@ -102,7 +101,6 @@ class WWMEmulator(L.LightningModule):
         """
         loss, preds, targets = self.model_step(batch)
 
-        # Log validation metrics
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # Update and log metrics
@@ -118,23 +116,11 @@ class WWMEmulator(L.LightningModule):
         """
         loss, preds, targets = self.model_step(batch)
 
-        # Log test metrics
         self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # Update and log metrics
         # self.test_mse(preds, targets)
         # self.log("test/mse", self.test_mse, on_step=False, on_epoch=True, prog_bar=True)
-
-    def setup(self, stage: str) -> None:
-        """Lightning hook called at the beginning of fit (train + validate), validate, test, or predict.
-
-        This is a good hook to use to set up different behavior in different stages.
-
-        Args:
-            stage: Either 'fit', 'validate', 'test', or 'predict'.
-        """
-        if self.hparams.compile and stage == "fit":
-            self.backbone = torch.compile(self.backbone)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Configure optimizers and learning-rate schedulers.
