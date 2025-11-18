@@ -15,7 +15,12 @@ import warnings
 
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.pylogger import RankedLogger
-from src.utils.utils import get_metric_value, task_wrapper, log_hyperparameters, print_config_tree
+from src.utils.utils import (
+    get_metric_value,
+    task_wrapper,
+    log_hyperparameters,
+    print_config_tree,
+)
 
 log = RankedLogger(__name__, rank_zero_only=True)
 warnings.filterwarnings("ignore")

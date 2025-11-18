@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from src.data.SimpleWWMDataset import SimpleWWMDataset
 
+
 class WWMDataModule(L.LightningDataModule):
     """Lightning DataModule for Wave Wind Model data with time-based splits.
 

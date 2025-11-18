@@ -18,6 +18,7 @@ from src.utils import pylogger
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
+
 def task_wrapper(task_func: Callable) -> Callable:
     """Optional decorator that controls the failure behavior when executing the task function.
 
@@ -105,6 +106,7 @@ def get_metric_value(
 
     return metric_value
 
+
 @rank_zero_only
 def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     """Controls which config parts are saved by Lightning loggers.
@@ -152,6 +154,7 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     # send hparams to all loggers
     for logger in trainer.loggers:
         logger.log_hyperparams(hparams)
+
 
 @rank_zero_only
 def print_config_tree(

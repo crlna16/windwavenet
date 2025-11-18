@@ -14,6 +14,7 @@ from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
+
 class SimpleWWMDataset(Dataset):
     """Simple Wave Wind Model Dataset that loads netCDF files for a time range.
 

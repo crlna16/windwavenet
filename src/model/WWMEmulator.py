@@ -60,7 +60,9 @@ class WWMEmulator(L.LightningModule):
         """
         return self.backbone(x)
 
-    def model_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def model_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
         Args:
@@ -74,7 +76,9 @@ class WWMEmulator(L.LightningModule):
         loss = self.criterion(preds, y)
         return loss, preds, y
 
-    def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def training_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor:
         """Perform a single training step on a batch of data.
 
         Args:
@@ -90,7 +94,9 @@ class WWMEmulator(L.LightningModule):
 
         return loss
 
-    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def validation_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> None:
         """Perform a single validation step on a batch of data.
 
         Args:
@@ -105,7 +111,9 @@ class WWMEmulator(L.LightningModule):
         # self.val_mse(preds, targets)
         # self.log("val/mse", self.val_mse, on_step=False, on_epoch=True, prog_bar=True)
 
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def test_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> None:
         """Perform a single test step on a batch of data.
 
         Args:
