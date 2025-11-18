@@ -68,7 +68,7 @@ unit-tests:   # This job runs in the test stage.
     - export RUN_DEMO_DATA=1 # use demo data
     # automatically looks in ./tests for tests to run
     # with coverage report
-    - uv run pytest --cov-report term --cov=hydracastai tests/
+    - uv run pytest --cov-report term --cov=src tests/
   only:
     - merge_requests
     - main
