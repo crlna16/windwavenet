@@ -93,7 +93,7 @@ pages:
   image: python:3.12
   script:
     - pip install uv
-    - uv sync --active --frozen
+    - uv add pdoc
     - echo "Generating documentation..."
     - pdoc src -o public
     - echo "Documentation generated successfully."
