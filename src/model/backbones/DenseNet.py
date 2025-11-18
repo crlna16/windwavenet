@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import torch
 import torch.nn as nn
 
 
@@ -12,7 +13,7 @@ class DenseNet(nn.Module):
     A basic dense network architecture with ReLU activation.
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int) -> None:
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         """Initialize the DenseNet.
 
         Args:
@@ -28,7 +29,7 @@ class DenseNet(nn.Module):
             nn.Linear(hidden_dim, output_dim),
         )
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         """Forward pass through the network.
 
         Args:

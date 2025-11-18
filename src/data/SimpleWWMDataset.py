@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 import xarray as xr
+import numpy as np
 from torch.utils.data import Dataset
 
 
@@ -21,8 +22,8 @@ class SimpleWWMDataset(Dataset):
         data_dir: Path,
         start_day: int,
         end_day: int,
-        feature_vars: List[str],
-        target_vars: List[str],
+        features: List[str],
+        targets: List[str],
     ) -> None:
         """Initialize the SimpleWWM Dataset.
 
@@ -30,57 +31,79 @@ class SimpleWWMDataset(Dataset):
             data_dir: Root directory containing netCDF data files.
             start_day: Starting day index (inclusive).
             end_day: Ending day index (exclusive).
-            feature_vars: List of variable names to use as features.
-            target_vars: List of variable names to use as targets.
+            features: List of variable names to use as features.
+            targets: List of variable names to use as targets.
         """
         super().__init__()
 
         self.data_dir = Path(data_dir)
         self.start_day = start_day
         self.end_day = end_day
-        self.feature_vars = feature_vars
-        self.target_vars = target_vars
+        self.features = features
+        self.targets = targets
 
         # Collect all files in the specified day range
-        self.files = self._collect_files()
+        self.files = self._collect_files(self.data_dir, self.start_day, self.end_day)
+        self.ds = self._load_data(self.files)
 
-        # TODO: Load and process the data from files
-        # Example structure for when you're ready:
-        # self.data = self._load_data()
+        # Extract points
+        self.X = self._retrieve_data(self.ds, self.features)
+        self.y = self._retrieve_data(self.ds, self.targets)
 
-    def _collect_files(self) -> List[Path]:
+    @staticmethod
+    def _collect_files(data_dir: Path, start_day: int, end_day: int) -> List[Path]:
         """Collect all netCDF files in the specified day range.
+
+        Args:
+            data_dir: Root directory containing netCDF data files.
+            start_day: Starting day index (inclusive).
+            end_day: Ending day index (exclusive).
 
         Returns:
             List of file paths for the specified day range.
         """
         files = []
-        for day_idx in range(self.start_day, self.end_day):
-            # Adjust the file pattern to match your naming convention
-            # Example: file_0001.nc, file_0002.nc, etc.
-            file_pattern = f"*{day_idx:04d}.nc"  # Modify pattern as needed
-            matching_files = sorted(self.data_dir.glob(file_pattern))
+        for day_idx in range(start_day, end_day):
+            file_pattern = f"out2d_{day_idx:2d}.nc"  # TODO maybe pass this
+            matching_files = sorted(data_dir.glob(file_pattern))
             files.extend(matching_files)
 
         if not files:
             raise FileNotFoundError(
-                f"No files found in {self.data_dir} for days {self.start_day}-{self.end_day}"
+                f"No files found in {data_dir} for days {start_day}-{end_day}"
             )
 
         return files
 
-    def _load_data(self) -> xr.Dataset:
+    @staticmethod
+    def _load_data(files: List[Path]) -> xr.Dataset:
         """Load data from netCDF files.
+
+        Args:
+            files: List of file paths to load.
 
         Returns:
             xarray Dataset containing the loaded data.
         """
-        # TODO: Implement your loading logic here
-        # Example:
-        # datasets = [xr.open_dataset(f) for f in self.files]
-        # combined = xr.concat(datasets, dim='time')
-        # return combined
-        pass
+        ds = xr.open_mfdataset(files).chunk("auto")
+        return ds
+
+    @staticmethod
+    def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> np.ndarray:
+        """Extract variable data from xarray Dataset.
+
+        Args:
+            dataset: xarray Dataset containing the data.
+            variables: List of variable names to extract.
+
+        Returns:
+            Numpy array of shape (n_samples, n_variables).
+        """
+        x = []
+        for var in variables:
+            xx = dataset[var].values
+            x.append(xx)
+        return np.asarray(x).reshape(len(variables), -1).transpose()
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
@@ -88,8 +111,7 @@ class SimpleWWMDataset(Dataset):
         Returns:
             Number of samples.
         """
-        # TODO: Implement based on your data structure
-        raise NotImplementedError("__len__ needs to be implemented")
+        return len(self.y)
 
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.
@@ -100,9 +122,4 @@ class SimpleWWMDataset(Dataset):
         Returns:
             Tuple of (features, targets) for the given index.
         """
-        # TODO: Implement based on your data structure
-        # Example:
-        # features = self.data[self.feature_vars].isel(time=idx)
-        # targets = self.data[self.target_vars].isel(time=idx)
-        # return features.values, targets.values
-        raise NotImplementedError("__getitem__ needs to be implemented")
+        return self.X[idx], self.y[idx]

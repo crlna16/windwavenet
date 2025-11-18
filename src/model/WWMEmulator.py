@@ -62,11 +62,6 @@ class WWMEmulator(L.LightningModule):
         """
         return self.backbone(x)
 
-    def on_train_start(self) -> None:
-        """Lightning hook called at the beginning of training."""
-        # Reset metrics or perform any setup needed at training start
-        pass
-
     def model_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
@@ -96,15 +91,7 @@ class WWMEmulator(L.LightningModule):
         # Log training metrics
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        # Update and log metrics
-        # self.train_mse(preds, targets)
-        # self.log("train/mse", self.train_mse, on_step=False, on_epoch=True, prog_bar=True)
-
         return loss
-
-    def on_train_epoch_end(self) -> None:
-        """Lightning hook called at the end of a training epoch."""
-        pass
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data.
@@ -122,10 +109,6 @@ class WWMEmulator(L.LightningModule):
         # self.val_mse(preds, targets)
         # self.log("val/mse", self.val_mse, on_step=False, on_epoch=True, prog_bar=True)
 
-    def on_validation_epoch_end(self) -> None:
-        """Lightning hook called at the end of a validation epoch."""
-        pass
-
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data.
 
@@ -141,10 +124,6 @@ class WWMEmulator(L.LightningModule):
         # Update and log metrics
         # self.test_mse(preds, targets)
         # self.log("test/mse", self.test_mse, on_step=False, on_epoch=True, prog_bar=True)
-
-    def on_test_epoch_end(self) -> None:
-        """Lightning hook called at the end of a test epoch."""
-        pass
 
     def setup(self, stage: str) -> None:
         """Lightning hook called at the beginning of fit (train + validate), validate, test, or predict.

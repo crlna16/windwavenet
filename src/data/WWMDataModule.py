@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
@@ -24,6 +24,8 @@ class WWMDataModule(L.LightningDataModule):
         train_days: Tuple[int, int],
         val_days: Tuple[int, int],
         test_days: Tuple[int, int],
+        features: List[str],
+        targets: List[str],
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -35,6 +37,8 @@ class WWMDataModule(L.LightningDataModule):
             train_days: Tuple of (start_day, end_day) for training data.
             val_days: Tuple of (start_day, end_day) for validation data.
             test_days: Tuple of (start_day, end_day) for test data.
+            features: List of variable names to use as features.
+            targets: List of variable names to use as targets.
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
@@ -48,6 +52,9 @@ class WWMDataModule(L.LightningDataModule):
         self.train_days = train_days
         self.val_days = val_days
         self.test_days = test_days
+
+        self.features = features
+        self.targets = targets
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -84,18 +91,24 @@ class WWMDataModule(L.LightningDataModule):
                 data_dir=self.data_dir,
                 start_day=self.train_days[0],
                 end_day=self.train_days[1],
+                features=self.features,
+                targets=self.targets,
             )
 
             self.ds_val = SimpleWWMDataset(
                 data_dir=self.data_dir,
                 start_day=self.val_days[0],
                 end_day=self.val_days[1],
+                features=self.features,
+                targets=self.targets,
             )
 
             self.ds_test = SimpleWWMDataset(
                 data_dir=self.data_dir,
                 start_day=self.test_days[0],
                 end_day=self.test_days[1],
+                features=self.features,
+                targets=self.targets,
             )
 
         elif stage == "test":
@@ -103,6 +116,8 @@ class WWMDataModule(L.LightningDataModule):
                 data_dir=self.data_dir,
                 start_day=self.test_days[0],
                 end_day=self.test_days[1],
+                features=self.features,
+                targets=self.targets,
             )
 
         elif stage in ["validate", "predict"]:
@@ -152,23 +167,3 @@ class WWMDataModule(L.LightningDataModule):
             pin_memory=self.pin_memory,
             shuffle=False,
         )
-
-    def state_dict(self) -> dict:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
-
-        TODO
-
-        Returns:
-            A dictionary containing the datamodule state to save.
-        """
-        return {}
-
-    def load_state_dict(self, state_dict: dict) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state.
-
-        TODO
-
-        Args:
-            state_dict: The datamodule state returned by `state_dict()`.
-        """
-        pass

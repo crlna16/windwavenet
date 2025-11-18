@@ -5,12 +5,8 @@
 
 # @package _global_
 
-# specify here default configuration
-# order of defaults determines the order in which configs override each other
 defaults:
-  - _self_
-  - data: mnist
-  - model: mnist
+  - _self_ # put this here so following configs overwrite the defaults in train.yaml
 
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
@@ -54,23 +50,27 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /path/to/data
-  train_days: [0, 100]    # days 0-100 for training
-  val_days: [100, 120]    # days 100-120 for validation
-  test_days: [120, 150]   # days 120-150 for testing
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
+  features:
+    - windSpeedX
+    - windSpeedY
+  targets:
+    - sigWaveHeight
+  train_days: [0, 4]
+  val_days: [5, 5]
+  test_days: [6, 7]
   batch_size: 32
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
 
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
-  compile: false
 
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
-    input_dim: 10
+    input_dim: 2 # must match len(data.features)
     hidden_dim: 128
-    output_dim: 5
+    output_dim: 1 # must match len(data.targets)
 
   optimizer:
     _target_: torch.optim.AdamW
@@ -82,7 +82,7 @@ model:
     _partial_: true # required for hydra instantiate
     mode: min
     factor: 0.5
-    patience: 10
+    patience: 5
 
 logger: # wandb.ai
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
@@ -96,7 +96,7 @@ logger: # wandb.ai
 callbacks:
   model_checkpoint:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
-    monitor: val_loss
+    monitor: val/loss
     save_last: true
     save_top_k: 1
     mode: "min"
@@ -104,8 +104,8 @@ callbacks:
 
   early_stopping:
     _target_: lightning.pytorch.callbacks.EarlyStopping
-    monitor: val_loss
-    patience: 3
+    monitor: val/loss
+    patience: 10
     mode: "min"
 
   model_summary:
