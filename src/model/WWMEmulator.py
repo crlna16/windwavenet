@@ -8,8 +8,6 @@ from typing import Any, Dict, Tuple
 import lightning as L
 import torch
 import torch.nn as nn
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LRScheduler
 
 
 class WWMEmulator(L.LightningModule):
