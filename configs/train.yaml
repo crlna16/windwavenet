@@ -40,8 +40,7 @@ tags: ["dev"]
 # set False to skip model training
 train: True
 
-# evaluate on test set, using best model weights achieved during training
-# lightning chooses best weights based on the metric specified in checkpoint callback
+# evaluate on test set, using best model weights achieved during training (as per checkpoint callback metric)
 test: True
 
 # simply provide checkpoint path to resume training
@@ -54,10 +53,36 @@ seed: null
 ## Default configuration for training
 ## ----------------------------------
 data:
-  ...
+  _target_: src.data.WWMDataModule.WWMDataModule
+  data_dir: /path/to/data
+  train_days: [0, 100]    # days 0-100 for training
+  val_days: [100, 120]    # days 100-120 for validation
+  test_days: [120, 150]   # days 120-150 for testing
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
 
 model:
-  ...
+  _target_: src.model.WWMEmulator.WWMEmulator
+  compile: false
+
+  backbone:
+    _target_: src.model.backbones.DenseNet.DenseNet
+    input_dim: 10
+    hidden_dim: 128
+    output_dim: 5
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true # required for hydra instantiate
+    lr: 0.0001
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    _partial_: true # required for hydra instantiate
+    mode: min
+    factor: 0.5
+    patience: 10
 
 logger: # wandb.ai
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
