@@ -52,11 +52,11 @@ class RankedLogger(logging.LoggerAdapter):
                 raise RuntimeError(
                     "The `rank_zero_only.rank` needs to be set before use"
                 )
-            msg = rank_prefixed_message(msg, current_rank)
             if self.rank_zero_only:
                 if current_rank == 0:
                     self.logger.log(level, msg, *args, **kwargs)
             else:
+                msg = rank_prefixed_message(msg, current_rank)
                 if rank is None:
                     self.logger.log(level, msg, *args, **kwargs)
                 elif current_rank == rank:

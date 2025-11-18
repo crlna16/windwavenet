@@ -56,9 +56,9 @@ data:
     - windSpeedY
   targets:
     - sigWaveHeight
-  train_days: [0, 4]
-  val_days: [5, 5]
-  test_days: [6, 7]
+  train_days: [31, 33] # in python list notation
+  val_days: [33, 35]
+  test_days: [35, 37]
   batch_size: 32
   num_workers: 8
   pin_memory: true
@@ -120,16 +120,7 @@ trainer:
   devices: auto
 
 paths:
-  # path to root directory
-  # this requires PROJECT_ROOT environment variable to exist
-  # you can replace it with "." if you want the root to be the current working directory
-  root_dir: ${oc.env:PROJECT_ROOT} # TODO change this to root directory of the project, conflict with cwd in hydra?
-
-  # path to data directory
-  data_dir: ${paths.root_dir}/data/ # TODO move
-
-  # path to logging directory
-  log_dir: ${paths.root_dir}/logs/ # TODO move
+  root_dir: ${hydra:runtime.cwd}
 
   # path to output directory, created dynamically by hydra
   # path generation pattern is specified in `configs/hydra/default.yaml`
@@ -147,9 +138,9 @@ hydra: # https://hydra.cc/docs/configure_hydra/intro/
 
   # output directory, generated dynamically on each run
   run:
-    dir: ${paths.log_dir}/${experiment_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    dir: ${paths.root_dir}/logs/${experiment_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
   sweep:
-    dir: ${paths.log_dir}/${experiment_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    dir: ${paths.root_dir}/logs/${experiment_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
     subdir: ${hydra.job.num}
 
   job_logging:
