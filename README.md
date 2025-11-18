@@ -24,3 +24,7 @@ To install the package
 ```bash
 pip install -e .
 ```
+
+## Logs
+
+The project is tracked online at [https://wandb.ai/wwm-emulator/simple-wwm-emulator](https://wandb.ai/wwm-emulator/simple-wwm-emulator).
