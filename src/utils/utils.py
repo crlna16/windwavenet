@@ -143,7 +143,6 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["trainer"] = cfg["trainer"]
 
     hparams["callbacks"] = cfg.get("callbacks")
-    hparams["extras"] = cfg.get("extras")
 
     hparams["task_name"] = cfg.get("task_name")
     hparams["tags"] = cfg.get("tags")
@@ -158,7 +157,6 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 def print_config_tree(
     cfg: DictConfig,
     print_order: Sequence[str] = (
-        "description",
         "data",
         "model",
         "callbacks",
@@ -173,7 +171,7 @@ def print_config_tree(
 
     Args:
         cfg: A DictConfig composed by Hydra.
-        print_order: Determines in what order config components are printed. Default is ``("description", "data", "model",
+        print_order: Determines in what order config components are printed. Default is ``("data", "model",
             "callbacks", "logger", "trainer", "paths")``.
         resolve: Whether to resolve reference fields of DictConfig. Default is ``False``.
         save_to_file: Whether to export config to the hydra output folder. Default is ``False``.
