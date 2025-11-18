@@ -12,17 +12,14 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
-from src.utils import (
-    RankedLogger,
-    extras,
-    get_metric_value,
-    instantiate_callbacks,
-    instantiate_loggers,
-    log_hyperparameters,
-    task_wrapper,
-)
+import warnings
+
+from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
+from src.utils.pylogger import RankedLogger
+from src.utils.utils import get_metric_value, task_wrapper, log_hyperparameters, print_config_tree
 
 log = RankedLogger(__name__, rank_zero_only=True)
+warnings.filterwarnings("ignore")
 
 
 @task_wrapper
@@ -34,14 +31,18 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     failure. Useful for multiruns, saving info about the crash, etc.
 
     Args:
-        cfg: A DictConfig configuration composed by Hydra.
+        cfg (DictConfig): A DictConfig configuration composed by Hydra.
 
     Returns:
-        A tuple with metrics and dict with all instantiated objects.
+        Tuple[Dict[str, Any], Dict[str, Any]]: Tuple of dictionary of metrics and dictionary of all
+                                               instantiated objects (the latter for debug purposes).
     """
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
+
+    log.info("Printing config tree with Rich! <cfg.extras.print_config=True>")
+    print_config_tree(cfg, resolve=True, save_to_file=True)
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -56,7 +57,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+    trainer: Trainer = hydra.utils.instantiate(
+        cfg.trainer, callbacks=callbacks, logger=logger
+    )
 
     object_dict = {
         "cfg": cfg,
@@ -99,16 +102,12 @@ def main(cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
 
     Args:
-        cfg: DictConfig configuration composed by Hydra.
+        cfg (DictConfig): Configuration composed by Hydra.
 
     Returns:
-        Optional[float] with optimized metric value.
+        float (optional): If optimized_metric is given, returns the value of this metric
+                          for hyperparameter optimisation.
     """
-    # apply extra utilities
-    # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
-    # TODO check if we want to keep that
-    extras(cfg)
-
     # train the model
     metric_dict, _ = train(cfg)
 
@@ -117,7 +116,6 @@ def main(cfg: DictConfig) -> Optional[float]:
         metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
     )
 
-    # return optimized metric
     return metric_value
 
 

@@ -10,15 +10,15 @@ from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
-from src.utils import (
-    RankedLogger,
-    extras,
-    instantiate_loggers,
-    log_hyperparameters,
-    task_wrapper,
-)
+import warnings
+
+from src.utils.instantiators import instantiate_loggers
+from src.utils.pylogger import RankedLogger
+from src.utils.utils import task_wrapper, log_hyperparameters, print_config_tree
 
 log = RankedLogger(__name__, rank_zero_only=True)
+
+warnings.filterwarnings("ignore")
 
 
 @task_wrapper
@@ -32,6 +32,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
     assert cfg.ckpt_path
+
+    log.info("Printing config tree with Rich! <cfg.extras.print_config=True>")
+    print_config_tree(cfg, resolve=True, save_to_file=True)
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -72,12 +75,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
-    :param cfg: DictConfig configuration composed by Hydra.
+    Args:
+        cfg [DictConfig]: DictConfig configuration composed by Hydra.
     """
-    # apply extra utilities
-    # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
-    extras(cfg)
-
     evaluate(cfg)
 
 
