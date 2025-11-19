@@ -10,3 +10,4 @@ logs/
 .coverage
 checkpoints/
 scripts/slurm/
+wandb/

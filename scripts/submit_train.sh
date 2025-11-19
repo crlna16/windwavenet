@@ -6,4 +6,4 @@
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
-uv run src/train.py debug=fast_dev_run
+uv run src/train.py
