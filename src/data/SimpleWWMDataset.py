@@ -54,7 +54,9 @@ class SimpleWWMDataset(Dataset):
         self.ds = self._load_data(self.files, self.features + self.targets)
 
         # Load scaling parameters if provided
-        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
+        self.scaling_params = (
+            self._load_scaling_config(scaling_config) if scaling_config else None
+        )
 
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
@@ -132,12 +134,16 @@ class SimpleWWMDataset(Dataset):
         Returns:
             Dictionary mapping variable names to their mean and std values.
         """
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             scaling_params = yaml.safe_load(f)
         return scaling_params
 
     @staticmethod
-    def _apply_scaling(dataset: xr.Dataset, variables: List[str], scaling_params: Dict[str, Dict[str, float]]) -> xr.Dataset:
+    def _apply_scaling(
+        dataset: xr.Dataset,
+        variables: List[str],
+        scaling_params: Dict[str, Dict[str, float]],
+    ) -> xr.Dataset:
         """Apply standardization scaling to variables in xarray Dataset.
 
         Args:
@@ -150,12 +156,14 @@ class SimpleWWMDataset(Dataset):
         """
         for var in variables:
             if var in scaling_params:
-                mean = scaling_params[var]['mean']
-                std = scaling_params[var]['std']
+                mean = scaling_params[var]["mean"]
+                std = scaling_params[var]["std"]
                 dataset[var] = (dataset[var] - mean) / std
                 log.info(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
             else:
-                log.warning(f"No scaling parameters found for variable '{var}', leaving unscaled")
+                log.warning(
+                    f"No scaling parameters found for variable '{var}', leaving unscaled"
+                )
         return dataset
 
     def __len__(self) -> int:
