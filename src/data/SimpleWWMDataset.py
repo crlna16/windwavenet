@@ -49,12 +49,12 @@ class SimpleWWMDataset(Dataset):
         self.features = features
         self.targets = targets
 
-        # Load scaling parameters if provided
-        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
-
         # Collect all files in the specified day range
         self.files = self._collect_files(self.data_dir, self.start_day, self.end_day)
         self.ds = self._load_data(self.files, self.features + self.targets)
+
+        # Load scaling parameters if provided
+        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
 
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
@@ -102,7 +102,7 @@ class SimpleWWMDataset(Dataset):
             xarray Dataset containing only specified variables.
         """
         ds = xr.open_mfdataset(files).chunk("auto")
-        ds = ds[variables]
+        ds = ds[[v for v in variables]]
         return ds
 
     @staticmethod
@@ -153,7 +153,7 @@ class SimpleWWMDataset(Dataset):
                 mean = scaling_params[var]['mean']
                 std = scaling_params[var]['std']
                 dataset[var] = (dataset[var] - mean) / std
-                log.debug(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
+                log.info(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
             else:
                 log.warning(f"No scaling parameters found for variable '{var}', leaving unscaled")
         return dataset
