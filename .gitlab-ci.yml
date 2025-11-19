@@ -92,8 +92,7 @@ pages:
   stage: deploy
   image: python:3.12
   script:
-    - pip install uv
-    - uv add pdoc
+    - pip install pdoc
     - echo "Generating documentation..."
     - pdoc src -o public
     - echo "Documentation generated successfully."
