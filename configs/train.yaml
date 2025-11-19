@@ -56,6 +56,7 @@ data:
     - windSpeedY
   targets:
     - sigWaveHeight
+  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
   train_days: [31, 33] # in python list notation
   val_days: [33, 35]
   test_days: [35, 37]
@@ -120,6 +121,7 @@ trainer:
   max_epochs: 1000
   accelerator: auto
   devices: auto
+  enable_progress_bar: false
 
 paths:
   root_dir: ${hydra:runtime.cwd}

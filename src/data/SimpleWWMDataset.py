@@ -4,10 +4,11 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
-import xarray as xr
 import numpy as np
+import xarray as xr
+import yaml
 from torch.utils.data import Dataset
 
 from src.utils.pylogger import RankedLogger
@@ -28,6 +29,7 @@ class SimpleWWMDataset(Dataset):
         end_day: int,
         features: List[str],
         targets: List[str],
+        scaling_config: Optional[str] = None,
     ) -> None:
         """Initialize the SimpleWWM Dataset.
 
@@ -37,6 +39,7 @@ class SimpleWWMDataset(Dataset):
             end_day: Ending day index (exclusive).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
+            scaling_config: Path to YAML file containing mean and std for each variable.
         """
         super().__init__()
 
@@ -46,9 +49,15 @@ class SimpleWWMDataset(Dataset):
         self.features = features
         self.targets = targets
 
+        # Load scaling parameters if provided
+        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
+
         # Collect all files in the specified day range
         self.files = self._collect_files(self.data_dir, self.start_day, self.end_day)
-        self.ds = self._load_data(self.files)
+        self.ds = self._load_data(self.files, self.features + self.targets)
+
+        if self.scaling_params:
+            self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
         # Extract points
         self.X = self._retrieve_data(self.ds, self.features)
@@ -82,16 +91,18 @@ class SimpleWWMDataset(Dataset):
         return files
 
     @staticmethod
-    def _load_data(files: List[Path]) -> xr.Dataset:
+    def _load_data(files: List[Path], variables: List[str]) -> xr.Dataset:
         """Load data from netCDF files.
 
         Args:
             files: List of file paths to load.
+            variables: List of variable names to extract.
 
         Returns:
-            xarray Dataset containing the loaded data.
+            xarray Dataset containing only specified variables.
         """
         ds = xr.open_mfdataset(files).chunk("auto")
+        ds = ds[variables]
         return ds
 
     @staticmethod
@@ -110,6 +121,42 @@ class SimpleWWMDataset(Dataset):
             xx = dataset[var].values
             x.append(xx)
         return np.asarray(x).reshape(len(variables), -1).transpose()
+
+    @staticmethod
+    def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
+        """Load scaling parameters from YAML file.
+
+        Args:
+            config_path: Path to YAML file containing mean and std for each variable.
+
+        Returns:
+            Dictionary mapping variable names to their mean and std values.
+        """
+        with open(config_path, 'r') as f:
+            scaling_params = yaml.safe_load(f)
+        return scaling_params
+
+    @staticmethod
+    def _apply_scaling(dataset: xr.Dataset, variables: List[str], scaling_params: Dict[str, Dict[str, float]]) -> xr.Dataset:
+        """Apply standardization scaling to variables in xarray Dataset.
+
+        Args:
+            dataset: xarray Dataset containing the variables.
+            variables: List of variable names to scale.
+            scaling_params: Dictionary mapping variable names to their mean and std values.
+
+        Returns:
+            Dataset with scaled variables (modified in place).
+        """
+        for var in variables:
+            if var in scaling_params:
+                mean = scaling_params[var]['mean']
+                std = scaling_params[var]['std']
+                dataset[var] = (dataset[var] - mean) / std
+                log.debug(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
+            else:
+                log.warning(f"No scaling parameters found for variable '{var}', leaving unscaled")
+        return dataset
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.

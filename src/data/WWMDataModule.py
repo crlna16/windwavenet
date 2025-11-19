@@ -27,6 +27,7 @@ class WWMDataModule(L.LightningDataModule):
         test_days: Tuple[int, int],
         features: List[str],
         targets: List[str],
+        scaling_config: Optional[str] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -40,6 +41,7 @@ class WWMDataModule(L.LightningDataModule):
             test_days: Tuple of (start_day, end_day) for test data.
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
+            scaling_config: Path to YAML file containing mean and std for each variable.
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
@@ -56,6 +58,7 @@ class WWMDataModule(L.LightningDataModule):
 
         self.features = features
         self.targets = targets
+        self.scaling_config = scaling_config
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -94,6 +97,7 @@ class WWMDataModule(L.LightningDataModule):
                 end_day=self.train_days[1],
                 features=self.features,
                 targets=self.targets,
+                scaling_config=self.scaling_config,
             )
 
             self.ds_val = SimpleWWMDataset(
@@ -102,6 +106,7 @@ class WWMDataModule(L.LightningDataModule):
                 end_day=self.val_days[1],
                 features=self.features,
                 targets=self.targets,
+                scaling_config=self.scaling_config,
             )
 
             self.ds_test = SimpleWWMDataset(
@@ -110,6 +115,7 @@ class WWMDataModule(L.LightningDataModule):
                 end_day=self.test_days[1],
                 features=self.features,
                 targets=self.targets,
+                scaling_config=self.scaling_config,
             )
 
         elif stage == "test":
@@ -119,6 +125,7 @@ class WWMDataModule(L.LightningDataModule):
                 end_day=self.test_days[1],
                 features=self.features,
                 targets=self.targets,
+                scaling_config=self.scaling_config,
             )
 
         elif stage in ["validate", "predict"]:

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileContributor: Caroline Arnold
+#
+# SPDX-License-Identifier: MIT
+
+windSpeedX:
+  mean: 8.34773063659668
+  std: 3.6444571018218994
+windSpeedY:
+  mean: 3.458503484725952
+  std: 3.85105562210083
+elevation:
+  mean: 0.7174290418624878
+  std: 0.9900313019752502
+windStressX:
+  mean: 0.00021152336557861418
+  std: 0.00015066348714753985
+windStressY:
+  mean: 8.817362686386332e-05
+  std: 0.0001122418834711425
+depthAverageVelX:
+  mean: 0.0005883470294065773
+  std: 0.36872318387031555
+depthAverageVelY:
+  mean: 0.024411272257566452
+  std: 0.2625342905521393
