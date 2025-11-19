@@ -8,3 +8,4 @@
 **/*.egg-info/**
 logs/
 .coverage
+checkpoints/

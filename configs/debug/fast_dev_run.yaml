@@ -1,8 +1,3 @@
-# SPDX-FileCopyrightText: 2025 Hereon
-# SPDX-FileContributor: Caroline Arnold
-#
-# SPDX-License-Identifier: MIT
-
 # @package _global_
 
 # default debugging setup, runs 1 full epoch
@@ -30,7 +25,11 @@ trainer:
   fast_dev_run: true
   devices: 1
   detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
+  enable_progress_bar: true
 
 data:
   num_workers: 0
   pin_memory: False
+  train_days: [31, 33] # smaller dataset for quick test
+  val_days: [33, 34]
+  test_days: [36, 37]

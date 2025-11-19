@@ -6,6 +6,11 @@ SPDX-FileCopyrightText = "2025 Hereon"
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
+path = "configs/**/*.yaml"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
 path = ".python-version"
 SPDX-FileCopyrightText = "2025 Hereon"
 SPDX-License-Identifier = "MIT"

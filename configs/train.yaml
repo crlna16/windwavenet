@@ -1,15 +1,10 @@
-# SPDX-FileCopyrightText: 2025 Hereon
-# SPDX-FileContributor: Caroline Arnold
-#
-# SPDX-License-Identifier: MIT
-
 # @package _global_
 
 defaults:
-  - _self_ # put this here so following configs overwrite the defaults in train.yaml
-
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
+  - _self_ # put this on top so main config loads first
+  - trainer: default
   - experiment: null
 
   # config for hyperparameter optimization
@@ -19,7 +14,7 @@ defaults:
   # it's optional since it doesn't need to exist and is excluded from version control
   - optional local: default
 
-  # debugging config (enable through command line, e.g. `python train.py debug=default)
+  # debugging config (enable through command line, e.g. `python train.py debug=fast_dev_run`)
   - debug: null
 
 
@@ -56,6 +51,7 @@ data:
     - windSpeedY
   targets:
     - sigWaveHeight
+  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
   train_days: [31, 33] # in python list notation
   val_days: [33, 35]
   test_days: [35, 37]
@@ -82,7 +78,7 @@ model:
     _partial_: true # required for hydra instantiate
     mode: min
     factor: 0.5
-    patience: 5
+    patience: 3
 
 logger:
   wandb: # wandb.ai
@@ -107,19 +103,12 @@ callbacks:
   early_stopping:
     _target_: lightning.pytorch.callbacks.EarlyStopping
     monitor: val/loss
-    patience: 10
+    patience: 5
     mode: "min"
 
   model_summary:
     _target_: lightning.pytorch.callbacks.RichModelSummary
     max_depth: -1
-
-trainer:
-  _target_: lightning.pytorch.trainer.Trainer
-  min_epochs: 1
-  max_epochs: 1000
-  accelerator: auto
-  devices: auto
 
 paths:
   root_dir: ${hydra:runtime.cwd}
