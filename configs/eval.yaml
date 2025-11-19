@@ -21,7 +21,7 @@ defaults:
 ## ----------------
 ## General settings
 ## ----------------
-experiment_name: "evaluate" # determines output directory
+task_name: "evaluate" # determines output directory
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -110,13 +110,13 @@ hydra: # https://hydra.cc/docs/configure_hydra/intro/
 
   # output directory, generated dynamically on each run
   run:
-    dir: ${paths.root_dir}/logs/${experiment_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    dir: ${paths.root_dir}/logs/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
   sweep:
-    dir: ${paths.root_dir}/logs/${experiment_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    dir: ${paths.root_dir}/logs/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
     subdir: ${hydra.job.num}
 
   job_logging:
     handlers:
       file:
         # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
-        filename: ${hydra.runtime.output_dir}/${experiment_name}.log
+        filename: ${hydra.runtime.output_dir}/${task_name}.log

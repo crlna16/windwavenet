@@ -3,31 +3,51 @@
 #
 # SPDX-License-Identifier: MIT
 
+from typing import List
+
 import torch
 import torch.nn as nn
 
 
 class DenseNet(nn.Module):
-    """Simple feed-forward neural network with one hidden layer.
+    """Flexible feed-forward neural network with configurable hidden layers and dropout.
 
-    A basic dense network architecture with ReLU activation.
+    A dense network architecture with ReLU activation and optional dropout between layers.
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dims: List[int],
+        output_dim: int,
+        dropout_rate: float = 0.0,
+    ):
         """Initialize the DenseNet.
 
         Args:
             input_dim: Number of input features.
-            hidden_dim: Number of neurons in the hidden layer.
+            hidden_dims: List of hidden layer dimensions. For example, [128, 64, 32] creates
+                         three hidden layers with 128, 64, and 32 neurons respectively.
             output_dim: Number of output features.
+            dropout_rate: Dropout probability applied after each hidden layer (default: 0.0).
         """
         super().__init__()
 
-        self.network = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
-        )
+        layers = []
+        prev_dim = input_dim
+
+        # Build hidden layers with ReLU activation and dropout
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            if dropout_rate > 0.0:
+                layers.append(nn.Dropout(p=dropout_rate))
+            prev_dim = hidden_dim
+
+        # Add output layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+
+        self.network = nn.Sequential(*layers)
 
     def forward(self, x) -> torch.Tensor:
         """Forward pass through the network.
