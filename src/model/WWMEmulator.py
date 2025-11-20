@@ -9,6 +9,10 @@ import lightning as L
 import torch
 import torch.nn as nn
 
+from src.utils.pylogger import RankedLogger
+
+log = RankedLogger(__name__, rank_zero_only=False)
+
 
 class WWMEmulator(L.LightningModule):
     """Lightning Module for Wave Wind Model emulation with flexible backbone.
@@ -143,6 +147,21 @@ class WWMEmulator(L.LightningModule):
         # Update and log metrics
         # self.test_mse(preds, targets)
         # self.log("test/mse", self.test_mse, on_step=False, on_epoch=True, prog_bar=True)
+
+    def predict_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> None:
+        """Perform a single predict step on a batch of data.
+
+        TODO: Refactor for use with dataset that does not return target.
+
+        Args:
+            batch: A batch of data (a tuple) containing input and target tensors.
+            batch_idx: The index of the current batch.
+        """
+        _, preds, _ = self.model_step(batch)
+
+        return preds
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Configure optimizers and learning-rate schedulers.

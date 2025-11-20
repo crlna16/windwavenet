@@ -33,7 +33,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     assert cfg.ckpt_path
 
-    log.info("Printing config tree with Rich! <cfg.extras.print_config=True>")
+    log.info("Printing config tree with Rich <cfg.extras.print_config=True>")
     print_config_tree(cfg, resolve=True, save_to_file=True)
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
@@ -57,10 +57,10 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     }
 
     if logger:
-        log.info("Logging hyperparameters!")
+        log.info("Logging hyperparameters")
         log_hyperparameters(object_dict)
 
-    log.info("Starting testing!")
+    log.info("Starting testing")
     trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
     metric_dict = trainer.callback_metrics
