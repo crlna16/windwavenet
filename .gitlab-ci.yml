@@ -94,6 +94,7 @@ pages:
   script:
     - pip install pdoc
     - echo "Generating documentation..."
+    - ls -l
     - pdoc src -o public
     - echo "Documentation generated successfully."
   artifacts:
