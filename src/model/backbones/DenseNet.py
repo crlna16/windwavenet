@@ -3,36 +3,55 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import List
+from typing import Literal
 
 import torch
 import torch.nn as nn
 
 
 class DenseNet(nn.Module):
-    """Flexible feed-forward neural network with configurable hidden layers and dropout.
+    """Flexible feed-forward neural network with configurable architecture.
 
-    A dense network architecture with ReLU activation and optional dropout between layers.
+    A dense network with configurable number of layers, neurons, and scaling mode.
     """
 
     def __init__(
         self,
         input_dim: int,
-        hidden_dims: List[int],
         output_dim: int,
+        num_hidden_layers: int = 3,
+        first_layer_neurons: int = 128,
+        layer_scaling: Literal["constant", "halving"] = "halving",
         dropout_rate: float = 0.0,
     ):
         """Initialize the DenseNet.
 
         Args:
             input_dim: Number of input features.
-            hidden_dims: List of hidden layer dimensions. For example, [128, 64, 32] creates
-                         three hidden layers with 128, 64, and 32 neurons respectively.
             output_dim: Number of output features.
+            num_hidden_layers: Number of hidden layers (default: 3).
+            first_layer_neurons: Number of neurons in the first hidden layer (default: 128).
+            layer_scaling: Mode for neuron count across layers (default: "halving").
+                          - "constant": All layers have the same number of neurons.
+                          - "halving": Each layer has half the neurons of the previous layer.
             dropout_rate: Dropout probability applied after each hidden layer (default: 0.0).
+
+        Examples:
+            - num_hidden_layers=3, first_layer_neurons=128, layer_scaling="constant" → [128, 128, 128]
+            - num_hidden_layers=3, first_layer_neurons=128, layer_scaling="halving" → [128, 64, 32]
         """
         super().__init__()
 
+        # Build the hidden layer dimensions based on scaling mode
+        hidden_dims = []
+        current_neurons = first_layer_neurons
+
+        for _ in range(num_hidden_layers):
+            hidden_dims.append(current_neurons)
+            if layer_scaling == "halving":
+                current_neurons = max(1, current_neurons // 2)  # Ensure at least 1 neuron
+
+        # Build the network layers
         layers = []
         prev_dim = input_dim
 
