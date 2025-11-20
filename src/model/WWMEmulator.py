@@ -43,6 +43,9 @@ class WWMEmulator(L.LightningModule):
         # Loss function
         self.criterion = nn.MSELoss()
 
+        # Track best validation loss
+        self.best_val_loss = float("inf")
+
         # Metric tracking (you can add more metrics here)
         # from torchmetrics import MeanSquaredError
         # self.train_mse = MeanSquaredError()
@@ -110,6 +113,19 @@ class WWMEmulator(L.LightningModule):
         # Update and log metrics
         # self.val_mse(preds, targets)
         # self.log("val/mse", self.val_mse, on_step=False, on_epoch=True, prog_bar=True)
+
+    def on_validation_epoch_end(self) -> None:
+        """Called at the end of the validation epoch to track best validation loss."""
+        # Get the current epoch's validation loss
+        val_loss = self.trainer.callback_metrics.get("val/loss")
+
+        if val_loss is not None:
+            # Update best validation loss if current loss is better
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss.item()
+
+            # Log the best validation loss
+            self.log("val/best_loss", self.best_val_loss, on_epoch=True, prog_bar=True)
 
     def test_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int

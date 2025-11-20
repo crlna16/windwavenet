@@ -13,15 +13,10 @@ repos:
       # Run the linter.
       - id: ruff
         args: [ --fix ]
-        files: ^hydracastai/
+        exclude: ^notebooks/
       # Run the formatter.
       - id: ruff-format
-        files: ^hydracastai/
-      - id: ruff
-        args: [ --fix ]
-        files: ^tests/
-      - id: ruff-format
-        files: ^tests/
+        exclude: ^notebooks/
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
