@@ -92,10 +92,10 @@ pages:
   stage: deploy
   image: python:3.12
   script:
-    - pip install pdoc
+    - pip install uv
+    - uv sync --dev --active --frozen
     - echo "Generating documentation..."
-    - ls -l
-    - pdoc src -o public
+    - uv run pdoc src -o public
     - echo "Documentation generated successfully."
   artifacts:
     paths:

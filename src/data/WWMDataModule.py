@@ -9,7 +9,10 @@ from typing import List, Optional, Tuple
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
 
+from src.utils.pylogger import RankedLogger
 from src.data.SimpleWWMDataset import SimpleWWMDataset
+
+log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class WWMDataModule(L.LightningDataModule):
@@ -128,7 +131,18 @@ class WWMDataModule(L.LightningDataModule):
                 scaling_config=self.scaling_config,
             )
 
-        elif stage in ["validate", "predict"]:
+        elif stage == "predict":
+            log.info("Predict dataset is the same as test dataset.")
+            self.ds_pred = SimpleWWMDataset(
+                data_dir=self.data_dir,
+                start_day=self.test_days[0],
+                end_day=self.test_days[1],
+                features=self.features,
+                targets=self.targets,
+                scaling_config=self.scaling_config,
+            )
+
+        elif stage in ["validate"]:
             raise NotImplementedError(f"Stage '{stage}' is not implemented.")
 
         else:
@@ -170,6 +184,20 @@ class WWMDataModule(L.LightningDataModule):
         """
         return DataLoader(
             dataset=self.ds_test,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            shuffle=False,
+        )
+
+    def predict_dataloader(self) -> DataLoader:
+        """Create and return the predict dataloader.
+
+        Returns:
+            The predict dataloader.
+        """
+        return DataLoader(
+            dataset=self.ds_pred,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,

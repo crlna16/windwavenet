@@ -61,8 +61,7 @@ class DenseNet(nn.Module):
         for hidden_dim in hidden_dims:
             layers.append(nn.Linear(prev_dim, hidden_dim))
             layers.append(nn.ReLU())
-            if dropout_rate > 0.0:
-                layers.append(nn.Dropout(p=dropout_rate))
+            layers.append(nn.Dropout(p=dropout_rate))
             prev_dim = hidden_dim
 
         # Add output layer
