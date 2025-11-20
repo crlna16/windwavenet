@@ -49,7 +49,9 @@ class DenseNet(nn.Module):
         for _ in range(num_hidden_layers):
             hidden_dims.append(current_neurons)
             if layer_scaling == "halving":
-                current_neurons = max(1, current_neurons // 2)  # Ensure at least 1 neuron
+                current_neurons = max(
+                    1, current_neurons // 2
+                )  # Ensure at least 1 neuron
 
         # Build the network layers
         layers = []

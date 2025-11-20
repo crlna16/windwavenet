@@ -44,7 +44,7 @@ class WWMEmulator(L.LightningModule):
         self.criterion = nn.MSELoss()
 
         # Track best validation loss
-        self.best_val_loss = float('inf')
+        self.best_val_loss = float("inf")
 
         # Metric tracking (you can add more metrics here)
         # from torchmetrics import MeanSquaredError
