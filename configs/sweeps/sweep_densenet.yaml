@@ -1,0 +1,67 @@
+program: src/train.py
+project: simple-wwm-emulator
+entity: wwm-emulator
+method: bayes
+metric:
+  goal: minimize
+  name: val/best_loss
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+parameters:
+  # Data parameters - use Hydra override syntax
+  data.batch_size:
+    distribution: int_uniform
+    max: 4096
+    min: 256
+
+  # Model backbone parameters - architecture configuration
+  model.backbone.num_hidden_layers:
+    distribution: int_uniform
+    max: 6
+    min: 1
+
+  model.backbone.first_layer_neurons:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+      - 256
+      - 512
+      - 1024
+
+  model.backbone.layer_scaling:
+    distribution: categorical
+    values:
+      - constant
+      - halving
+
+  model.backbone.dropout_rate:
+    distribution: uniform
+    max: 0.5
+    min: 0.0
+
+  # Optimizer parameters
+  model.optimizer.lr:
+    distribution: log_uniform_values
+    max: 0.001
+    min: 0.00001
+
+  # Scheduler parameters
+  model.scheduler.factor:
+    distribution: uniform
+    max: 0.8
+    min: 0.1
+
+  model.scheduler.patience:
+    distribution: int_uniform
+    max: 10
+    min: 2
+
+  callbacks.early_stopping.patience:
+    distribution: int_uniform
+    max: 5
+    min: 3

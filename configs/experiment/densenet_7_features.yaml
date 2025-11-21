@@ -1,0 +1,23 @@
+# @package _global_
+
+# DenseNet with more relevant features
+
+experiment_name: "densenet_7_features"
+
+data:
+  features:
+    - windSpeedX
+    - windSpeedY
+    - elevation
+    - windStressX
+    - windStressY
+    - depthAverageVelX
+    - depthAverageVelY
+  targets:
+    - sigWaveHeight
+
+model:
+  backbone:
+    input_dim: 7 # must match len(data.features)
+
+tags: ["dev"]

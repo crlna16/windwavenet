@@ -6,4 +6,4 @@
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
-uv run src/train.py tags="[default]"
+uv run src/train.py experiment=densenet_7_features

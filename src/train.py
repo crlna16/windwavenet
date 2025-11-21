@@ -98,6 +98,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # merge train and test metrics
     metric_dict = {**train_metrics, **test_metrics}
 
+    log.info(metric_dict)
+
     return metric_dict, object_dict
 
 
