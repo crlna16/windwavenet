@@ -62,6 +62,7 @@ data:
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
 
+  target_names: ${data.targets} # automatically use target names from data config
   enforce_semipositivity: true # apply ReLU to ensure non-negative outputs
 
   backbone:
