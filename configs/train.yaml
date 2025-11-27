@@ -62,6 +62,8 @@ data:
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
 
+  enforce_semipositivity: true # apply ReLU to ensure non-negative outputs
+
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
     input_dim: 2 # must match len(data.features)
