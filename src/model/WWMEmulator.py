@@ -26,6 +26,7 @@ class WWMEmulator(L.LightningModule):
         backbone: nn.Module,
         optimizer: torch.optim.Optimizer,  # accessed via hparams
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
+        enforce_semipositivity: bool = True,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -33,6 +34,7 @@ class WWMEmulator(L.LightningModule):
             backbone: The neural network backbone (can be any nn.Module).
             optimizer: PyTorch optimizer (partially instantiated via Hydra).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
+            enforce_semipositivity: If True, apply ReLU to ensure non-negative outputs (default: True).
         """
         super().__init__()
 
@@ -42,6 +44,7 @@ class WWMEmulator(L.LightningModule):
         self.save_hyperparameters(logger=False, ignore=["backbone"])
 
         self.backbone = backbone
+        self.enforce_semipositivity = enforce_semipositivity
 
         # Loss function
         self.criterion = nn.MSELoss()
@@ -62,9 +65,12 @@ class WWMEmulator(L.LightningModule):
             x: Input tensor.
 
         Returns:
-            Model predictions.
+            Model predictions (non-negative if enforce_semipositivity=True).
         """
-        return self.backbone(x)
+        output = self.backbone(x)
+        if self.enforce_semipositivity:
+            output = torch.relu(output)
+        return output
 
     def model_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor]
