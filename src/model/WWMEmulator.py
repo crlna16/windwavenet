@@ -24,9 +24,8 @@ class WWMEmulator(L.LightningModule):
     def __init__(
         self,
         backbone: nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler.LRScheduler = None,
-        compile: bool = False,
+        optimizer: torch.optim.Optimizer,  # accessed via hparams
+        scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -34,12 +33,12 @@ class WWMEmulator(L.LightningModule):
             backbone: The neural network backbone (can be any nn.Module).
             optimizer: PyTorch optimizer (partially instantiated via Hydra).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
-            compile: Whether to compile the model with torch.compile().
         """
         super().__init__()
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
+        # we need this for optimizer and scheduler, which can only be instantiated after the model is initialised
         self.save_hyperparameters(logger=False, ignore=["backbone"])
 
         self.backbone = backbone
