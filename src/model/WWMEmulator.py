@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import lightning as L
 import torch
@@ -29,6 +29,7 @@ class WWMEmulator(L.LightningModule):
         optimizer: torch.optim.Optimizer,  # accessed via hparams
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
         enforce_semipositivity: bool = True,
+        loss_weights: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -38,6 +39,7 @@ class WWMEmulator(L.LightningModule):
             optimizer: PyTorch optimizer (partially instantiated via Hydra).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
             enforce_semipositivity: If True, apply ReLU to ensure non-negative outputs (default: True).
+            loss_weights: Optional dict mapping target names to loss weights (default: equal weights of 1.0).
         """
         super().__init__()
 
@@ -50,6 +52,21 @@ class WWMEmulator(L.LightningModule):
         self.enforce_semipositivity = enforce_semipositivity
         self.target_names = target_names
         self.num_targets = len(target_names)
+
+        # Initialize loss weights (default to 1.0 for all targets)
+        if loss_weights is None:
+            self.loss_weights = {name: 1.0 for name in target_names}
+        else:
+            self.loss_weights = loss_weights
+            # Validate that all targets have weights
+            for name in target_names:
+                if name not in self.loss_weights:
+                    log.warning(
+                        f"No loss weight specified for '{name}', defaulting to 1.0"
+                    )
+                    self.loss_weights[name] = 1.0
+
+        log.info(f"Loss weights: {self.loss_weights}")
 
         # Loss function (reduction='none' to get per-sample loss)
         self.criterion = nn.MSELoss(reduction="none")
@@ -104,8 +121,11 @@ class WWMEmulator(L.LightningModule):
         for i, name in enumerate(self.target_names):
             per_variable_losses[name] = per_sample_loss[:, i].mean()
 
-        # Total loss is sum of per-variable losses
-        total_loss = sum(per_variable_losses.values())
+        # Total loss is weighted sum of per-variable losses
+        total_loss = sum(
+            per_variable_losses[name] * self.loss_weights[name]
+            for name in self.target_names
+        )
 
         return total_loss, per_variable_losses, preds, y
 
