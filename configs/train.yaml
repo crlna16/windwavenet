@@ -62,7 +62,13 @@ data:
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
 
+  target_names: ${data.targets} # automatically use target names from data config
   enforce_semipositivity: true # apply ReLU to ensure non-negative outputs
+
+  # Optional: specify loss weights for each target (defaults to 1.0 for all)
+  # Use this when targets are on different scales to balance their contribution to total loss
+  # Example: loss_weights: {sigWaveHeight: 1.0, waveDirection: 0.01}
+  loss_weights: null
 
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet

@@ -3,11 +3,12 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import lightning as L
 import torch
 import torch.nn as nn
+from torchmetrics import MeanSquaredError
 
 from src.utils.pylogger import RankedLogger
 
@@ -24,17 +25,21 @@ class WWMEmulator(L.LightningModule):
     def __init__(
         self,
         backbone: nn.Module,
+        target_names: List[str],
         optimizer: torch.optim.Optimizer,  # accessed via hparams
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
         enforce_semipositivity: bool = True,
+        loss_weights: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize the WWM Emulator.
 
         Args:
             backbone: The neural network backbone (can be any nn.Module).
+            target_names: List of target variable names (e.g., ['sigWaveHeight']).
             optimizer: PyTorch optimizer (partially instantiated via Hydra).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
             enforce_semipositivity: If True, apply ReLU to ensure non-negative outputs (default: True).
+            loss_weights: Optional dict mapping target names to loss weights (default: equal weights of 1.0).
         """
         super().__init__()
 
@@ -45,18 +50,40 @@ class WWMEmulator(L.LightningModule):
 
         self.backbone = backbone
         self.enforce_semipositivity = enforce_semipositivity
+        self.target_names = target_names
+        self.num_targets = len(target_names)
 
-        # Loss function
-        self.criterion = nn.MSELoss()
+        # Initialize loss weights (default to 1.0 for all targets)
+        if loss_weights is None:
+            self.loss_weights = {name: 1.0 for name in target_names}
+        else:
+            self.loss_weights = loss_weights
+            # Validate that all targets have weights
+            for name in target_names:
+                if name not in self.loss_weights:
+                    log.warning(
+                        f"No loss weight specified for '{name}', defaulting to 1.0"
+                    )
+                    self.loss_weights[name] = 1.0
+
+        log.info(f"Loss weights: {self.loss_weights}")
+
+        # Loss function (reduction='none' to get per-sample loss)
+        self.criterion = nn.MSELoss(reduction="none")
 
         # Track best validation loss
         self.best_val_loss = float("inf")
 
-        # Metric tracking (you can add more metrics here)
-        # from torchmetrics import MeanSquaredError
-        # self.train_mse = MeanSquaredError()
-        # self.val_mse = MeanSquaredError()
-        # self.test_mse = MeanSquaredError()
+        # Per-variable RMSE metrics
+        self.train_rmse = nn.ModuleDict(
+            {name: MeanSquaredError(squared=False) for name in target_names}
+        )
+        self.val_rmse = nn.ModuleDict(
+            {name: MeanSquaredError(squared=False) for name in target_names}
+        )
+        self.test_rmse = nn.ModuleDict(
+            {name: MeanSquaredError(squared=False) for name in target_names}
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
@@ -74,19 +101,33 @@ class WWMEmulator(L.LightningModule):
 
     def model_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
         Args:
             batch: A batch of data (a tuple) containing input and target tensors.
 
         Returns:
-            A tuple containing (loss, predictions, targets).
+            A tuple containing (total_loss, per_variable_losses, predictions, targets).
         """
         x, y = batch
         preds = self.forward(x)
-        loss = self.criterion(preds, y)
-        return loss, preds, y
+
+        # Compute per-sample, per-variable MSE loss
+        per_sample_loss = self.criterion(preds, y)  # shape: (batch, num_targets)
+
+        # Compute per-variable loss (mean over batch)
+        per_variable_losses = {}
+        for i, name in enumerate(self.target_names):
+            per_variable_losses[name] = per_sample_loss[:, i].mean()
+
+        # Total loss is weighted sum of per-variable losses
+        total_loss = sum(
+            per_variable_losses[name] * self.loss_weights[name]
+            for name in self.target_names
+        )
+
+        return total_loss, per_variable_losses, preds, y
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -100,11 +141,25 @@ class WWMEmulator(L.LightningModule):
         Returns:
             A tensor of losses between model predictions and targets.
         """
-        loss, preds, targets = self.model_step(batch)
+        total_loss, per_var_losses, preds, targets = self.model_step(batch)
 
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        # Log total loss
+        self.log("train/loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
 
-        return loss
+        # Log per-variable losses and RMSE
+        for i, name in enumerate(self.target_names):
+            self.log(
+                f"train/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True
+            )
+            self.train_rmse[name](preds[:, i], targets[:, i])
+            self.log(
+                f"train/rmse_{name}",
+                self.train_rmse[name],
+                on_step=False,
+                on_epoch=True,
+            )
+
+        return total_loss
 
     def validation_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -115,13 +170,20 @@ class WWMEmulator(L.LightningModule):
             batch: A batch of data (a tuple) containing input and target tensors.
             batch_idx: The index of the current batch.
         """
-        loss, preds, targets = self.model_step(batch)
+        total_loss, per_var_losses, preds, targets = self.model_step(batch)
 
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        # Log total loss
+        self.log("val/loss", total_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        # Update and log metrics
-        # self.val_mse(preds, targets)
-        # self.log("val/mse", self.val_mse, on_step=False, on_epoch=True, prog_bar=True)
+        # Log per-variable losses and RMSE
+        for i, name in enumerate(self.target_names):
+            self.log(
+                f"val/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True
+            )
+            self.val_rmse[name](preds[:, i], targets[:, i])
+            self.log(
+                f"val/rmse_{name}", self.val_rmse[name], on_step=False, on_epoch=True
+            )
 
     def on_validation_epoch_end(self) -> None:
         """Called at the end of the validation epoch to track best validation loss."""
@@ -145,13 +207,20 @@ class WWMEmulator(L.LightningModule):
             batch: A batch of data (a tuple) containing input and target tensors.
             batch_idx: The index of the current batch.
         """
-        loss, preds, targets = self.model_step(batch)
+        total_loss, per_var_losses, preds, targets = self.model_step(batch)
 
-        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        # Log total loss
+        self.log("test/loss", total_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        # Update and log metrics
-        # self.test_mse(preds, targets)
-        # self.log("test/mse", self.test_mse, on_step=False, on_epoch=True, prog_bar=True)
+        # Log per-variable losses and RMSE
+        for i, name in enumerate(self.target_names):
+            self.log(
+                f"test/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True
+            )
+            self.test_rmse[name](preds[:, i], targets[:, i])
+            self.log(
+                f"test/rmse_{name}", self.test_rmse[name], on_step=False, on_epoch=True
+            )
 
     def predict_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -164,7 +233,7 @@ class WWMEmulator(L.LightningModule):
             batch: A batch of data (a tuple) containing input and target tensors.
             batch_idx: The index of the current batch.
         """
-        _, preds, _ = self.model_step(batch)
+        _, _, preds, _ = self.model_step(batch)
 
         return preds
 
