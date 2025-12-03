@@ -49,11 +49,11 @@ class SimpleWWMDataset(Dataset):
         self.features = features
         self.targets = targets
 
-        # Collect all files in the specified day range
         self.files = self._collect_files(self.data_dir, self.start_day, self.end_day)
-        self.ds = self._load_data(self.files, self.features + self.targets)
+        self.ds = self._open_dataset(self.files)
+        self.ds = self._compute_deltaT(self.ds, self.targets)
+        self.ds = self._select_variables(self.ds, self.features + self.targets)
 
-        # Load scaling parameters if provided
         self.scaling_params = (
             self._load_scaling_config(scaling_config) if scaling_config else None
         )
@@ -93,19 +93,61 @@ class SimpleWWMDataset(Dataset):
         return files
 
     @staticmethod
-    def _load_data(files: List[Path], variables: List[str]) -> xr.Dataset:
-        """Load data from netCDF files.
+    def _open_dataset(files: List[Path]) -> xr.Dataset:
+        """Open dataset from netCDF files without variable selection.
 
         Args:
             files: List of file paths to load.
-            variables: List of variable names to extract.
+
+        Returns:
+            xarray Dataset containing all variables.
+        """
+        ds = xr.open_mfdataset(files).chunk("auto")
+        return ds
+
+    @staticmethod
+    def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
+        """Compute Delta(target) = target(t) - target(t-1).
+
+        For targets starting with 'delta_', computes the time difference and
+        stores the previous time step value.
+
+        E.g. for sigWaveHeight and time=t:
+          ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
+          ds["prev_sigWaveHeight"][t]  = ds["sigWaveHeight"][t-1]
+
+        Args:
+            dataset: xarray Dataset containing the data.
+            targets: List of target variable names.
+
+        Returns:
+            Dataset with computed time delta and prev variables added.
+        """
+        skip_first = False
+        for target in targets:
+            if target.startswith("delta_"):
+                skip_first = True
+                original_var = target.replace("delta_", "")
+                dataset[target] = dataset[original_var].diff("time")
+                prev_var = target.replace("delta_", "prev_")
+                dataset[prev_var] = dataset[original_var].shift(time=1)
+
+        if skip_first:
+            return dataset.isel(time=slice(1, None))
+        return dataset
+
+    @staticmethod
+    def _select_variables(dataset: xr.Dataset, variables: List[str]) -> xr.Dataset:
+        """Select only specified variables from dataset.
+
+        Args:
+            dataset: xarray Dataset containing the data.
+            variables: List of variable names to select.
 
         Returns:
             xarray Dataset containing only specified variables.
         """
-        ds = xr.open_mfdataset(files).chunk("auto")
-        ds = ds[[v for v in variables]]
-        return ds
+        return dataset[[v for v in variables]]
 
     @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> np.ndarray:

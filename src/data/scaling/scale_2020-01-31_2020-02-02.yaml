@@ -24,3 +24,12 @@ depthAverageVelX:
 depthAverageVelY:
   mean: 0.024411272257566452
   std: 0.2625342905521393
+prev_sigWaveHeight:
+  mean: 1.5634
+  std: 1.0716
+prev_meanWavePeriod:
+  mean: 5.0143
+  std: 1.9389
+prev_dominantDirection:
+  mean: 244.86
+  std: 81.31
