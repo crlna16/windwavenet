@@ -28,7 +28,6 @@ class WWMEmulator(L.LightningModule):
         target_names: List[str],
         optimizer: torch.optim.Optimizer,  # accessed via hparams
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
-        enforce_semipositivity: bool = True,
         loss_weights: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize the WWM Emulator.
@@ -38,7 +37,6 @@ class WWMEmulator(L.LightningModule):
             target_names: List of target variable names (e.g., ['sigWaveHeight']).
             optimizer: PyTorch optimizer (partially instantiated via Hydra).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
-            enforce_semipositivity: If True, apply ReLU to ensure non-negative outputs (default: True).
             loss_weights: Optional dict mapping target names to loss weights (default: equal weights of 1.0).
         """
         super().__init__()
@@ -49,7 +47,6 @@ class WWMEmulator(L.LightningModule):
         self.save_hyperparameters(logger=False, ignore=["backbone"])
 
         self.backbone = backbone
-        self.enforce_semipositivity = enforce_semipositivity
         self.target_names = target_names
         self.num_targets = len(target_names)
 
@@ -92,11 +89,9 @@ class WWMEmulator(L.LightningModule):
             x: Input tensor.
 
         Returns:
-            Model predictions (non-negative if enforce_semipositivity=True).
+            Model predictions
         """
         output = self.backbone(x)
-        if self.enforce_semipositivity:
-            output = torch.relu(output)
         return output
 
     def model_step(

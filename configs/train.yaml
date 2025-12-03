@@ -49,8 +49,9 @@ data:
   features:
     - windSpeedX
     - windSpeedY
+    - prev_sigWaveHeight
   targets:
-    - sigWaveHeight
+    - delta_sigWaveHeight
   scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
   train_days: [31, 33] # in python list notation
   val_days: [33, 35]
@@ -63,7 +64,6 @@ model:
   _target_: src.model.WWMEmulator.WWMEmulator
 
   target_names: ${data.targets} # automatically use target names from data config
-  enforce_semipositivity: true # apply ReLU to ensure non-negative outputs
 
   # Optional: specify loss weights for each target (defaults to 1.0 for all)
   # Use this when targets are on different scales to balance their contribution to total loss
