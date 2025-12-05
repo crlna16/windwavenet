@@ -30,6 +30,7 @@ class SimpleWWMDataset(Dataset):
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
+        file_prefix: str = "out2d",
     ) -> None:
         """Initialize the SimpleWWM Dataset.
 
@@ -40,6 +41,7 @@ class SimpleWWMDataset(Dataset):
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
+            file_prefix: Prefix for netCDF files (default: 'out2d').
         """
         super().__init__()
 
@@ -48,8 +50,11 @@ class SimpleWWMDataset(Dataset):
         self.end_day = end_day
         self.features = features
         self.targets = targets
+        self.file_prefix = file_prefix
 
-        self.files = self._collect_files(self.data_dir, self.start_day, self.end_day)
+        self.files = self._collect_files(
+            self.data_dir, self.start_day, self.end_day, self.file_prefix
+        )
         self.ds = self._open_dataset(self.files)
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
@@ -73,26 +78,29 @@ class SimpleWWMDataset(Dataset):
         log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
 
     @staticmethod
-    def _collect_files(data_dir: Path, start_day: int, end_day: int) -> List[Path]:
+    def _collect_files(
+        data_dir: Path, start_day: int, end_day: int, file_prefix: str = "out2d"
+    ) -> List[Path]:
         """Collect all netCDF files in the specified day range.
 
         Args:
             data_dir: Root directory containing netCDF data files.
             start_day: Starting day index (inclusive).
             end_day: Ending day index (exclusive).
+            file_prefix: Prefix for netCDF files (default: 'out2d').
 
         Returns:
             List of file paths for the specified day range.
         """
         files = []
         for day_idx in range(start_day, end_day):
-            file_pattern = f"out2d_{day_idx:2d}.nc"  # TODO maybe pass this
+            file_pattern = f"{file_prefix}_{day_idx:2d}.nc"
             matching_files = sorted(data_dir.glob(file_pattern))
             files.extend(matching_files)
 
         if not files:
             raise FileNotFoundError(
-                f"No files found in {data_dir} for days {start_day}-{end_day}"
+                f"No files found in {data_dir} for days {start_day}-{end_day} with prefix '{file_prefix}'"
             )
 
         return files

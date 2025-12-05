@@ -34,6 +34,7 @@ class WWMDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
+        file_prefix: str = "out2d",
     ) -> None:
         """Initialize the WWM DataModule.
 
@@ -48,6 +49,7 @@ class WWMDataModule(L.LightningDataModule):
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
+            file_prefix: Prefix for netCDF files (default: 'out2d').
         """
         super().__init__()
 
@@ -62,6 +64,7 @@ class WWMDataModule(L.LightningDataModule):
         self.features = features
         self.targets = targets
         self.scaling_config = scaling_config
+        self.file_prefix = file_prefix
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -101,6 +104,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                file_prefix=self.file_prefix,
             )
 
             self.ds_val = SimpleWWMDataset(
@@ -110,6 +114,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                file_prefix=self.file_prefix,
             )
 
             self.ds_test = SimpleWWMDataset(
@@ -119,6 +124,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                file_prefix=self.file_prefix,
             )
 
         elif stage == "test":
@@ -129,6 +135,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                file_prefix=self.file_prefix,
             )
 
         elif stage == "predict":
@@ -140,6 +147,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                file_prefix=self.file_prefix,
             )
 
         elif stage in ["validate"]:
