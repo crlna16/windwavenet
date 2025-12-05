@@ -50,6 +50,11 @@ class WWMEmulator(L.LightningModule):
         self.target_names = target_names
         self.num_targets = len(target_names)
 
+        # Store which targets are delta predictions (for reconstruction during inference)
+        self.is_delta_target = {
+            name: name.startswith("delta_") for name in target_names
+        }
+
         # Initialize loss weights (default to 1.0 for all targets)
         if loss_weights is None:
             self.loss_weights = {name: 1.0 for name in target_names}

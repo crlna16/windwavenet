@@ -211,7 +211,7 @@ class SimpleWWMDataset(Dataset):
         """Load scaling parameters from YAML file.
 
         Args:
-            config_path: Path to YAML file containing mean and std for each variable.
+            config_path: Path to YAML file containing mean and std for each ggvariable.
 
         Returns:
             Dictionary mapping variable names to their mean and std values.
@@ -266,3 +266,46 @@ class SimpleWWMDataset(Dataset):
             Tuple of (features, targets) for the given index.
         """
         return self.X[idx], self.y[idx]
+
+
+class SimpleWWMPredictDataset(SimpleWWMDataset):
+    """Dataset to be used for predictions.
+
+    Args:
+        SimpleWWMDataset (torch.Dataset): Dataset class handling grid-point-wise WWM data.
+    """
+
+    def __init__(
+        self,
+        data_dir: Path,
+        start_day: int,
+        end_day: int,
+        features: List[str],
+        targets: List[str],
+        scaling_config: Optional[str] = None,
+    ) -> None:
+        """Initialize the SimpleWWMPredictDataset.
+
+        Args:
+            data_dir: Root directory containing netCDF data files.
+            start_day: Starting day index (inclusive).
+            end_day: Ending day index (exclusive).
+            features: List of variable names to use as features.
+            targets: List of variable names to use as targets.
+            scaling_config: Path to YAML file containing mean and std for each variable.
+        """
+        super().__init__(
+            data_dir=data_dir,
+            start_day=start_day,
+            end_day=end_day,
+            features=features,
+            targets=targets,
+            scaling_config=scaling_config,
+        )
+
+    def __getitem__(self, idx):
+        """Overwritten __getitem__. Returns previous value on top
+
+        Args:
+            idx (_type_): _description_
+        """

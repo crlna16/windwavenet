@@ -63,7 +63,7 @@ def predict(cfg: DictConfig) -> None:
     predictions = trainer.predict(
         model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path
     )
-    predictions = torch.concatenate(predictions)
+    predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
     log.info("Retrieving metadata from source dataset")
     ds = datamodule.ds_pred.ds
@@ -73,19 +73,69 @@ def predict(cfg: DictConfig) -> None:
         f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}"
     )
 
-    # Reshape predictions to match spatial and temporal dimensions
-    predictions_reshaped = predictions.reshape(
-        ds_dims["time"], ds_dims["nSCHISM_hgrid_node"]
-    )
+    # Get target names from config and verify they match the model checkpoint
+    config_targets = cfg.data.targets
+    model_targets = model.target_names
+
+    log.info(f"Config targets: {config_targets}")
+    log.info(f"Model checkpoint targets: {model_targets}")
+
+    if config_targets != model_targets:
+        raise ValueError(
+            f"Target mismatch! Config specifies {config_targets} but model was trained on {model_targets}. "
+            f"Please ensure the config targets match the model checkpoint."
+        )
+
+    target_names = config_targets
 
     # Create xarray Dataset with predictions
-    ds_pred = xr.Dataset(
-        {
-            cfg.data.targets[0]: (
+    data_vars = {}
+
+    for i, target_name in enumerate(target_names):
+        # Extract predictions for this target
+        target_predictions = predictions[:, i]
+
+        # Reshape to match spatial and temporal dimensions
+        predictions_reshaped = target_predictions.reshape(
+            ds_dims["time"], ds_dims["nSCHISM_hgrid_node"]
+        )
+
+        # If this is a delta prediction, reconstruct the full values
+        if target_name.startswith("delta_"):
+            original_var = target_name.replace("delta_", "")
+            log.info(f"Reconstructing {original_var} from delta predictions")
+
+            # Get initial values from dataset
+            # Note: prediction dataset should have the previous values available
+            prev_var = f"prev_{original_var}"
+            if prev_var in ds:
+                prev_values = ds[prev_var].values
+                # Cumulative sum: value[t] = prev_value[t] + delta[t]
+                reconstructed = prev_values + predictions_reshaped.cpu().numpy()
+                data_vars[original_var] = (
+                    ["time", "nSCHISM_hgrid_node"],
+                    reconstructed,
+                )
+            else:
+                log.warning(
+                    f"Cannot reconstruct {original_var}: {prev_var} not found in dataset. "
+                    f"Saving delta predictions as-is."
+                )
+                data_vars[target_name] = (
+                    ["time", "nSCHISM_hgrid_node"],
+                    predictions_reshaped.cpu().numpy(),
+                )
+        else:
+            # Direct prediction of the target variable
+            data_vars[target_name] = (
                 ["time", "nSCHISM_hgrid_node"],
                 predictions_reshaped.cpu().numpy(),
             )
-        },
+
+    otn = [tn.replace("delta_") for tn in target_names]
+
+    ds_pred = xr.Dataset(
+        data_vars,
         coords={
             "time": ds.time,
             "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
@@ -93,7 +143,7 @@ def predict(cfg: DictConfig) -> None:
             "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
         },
         attrs={
-            "description": f"Predictions for {cfg.data.targets[0]}",
+            "description": f"Predictions for {', '.join(otn)}",
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
         },
