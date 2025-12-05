@@ -132,7 +132,7 @@ def predict(cfg: DictConfig) -> None:
                 predictions_reshaped.cpu().numpy(),
             )
 
-    otn = [tn.replace("delta_") for tn in target_names]
+    otn = [tn.replace("delta_", "") for tn in target_names]
 
     ds_pred = xr.Dataset(
         data_vars,

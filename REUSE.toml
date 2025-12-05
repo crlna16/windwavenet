@@ -34,3 +34,8 @@ SPDX-License-Identifier = "MIT"
 path = "requirements.in"
 SPDX-FileCopyrightText = "2025 Hereon"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "tests/cicd_data/**/*.nc"
+SPDX-FileCopyrightText = "2025 Hereon"
+SPDX-License-Identifier = "MIT"
