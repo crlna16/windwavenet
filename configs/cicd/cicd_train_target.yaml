@@ -45,8 +45,9 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: ${hydra:runtime.cwd}/tests/cicd_data
-  file_prefix: cicd
+  train_dir: ${hydra:runtime.cwd}/tests/cicd_data/train
+  val_dir: ${hydra:runtime.cwd}/tests/cicd_data/val
+  test_dir: ${hydra:runtime.cwd}/tests/cicd_data/test
   features:
     - windSpeedX
     - windSpeedY
@@ -54,9 +55,6 @@ data:
   targets:
     - delta_sigWaveHeight
   scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
-  train_days: [11, 12] # in python list notation
-  val_days: [13]
-  test_days: [14]
   batch_size: 32
   num_workers: 0
   pin_memory: false

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
@@ -24,47 +24,40 @@ class WWMDataModule(L.LightningDataModule):
 
     def __init__(
         self,
-        data_dir: str,
-        train_days: Tuple[int, int],
-        val_days: Tuple[int, int],
-        test_days: Tuple[int, int],
+        train_dir: str,
+        val_dir: str,
+        test_dir: str,
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
-        file_prefix: str = "out2d",
     ) -> None:
         """Initialize the WWM DataModule.
 
         Args:
-            data_dir: Root directory containing all data files.
-            train_days: Tuple of (start_day, end_day) for training data.
-            val_days: Tuple of (start_day, end_day) for validation data.
-            test_days: Tuple of (start_day, end_day) for test data.
+            train_dir: Directory containing training data netCDF files.
+            val_dir: Directory containing validation data netCDF files.
+            test_dir: Directory containing test data netCDF files.
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
-            file_prefix: Prefix for netCDF files (default: 'out2d').
         """
         super().__init__()
 
         self.save_hyperparameters(logger=False)
 
-        self.data_dir = Path(data_dir)
-
-        self.train_days = train_days
-        self.val_days = val_days
-        self.test_days = test_days
+        self.train_dir = Path(train_dir)
+        self.val_dir = Path(val_dir)
+        self.test_dir = Path(test_dir)
 
         self.features = features
         self.targets = targets
         self.scaling_config = scaling_config
-        self.file_prefix = file_prefix
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -80,9 +73,14 @@ class WWMDataModule(L.LightningDataModule):
         This is where you might download or preprocess data that should only
         happen once (e.g., downloading files, creating cache).
         """
-        # Check if data directory exists
-        if not self.data_dir.exists():
-            raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
+        # Check if data directories exist
+        for dir_name, dir_path in [
+            ("train", self.train_dir),
+            ("val", self.val_dir),
+            ("test", self.test_dir),
+        ]:
+            if not dir_path.exists():
+                raise FileNotFoundError(f"{dir_name} directory not found: {dir_path}")
 
         pass
 
@@ -98,56 +96,41 @@ class WWMDataModule(L.LightningDataModule):
         """
         if stage == "fit":
             self.ds_train = SimpleWWMDataset(
-                data_dir=self.data_dir,
-                start_day=self.train_days[0],
-                end_day=self.train_days[1],
+                data_dir=self.train_dir,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                file_prefix=self.file_prefix,
             )
 
             self.ds_val = SimpleWWMDataset(
-                data_dir=self.data_dir,
-                start_day=self.val_days[0],
-                end_day=self.val_days[1],
+                data_dir=self.val_dir,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                file_prefix=self.file_prefix,
             )
 
             self.ds_test = SimpleWWMDataset(
-                data_dir=self.data_dir,
-                start_day=self.test_days[0],
-                end_day=self.test_days[1],
+                data_dir=self.test_dir,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                file_prefix=self.file_prefix,
             )
 
         elif stage == "test":
             self.ds_test = SimpleWWMDataset(
-                data_dir=self.data_dir,
-                start_day=self.test_days[0],
-                end_day=self.test_days[1],
+                data_dir=self.test_dir,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                file_prefix=self.file_prefix,
             )
 
         elif stage == "predict":
             log.info("Predict dataset is the same as test dataset.")
             self.ds_pred = SimpleWWMDataset(
-                data_dir=self.data_dir,
-                start_day=self.test_days[0],
-                end_day=self.test_days[1],
+                data_dir=self.test_dir,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                file_prefix=self.file_prefix,
             )
 
         elif stage in ["validate"]:

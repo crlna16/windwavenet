@@ -39,16 +39,15 @@ seed: null
 ## ------------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
+  train_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/train
+  val_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/val
+  test_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/test
   features:
     - windSpeedX
     - windSpeedY
   targets:
     - sigWaveHeight
   scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
-  train_days: [31, 33] # in python list notation
-  val_days: [33, 35]
-  test_days: [35, 37]
   batch_size: 2048
   num_workers: 8
   pin_memory: true
