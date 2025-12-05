@@ -51,8 +51,12 @@ class SimpleWWMDataset(Dataset):
 
         self.files = self._collect_files(self.data_dir, self.start_day, self.end_day)
         self.ds = self._open_dataset(self.files)
+        self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
         self.ds = self._select_variables(self.ds, self.features + self.targets)
+
+        # clear nans from computing difference with respect to time
+        self.ds = self._remove_first_timestep_if_nan(self.ds)
 
         self.scaling_params = (
             self._load_scaling_config(scaling_config) if scaling_config else None
@@ -61,7 +65,8 @@ class SimpleWWMDataset(Dataset):
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        # Extract points
+        # Load data in memory
+        # TODO support lazy loading
         self.X = self._retrieve_data(self.ds, self.features)
         self.y = self._retrieve_data(self.ds, self.targets)
 
@@ -109,31 +114,47 @@ class SimpleWWMDataset(Dataset):
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
         """Compute Delta(target) = target(t) - target(t-1).
 
-        For targets starting with 'delta_', computes the time difference and
-        stores the previous time step value.
+        For targets starting with 'delta_', computes the difference with respect to the
+        previous time step and stores that value in a new variable.
 
         E.g. for sigWaveHeight and time=t:
           ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
-          ds["prev_sigWaveHeight"][t]  = ds["sigWaveHeight"][t-1]
 
         Args:
             dataset: xarray Dataset containing the data.
             targets: List of target variable names.
 
         Returns:
-            Dataset with computed time delta and prev variables added.
+            Dataset with difference wrto time per variable added.
         """
-        skip_first = False
         for target in targets:
             if target.startswith("delta_"):
-                skip_first = True
                 original_var = target.replace("delta_", "")
                 dataset[target] = dataset[original_var].diff("time")
-                prev_var = target.replace("delta_", "prev_")
-                dataset[prev_var] = dataset[original_var].shift(time=1)
+                log.info(f"Added variable {target}")
 
-        if skip_first:
-            return dataset.isel(time=slice(1, None))
+        return dataset
+
+    @staticmethod
+    def _compute_prevT(dataset: xr.Dataset, features: List[str]) -> xr.Dataset:
+        """Compute prev(feature) = feature(t-1)
+
+        E.g. for sigWaveHeight and time=t:
+          ds["prev_sigWaveHeight"][t]  = ds["sigWaveHeight"][t-1]
+
+        Args:
+            dataset (xr.Dataset): xarray Dataset containing the data.
+            features (List[str]): List of feature variable names.
+
+        Returns:
+            xr.Dataset: Dataset with variables added from previous time step.
+        """
+        for feature in features:
+            if feature.startswith("prev_"):
+                original_var = feature.replace("prev_", "")
+                dataset[feature] = dataset[original_var].shift(time=1)
+                log.info(f"Added variable {feature}")
+
         return dataset
 
     @staticmethod
@@ -148,6 +169,25 @@ class SimpleWWMDataset(Dataset):
             xarray Dataset containing only specified variables.
         """
         return dataset[[v for v in variables]]
+
+    @staticmethod
+    def _remove_first_timestep_if_nan(dataset: xr.Dataset) -> xr.Dataset:
+        """Remove first time step if it contains NaN values.
+
+        When computing shifted variables (prev_* or delta_*), the first time step
+        will contain NaN values. This method checks and removes it if needed.
+
+        Args:
+            dataset: xarray Dataset containing the data.
+
+        Returns:
+            Dataset with first time step removed if it contained NaN values.
+        """
+        first_time = dataset.isel(time=0)
+        if first_time.to_array().isnull().any():
+            log.info("Removing first time step (contains NaN values)")
+            return dataset.isel(time=slice(1, None))
+        return dataset
 
     @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> np.ndarray:
