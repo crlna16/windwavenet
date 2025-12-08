@@ -18,6 +18,7 @@ import xarray as xr
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import log_hyperparameters, print_config_tree
+from src.data.SimpleWWMDataset import SimpleWWMDataset
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -108,23 +109,18 @@ def predict(cfg: DictConfig) -> None:
             # Get initial values from dataset
             # Note: prediction dataset should have the previous values available
             prev_var = f"prev_{original_var}"
-            if prev_var in ds:
-                prev_values = ds[prev_var].values
-                # Cumulative sum: value[t] = prev_value[t] + delta[t]
-                reconstructed = prev_values + predictions_reshaped.cpu().numpy()
-                data_vars[original_var] = (
-                    ["time", "nSCHISM_hgrid_node"],
-                    reconstructed,
-                )
-            else:
-                log.warning(
-                    f"Cannot reconstruct {original_var}: {prev_var} not found in dataset. "
-                    f"Saving delta predictions as-is."
-                )
-                data_vars[target_name] = (
-                    ["time", "nSCHISM_hgrid_node"],
-                    predictions_reshaped.cpu().numpy(),
-                )
+            if prev_var not in ds:
+                log.info(f"Adding previous values for {original_var}")
+                ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
+                log.info(f"Finished adding previous values for {original_var}")
+
+            prev_values = ds[prev_var].values
+            # Cumulative sum: value[t] = prev_value[t] + delta[t]
+            reconstructed = prev_values + predictions_reshaped.cpu().numpy()
+            data_vars[original_var] = (
+                ["time", "nSCHISM_hgrid_node"],
+                reconstructed,
+            )
         else:
             # Direct prediction of the target variable
             data_vars[target_name] = (

@@ -47,7 +47,12 @@ class SimpleWWMDataset(Dataset):
         self.ds = self._open_dataset(self.files)
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
-        self.ds = self._select_variables(self.ds, self.features + self.targets)
+
+        # keep original variables always for reconstruction
+        selected_targets = self.targets + [
+            tt.replace("delta_", "") for tt in self.targets
+        ]
+        self.ds = self._select_variables(self.ds, self.features + selected_targets)
 
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
