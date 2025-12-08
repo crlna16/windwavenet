@@ -10,7 +10,7 @@ command:
   - python
   - ${program}
   - ${args_no_hyphens}
-  - experiment=densenet_7_features
+  - experiment=densenet_8_features
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
 parameters:

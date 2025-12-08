@@ -2,7 +2,7 @@
 
 # DenseNet with more relevant features
 
-experiment_name: "densenet_7_features"
+experiment_name: "densenet_8_features"
 
 data:
   features:
