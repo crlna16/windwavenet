@@ -18,7 +18,7 @@ parameters:
   data.batch_size:
     distribution: int_uniform
     max: 4096
-    min: 256
+    min: 32
 
   # Model backbone parameters - architecture configuration
   model.backbone.num_hidden_layers:
@@ -54,9 +54,3 @@ parameters:
     distribution: log_uniform_values
     max: 0.001
     min: 0.00001
-
-  # Scheduler parameters
-  model.scheduler.factor:
-    distribution: uniform
-    max: 1.0
-    min: 0.1

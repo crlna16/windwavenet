@@ -1,0 +1,154 @@
+# @package _global_
+
+defaults:
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - _self_ # put this on top so main config loads first
+  - experiment: null
+
+  # config for hyperparameter optimization
+  - hparams_search: null
+
+  # optional local config for machine/user specific settings
+  # it's optional since it doesn't need to exist and is excluded from version control
+  - optional local: default
+
+  # debugging config (enable through command line, e.g. `python train.py debug=fast_dev_run`)
+  - debug: null
+
+
+## ----------------
+## General settings
+## ----------------
+task_name: "cicd" # determines output directory
+experiment_name: "cicd_train_target"
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+# overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
+tags: ["dev"]
+
+# set False to skip model training
+train: True
+
+# evaluate on test set, using best model weights achieved during training (as per checkpoint callback metric)
+test: True
+
+# simply provide checkpoint path to resume training
+ckpt_path: null
+
+# seed for random number generators in pytorch, numpy and python.random
+seed: null
+
+## ----------------------------------
+## Default configuration for training
+## ----------------------------------
+data:
+  _target_: src.data.WWMDataModule.WWMDataModule
+  train_dir: ${hydra:runtime.cwd}/tests/cicd_data/train
+  val_dir: ${hydra:runtime.cwd}/tests/cicd_data/val
+  test_dir: ${hydra:runtime.cwd}/tests/cicd_data/test
+  features:
+    - windSpeedX
+    - windSpeedY
+    - prev_sigWaveHeight
+  targets:
+    - delta_sigWaveHeight
+  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
+  batch_size: 32
+  num_workers: 0
+  pin_memory: false
+
+model:
+  _target_: src.model.WWMEmulator.WWMEmulator
+
+  target_names: ${data.targets} # automatically use target names from data config
+
+  # Optional: specify loss weights for each target (defaults to 1.0 for all)
+  # Use this when targets are on different scales to balance their contribution to total loss
+  # Example: loss_weights: {sigWaveHeight: 1.0, waveDirection: 0.01}
+  loss_weights: null
+
+  backbone:
+    _target_: src.model.backbones.DenseNet.DenseNet
+    input_dim: 3 # must match len(data.features)
+    output_dim: 1 # must match len(data.targets)
+    num_hidden_layers: 3 # number of hidden layers
+    first_layer_neurons: 128 # neurons in first hidden layer
+    layer_scaling: halving # "constant" or "halving"
+    dropout_rate: 0.1 # dropout probability (0.0 = no dropout)
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true # required for hydra instantiate
+    lr: 0.0001
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    _partial_: true # required for hydra instantiate
+    mode: min
+    factor: 0.5
+    patience: 3
+
+trainer:
+  _target_: lightning.pytorch.trainer.Trainer
+  min_epochs: 1
+  max_epochs: 1
+  limit_train_batches: 2
+  limit_val_batches: 2
+  limit_test_batches: 2
+  accelerator: auto
+  devices: auto
+  enable_progress_bar: false
+
+
+logger: null
+
+callbacks:
+  model_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    monitor: val/loss
+    save_last: true
+    save_top_k: 1
+    mode: "min"
+    auto_insert_metric_name: True # when True, the checkpoints filenames will contain the metric name
+
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: val/loss
+    patience: 5
+    mode: "min"
+
+  model_summary:
+    _target_: lightning.pytorch.callbacks.RichModelSummary
+    max_depth: -1
+
+paths:
+  root_dir: ${hydra:runtime.cwd}
+
+  # path to output directory, created dynamically by hydra
+  # path generation pattern is specified in `configs/hydra/default.yaml`
+  # use it to store all files generated during the run, like ckpts and metrics
+  output_dir: ${hydra:runtime.output_dir}
+
+  # path to working directory
+  work_dir: ${hydra:runtime.cwd}
+
+hydra: # https://hydra.cc/docs/configure_hydra/intro/
+  # enable color logging
+  defaults:
+    - override hydra_logging: colorlog
+    - override job_logging: colorlog
+
+  # output directory, generated dynamically on each run
+  run:
+    dir: ${paths.root_dir}/logs/${task_name}/${experiment_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  sweep:
+    dir: ${paths.root_dir}/logs/${task_name}/${experiment_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+
+  job_logging:
+    handlers:
+      file:
+        # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
+        filename: ${hydra.runtime.output_dir}/${task_name}_${experiment_name}.log

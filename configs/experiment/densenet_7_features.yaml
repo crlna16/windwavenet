@@ -14,7 +14,7 @@ data:
     - depthAverageVelX
     - depthAverageVelY
   targets:
-    - sigWaveHeight
+    - delta_sigWaveHeight
 
 model:
   backbone:

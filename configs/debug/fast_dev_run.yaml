@@ -30,6 +30,7 @@ trainer:
 data:
   num_workers: 0
   pin_memory: False
-  train_days: [31, 33] # smaller dataset for quick test
-  val_days: [33, 34]
-  test_days: [36, 37]
+  # Use smaller subsets of the data directories for quick testing
+  train_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/train_small
+  val_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/val_small
+  test_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/test_small

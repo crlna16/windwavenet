@@ -45,16 +45,16 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
+  train_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/train
+  val_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/val
+  test_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/test
   features:
     - windSpeedX
     - windSpeedY
+    - prev_sigWaveHeight
   targets:
-    - sigWaveHeight
+    - delta_sigWaveHeight
   scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
-  train_days: [31, 33] # in python list notation
-  val_days: [33, 35]
-  test_days: [35, 37]
   batch_size: 2048
   num_workers: 8
   pin_memory: true
@@ -63,7 +63,6 @@ model:
   _target_: src.model.WWMEmulator.WWMEmulator
 
   target_names: ${data.targets} # automatically use target names from data config
-  enforce_semipositivity: true # apply ReLU to ensure non-negative outputs
 
   # Optional: specify loss weights for each target (defaults to 1.0 for all)
   # Use this when targets are on different scales to balance their contribution to total loss
@@ -72,7 +71,7 @@ model:
 
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
-    input_dim: 2 # must match len(data.features)
+    input_dim: 3 # must match len(data.features)
     output_dim: 1 # must match len(data.targets)
     num_hidden_layers: 3 # number of hidden layers
     first_layer_neurons: 128 # neurons in first hidden layer
