@@ -19,6 +19,6 @@ data:
 
 model:
   backbone:
-    input_dim: 7 # must match len(data.features)
+    input_dim: 8 # must match len(data.features)
 
 tags: ["dev"]

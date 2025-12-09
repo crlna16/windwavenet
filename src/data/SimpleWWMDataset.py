@@ -219,7 +219,7 @@ class SimpleWWMDataset(Dataset):
         variables: List[str],
         scaling_params: Dict[str, Dict[str, float]],
     ) -> xr.Dataset:
-        """Apply standardization scaling to variables in xarray Dataset.
+        """Apply standardization scaling to variables in the dataset.
 
         Args:
             dataset: xarray Dataset containing the variables.
@@ -241,11 +241,39 @@ class SimpleWWMDataset(Dataset):
                 )
         return dataset
 
+    @staticmethod
+    def _revert_scaling(
+        dataset: xr.Dataset,
+        variables: List[str],
+        scaling_params: Dict[str, Dict[str, float]],
+    ) -> xr.Dataset:
+        """Revert standardization scaling of variables in the dataset.
+
+        Args:
+            dataset (xr.Dataset): xarray Dataset containing the variabels.
+            variables (List[str]): List of variable names to un-scale.
+            scaling_params (Dict[str, Dict[str, float]]): Dictionary mapping variable names to
+              their mean and std values.
+
+        Returns:
+            xr.Dataset: Dataset with un-scaled variables (modified in place).
+        """
+        for var in variables:
+            if var in scaling_params:
+                mean = scaling_params[var]["mean"]
+                std = scaling_params[var]["std"]
+                dataset[var] = dataset[var] * std + mean
+                log.info(f"Reverted scaling for varibale {var}.")
+            else:
+                raise ValueError(f"No parameters found to revert scaling for {var}.")
+
+        return dataset
+
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
 
         Returns:
-            Number of samples.
+            int: Number of samples.
         """
         return len(self.y)
 

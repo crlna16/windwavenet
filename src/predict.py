@@ -25,11 +25,14 @@ log = RankedLogger(__name__, rank_zero_only=True)
 warnings.filterwarnings("ignore")
 
 
-def predict(cfg: DictConfig) -> None:
+def predict(cfg: DictConfig) -> xr.Dataset:
     """Predicts given checkpoint on a datamodule testset.
 
-    :param cfg: DictConfig configuration composed by Hydra.
-    :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
+    Args:
+      cfg (DictConfig): Configuration composed by hydra.
+
+    Returns:
+      xr.Dataset: Dataset with predictions.
     """
     assert cfg.ckpt_path
 
@@ -114,12 +117,26 @@ def predict(cfg: DictConfig) -> None:
                 ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
                 log.info(f"Finished adding previous values for {original_var}")
 
+            # if prev_value was used as an input feature, it has been scaled
+            # un-scale before using it to reconstruct predictions
+            if prev_var in datamodule.ds_pred.features:
+                ds = SimpleWWMDataset._revert_scaling(
+                    ds, [prev_var], datamodule.ds_pred.scaling_params
+                )
+
             prev_values = ds[prev_var].values
             # Cumulative sum: value[t] = prev_value[t] + delta[t]
-            reconstructed = prev_values + predictions_reshaped.cpu().numpy()
+            delta_predictions = predictions_reshaped.cpu().numpy()
+            reconstructed = prev_values + delta_predictions
+
+            # Store both the reconstructed values and the delta predictions
             data_vars[original_var] = (
                 ["time", "nSCHISM_hgrid_node"],
                 reconstructed,
+            )
+            data_vars[target_name] = (
+                ["time", "nSCHISM_hgrid_node"],
+                delta_predictions,
             )
         else:
             # Direct prediction of the target variable
