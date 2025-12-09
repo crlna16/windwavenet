@@ -13,4 +13,5 @@ source .venv/bin/activate
 #wandb agent wwm-emulator/simple-wwm-emulator/w5i9gsye
 #wandb agent wwm-emulator/simple-wwm-emulator/pneifth9
 #wandb agent wwm-emulator/simple-wwm-emulator/na1becz6
-wandb agent wwm-emulator/simple-wwm-emulator/ju8o025p
+#wandb agent wwm-emulator/simple-wwm-emulator/ju8o025p
+wandb agent wwm-emulator/simple-wwm-emulator/ql1ymdn4

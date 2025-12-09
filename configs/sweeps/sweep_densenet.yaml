@@ -10,12 +10,15 @@ command:
   - python
   - ${program}
   - ${args_no_hyphens}
+  - experiment=densenet_SWH
+  - callbacks.early_stopping.patience=3
+  - model.scheduler.patience=2
 parameters:
-  # Data parameters - use Hydra override syntax
+  # Data parameters
   data.batch_size:
     distribution: int_uniform
     max: 4096
-    min: 256
+    min: 32
 
   # Model backbone parameters - architecture configuration
   model.backbone.num_hidden_layers:
@@ -26,6 +29,8 @@ parameters:
   model.backbone.first_layer_neurons:
     distribution: categorical
     values:
+      - 8
+      - 16
       - 32
       - 64
       - 128
@@ -41,7 +46,7 @@ parameters:
 
   model.backbone.dropout_rate:
     distribution: uniform
-    max: 0.5
+    max: 0.9
     min: 0.0
 
   # Optimizer parameters
@@ -49,19 +54,3 @@ parameters:
     distribution: log_uniform_values
     max: 0.001
     min: 0.00001
-
-  # Scheduler parameters
-  model.scheduler.factor:
-    distribution: uniform
-    max: 0.8
-    min: 0.1
-
-  model.scheduler.patience:
-    distribution: int_uniform
-    max: 10
-    min: 2
-
-  callbacks.early_stopping.patience:
-    distribution: int_uniform
-    max: 5
-    min: 3
