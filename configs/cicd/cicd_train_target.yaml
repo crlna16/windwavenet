@@ -45,9 +45,10 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  train_dir: ${hydra:runtime.cwd}/tests/cicd_data/train
-  val_dir: ${hydra:runtime.cwd}/tests/cicd_data/val
-  test_dir: ${hydra:runtime.cwd}/tests/cicd_data/test
+  data_dir: ${hydra:runtime.cwd}/tests/cicd_data
+  train_days: [11, 12]  # Single day for CI/CD testing [start, end] inclusive
+  val_days: [13, 13]  # Single day for CI/CD testing [start, end] inclusive
+  test_days: [14, 14]  # Single day for CI/CD testing [start, end] inclusive
   features:
     - windSpeedX
     - windSpeedY

@@ -102,13 +102,14 @@ class SimpleWWMDataset(Dataset):
         files = []
 
         for d in all_days:
-            file = data_dir.glob(f"out2d_{d}.nc")
-            files.append(file)
+            files.extend(data_dir.glob(f"out2d_{d}.nc"))
 
         if not files:
             raise ValueError(
                 f"No files found for days {start_day}-{end_day}. Total files available: {len(all_files)}"
             )
+
+        files = sorted(files)
 
         log.info(
             f"Collected {len(files)} files from {data_dir} for days {start_day}-{end_day}"
