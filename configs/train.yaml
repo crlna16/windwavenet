@@ -76,6 +76,24 @@ model:
   # Creates bins: <-1, [-1,0), [0,0.5), >=0.5 and tracks RMSE for each
   target_bins: null
 
+  # Optional: sample weighting strategy for imbalanced regression
+  # Strategy for computing per-sample weights based on target values
+  # Options: null (no weighting), 'abs_value' (weight by absolute value of targets)
+  # 'abs_value' uses formula: weight = (1 + |target|)^power, so larger values get higher weight
+  sample_weight_strategy: "abs_value" # Set to 'abs_value' to enable sample weighting
+
+  # Power for sample weighting (only used when sample_weight_strategy is not null)
+  # Higher values increase focus on large target values (default: 1.0)
+  # With power=1.0: weight = (1 + |target|), linear increase
+  # With power=2.0: weight = (1 + |target|)^2, quadratic increase (more aggressive)
+  # Example: |target|=0.1 -> weight=1.1 (power=1) or 1.21 (power=2)
+  #          |target|=0.5 -> weight=1.5 (power=1) or 2.25 (power=2)
+  sample_weight_power: 4.0
+  # Whether to normalize sample weights to mean=1.0
+  # false (recommended): Large values genuinely increase loss - model learns they matter more
+  # true: Just redistributes focus while keeping loss scale - more conservative
+  normalize_sample_weights: false
+
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
     input_dim: 3 # must match len(data.features)
