@@ -69,6 +69,12 @@ model:
   # Example: loss_weights: {sigWaveHeight: 1.0, waveDirection: 0.01}
   loss_weights: null
 
+  # Optional: specify bin edges for tracking binned RMSE metrics on validation set
+  # Useful for analyzing model performance across different value ranges
+  # Example: target_bins: {delta_sigWaveHeight: [-1.0, 0.0, 0.5]}
+  # Creates bins: <-1, [-1,0), [0,0.5), >=0.5 and tracks RMSE for each
+  target_bins: null
+
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
     input_dim: 3 # must match len(data.features)
