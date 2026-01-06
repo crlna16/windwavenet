@@ -2182,6 +2182,23 @@ wheels = [
 ]
 
 [[package]]
+name = "pytorch-forecasting"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lightning" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0b/3e/a7c8dbc472b195121e27e5da61f3dd410d901828624171277f58bed1e88d/pytorch_forecasting-1.5.0.tar.gz", hash = "sha256:b65c46eef684ffcef6388dfc241c902cdca9233701dfa59b2e3ac79f6431286d", size = 304931, upload-time = "2025-10-10T14:17:39.832Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/bf/4a1e6a28148f33fcfe092e132c23d4e4f201f3f81ddf2ed77db0d4127b40/pytorch_forecasting-1.5.0-py3-none-any.whl", hash = "sha256:ff805102840d61037aa58cc7f3c889121221feb6228ba0e21fe73471f41ff904", size = 391473, upload-time = "2025-10-10T14:17:38.072Z" },
+]
+
+[[package]]
 name = "pytorch-lightning"
 version = "2.5.6"
 source = { registry = "https://pypi.org/simple" }
@@ -2879,6 +2896,7 @@ dependencies = [
     { name = "netcdf4" },
     { name = "omegaconf" },
     { name = "pip" },
+    { name = "pytorch-forecasting" },
     { name = "pyvista" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -2910,6 +2928,7 @@ requires-dist = [
     { name = "netcdf4", specifier = ">=1.7.3" },
     { name = "omegaconf", specifier = ">=2.3.0" },
     { name = "pip", specifier = ">=25.3" },
+    { name = "pytorch-forecasting", specifier = ">=1.5.0" },
     { name = "pyvista", specifier = ">=0.46.4" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rich", specifier = ">=14.2.0" },

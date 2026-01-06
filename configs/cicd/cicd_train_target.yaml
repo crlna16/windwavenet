@@ -26,7 +26,7 @@ experiment_name: "cicd_train_target"
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
-tags: ["dev"]
+tags: ["cicd"]
 
 # set False to skip model training
 train: True
