@@ -18,6 +18,8 @@ data:
     - delta_sigWaveHeight
 
 model:
+  target_bins:
+    delta_sigWaveHeight: [-0.1, 0, 0.1]
   backbone:
     input_dim: 8 # must match len(data.features)
 

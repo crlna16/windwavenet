@@ -118,12 +118,14 @@ class WWMEmulator(L.LightningModule):
         # Binned RMSE metrics for validation (only create if bins are specified)
         self.val_rmse_binned = nn.ModuleDict()
         for name in target_names:
+            log.info(f"Checking if {name} has target bins ...")
             if name in self.target_bins:
                 bins = self.target_bins[name]
                 # Create one metric per bin range
                 for i in range(len(bins) + 1):
                     bin_key = f"{name}_bin{i}"
                     self.val_rmse_binned[bin_key] = MeanSquaredError(squared=False)
+                    log.info(f"Added validation metric {bin_key} for {name}")
 
     def _compute_sample_weights(self, targets: torch.Tensor) -> torch.Tensor:
         """Compute per-sample weights based on target values.

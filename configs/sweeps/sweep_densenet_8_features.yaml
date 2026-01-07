@@ -14,7 +14,6 @@ command:
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
   - model.sample_weight_strategy=abs_value
-  - model.target_bins=[-0.1, 0, 0.1]
 parameters:
   # Data parameters
   data.batch_size:
