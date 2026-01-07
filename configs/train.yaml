@@ -59,6 +59,9 @@ data:
   batch_size: 2048
   num_workers: 8
   pin_memory: true
+  # Set persistent_workers to avoid recreating workers each epoch
+  # Only works with num_workers > 0
+  persistent_workers: true
 
   # Optional: sample weighting strategy for imbalanced regression
   # Strategy for computing per-sample weights based on target values
@@ -119,6 +122,16 @@ trainer:
   accelerator: auto
   devices: auto
   enable_progress_bar: false
+
+  # Performance optimizations
+  # Gradient accumulation can help with memory if you want larger effective batch size
+  # accumulate_grad_batches: 1
+
+  # Mixed precision training for faster computation (if using GPU)
+  # precision: "16-mixed"  # Uncomment if using modern GPU (Volta+)
+
+  # Benchmark mode finds fastest algorithms for your hardware
+  benchmark: true
 
 
 logger:

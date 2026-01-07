@@ -13,7 +13,6 @@ command:
   - experiment=densenet_8_features
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
-  - model.sample_weight_strategy=abs_value
 parameters:
   # Data parameters
   data.batch_size:

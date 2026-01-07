@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import torch
 import xarray as xr
 import yaml
 from torch.utils.data import Dataset
@@ -67,6 +68,7 @@ class SimpleWWMDataset(Dataset):
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
 
+        # scale all variables
         self.scaling_params = (
             self._load_scaling_config(scaling_config) if scaling_config else None
         )
@@ -74,12 +76,11 @@ class SimpleWWMDataset(Dataset):
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        # Load data in memory
-        # TODO support lazy loading
+        # Load data in memory as PyTorch tensors
         self.X = self._retrieve_data(self.ds, self.features)
         self.y = self._retrieve_data(self.ds, self.targets)
 
-        # Compute weights
+        # Compute weights (still as numpy for flexibility during computation)
         self.compute_weights()
 
         log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
@@ -220,21 +221,22 @@ class SimpleWWMDataset(Dataset):
         return dataset
 
     @staticmethod
-    def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> np.ndarray:
-        """Extract variable data from xarray Dataset.
+    def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
+        """Extract variable data from xarray Dataset and convert to PyTorch tensor.
 
         Args:
             dataset: xarray Dataset containing the data.
             variables: List of variable names to extract.
 
         Returns:
-            Numpy array of shape (n_samples, n_variables).
+            PyTorch tensor of shape (n_samples, n_variables).
         """
         x = []
         for var in variables:
             xx = dataset[var].values
             x.append(xx)
-        return np.asarray(x).reshape(len(variables), -1).transpose()
+        data_np = np.asarray(x).reshape(len(variables), -1).transpose()
+        return torch.from_numpy(data_np).float()
 
     @staticmethod
     def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
@@ -346,7 +348,7 @@ class SimpleWWMDataset(Dataset):
                 f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
             )
 
-        self.weights = weights
+        self.weights = weights.float()
         log.info(f"Sample weights computed and normalized for {n_samples} samples")
 
     def __len__(self) -> int:
@@ -364,7 +366,7 @@ class SimpleWWMDataset(Dataset):
             idx: Index of the sample to retrieve.
 
         Returns:
-            Tuple of (features, targets, weights) if weights are computed,
+            Tuple of (features, targets, weights) as PyTorch tensors if weights are computed,
             otherwise (features, targets).
         """
         if self.weights is not None:

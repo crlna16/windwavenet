@@ -34,6 +34,7 @@ class WWMDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
+        persistent_workers: bool = False,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
     ) -> None:
@@ -50,6 +51,7 @@ class WWMDataModule(L.LightningDataModule):
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
+            persistent_workers: If True, workers are not shut down after each epoch (faster).
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
         """
@@ -69,6 +71,7 @@ class WWMDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
 
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
@@ -170,6 +173,9 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers
+            if self.num_workers > 0
+            else False,
             shuffle=True,
         )
 
@@ -184,6 +190,9 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers
+            if self.num_workers > 0
+            else False,
             shuffle=False,
         )
 
@@ -198,6 +207,9 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers
+            if self.num_workers > 0
+            else False,
             shuffle=False,
         )
 
@@ -212,5 +224,8 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers
+            if self.num_workers > 0
+            else False,
             shuffle=False,
         )
