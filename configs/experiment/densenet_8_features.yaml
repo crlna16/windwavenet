@@ -16,10 +16,11 @@ data:
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
+  sample_weight_strategy: abs_value
 
 model:
   target_bins:
-    delta_sigWaveHeight: [-0.1, 0, 0.1]
+    delta_sigWaveHeight: [-0.1, 0.1]
   backbone:
     input_dim: 8 # must match len(data.features)
 

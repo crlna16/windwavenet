@@ -59,6 +59,8 @@ data:
   batch_size: 32
   num_workers: 0
   pin_memory: false
+  sample_weight_strategy: abs_value
+  sample_weight_power: 1.8
 
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
@@ -70,9 +72,6 @@ model:
   # Example: loss_weights: {sigWaveHeight: 1.0, waveDirection: 0.01}
   loss_weights: null
   target_bins: null
-  sample_weight_strategy: null
-  sample_weight_power: 1.0
-  normalize_sample_weights: false
 
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
