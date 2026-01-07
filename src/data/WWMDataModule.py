@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
@@ -34,6 +34,8 @@ class WWMDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
+        sample_weight_strategy: Optional[str] = None,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the WWM DataModule.
 
@@ -48,6 +50,8 @@ class WWMDataModule(L.LightningDataModule):
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
+            sample_weight_strategy: Strategy for computing per-sample weights.
+            sample_weight_power: Exponent to control the intensity of sample weighting.
         """
         super().__init__()
 
@@ -65,6 +69,9 @@ class WWMDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+
+        self.sample_weight_strategy = sample_weight_strategy
+        self.sample_weight_power = sample_weight_power
 
         self.ds_train: Optional[Dataset] = None
         self.ds_val: Optional[Dataset] = None
@@ -99,6 +106,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
             )
 
             self.ds_val = SimpleWWMDataset(
@@ -107,6 +116,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
             )
 
             self.ds_test = SimpleWWMDataset(
@@ -115,6 +126,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
             )
 
         elif stage == "test":
@@ -124,6 +137,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
             )
 
         elif stage == "predict":
@@ -134,6 +149,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
             )
 
         elif stage in ["validate"]:
@@ -141,6 +158,42 @@ class WWMDataModule(L.LightningDataModule):
 
         else:
             raise ValueError(f"Unknown stage: {stage}")
+
+    def compute_sample_weights(self, model: Any, device: str = "cpu") -> None:
+        """Compute sample weights for all datasets using a forward pass through the model.
+
+        This should be called after setup() and before training starts, typically in a
+        Lightning callback or at the beginning of training.
+
+        Args:
+            model: The neural network model to use for forward pass.
+            device: Device to run computations on (e.g., 'cpu', 'cuda').
+        """
+        if self.sample_weight_strategy is None:
+            log.info("No sample weight strategy specified, skipping weight computation")
+            return
+
+        log.info(f"Computing sample weights for datasets on device '{device}'...")
+
+        if self.ds_train is not None:
+            log.info("Computing weights for training dataset...")
+            self.ds_train.compute_weights(
+                model, device=device, batch_size=self.batch_size
+            )
+
+        if self.ds_val is not None:
+            log.info("Computing weights for validation dataset...")
+            self.ds_val.compute_weights(
+                model, device=device, batch_size=self.batch_size
+            )
+
+        if self.ds_test is not None:
+            log.info("Computing weights for test dataset...")
+            self.ds_test.compute_weights(
+                model, device=device, batch_size=self.batch_size
+            )
+
+        log.info("Sample weight computation complete for all datasets")
 
     def train_dataloader(self) -> DataLoader:
         """Create and return the train dataloader.

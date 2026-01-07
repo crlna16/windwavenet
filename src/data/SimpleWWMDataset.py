@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import torch
 import xarray as xr
 import yaml
 from torch.utils.data import Dataset
@@ -29,6 +30,8 @@ class SimpleWWMDataset(Dataset):
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
+        sample_weight_strategy: Optional[str] = None,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the SimpleWWM Dataset.
 
@@ -38,6 +41,9 @@ class SimpleWWMDataset(Dataset):
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
+            sample_weight_strategy: Strategy for computing per-sample weights.
+                Options: None (no weighting), 'abs_value' (weight by absolute value of targets).
+            sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
         """
         super().__init__()
 
@@ -45,6 +51,8 @@ class SimpleWWMDataset(Dataset):
         self.data_range = data_range
         self.features = features
         self.targets = targets
+        self.sample_weight_strategy = sample_weight_strategy
+        self.sample_weight_power = sample_weight_power
 
         self.files = self._collect_files(self.data_dir, self.data_range)
         self.ds = self._open_dataset(self.files)
@@ -71,6 +79,9 @@ class SimpleWWMDataset(Dataset):
         # TODO support lazy loading
         self.X = self._retrieve_data(self.ds, self.features)
         self.y = self._retrieve_data(self.ds, self.targets)
+
+        # Initialize weights (will be computed later if strategy is specified)
+        self.weights = None
 
         log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
 
@@ -304,6 +315,56 @@ class SimpleWWMDataset(Dataset):
         """
         return len(self.y)
 
+    def compute_weights(
+        self, model: torch.nn.Module, device: str = "cpu", batch_size: int = 256
+    ) -> None:
+        """Compute and normalize sample weights using a forward pass through the model.
+
+        Weights are computed based on the sample_weight_strategy and normalized so that
+        their sum equals the number of samples (mean = 1.0).
+
+        Args:
+            model: The neural network model to use for forward pass (not used for 'abs_value' strategy).
+            device: Device to run computations on.
+            batch_size: Batch size for forward pass computations.
+        """
+        if self.sample_weight_strategy is None:
+            log.info("No sample weight strategy specified, skipping weight computation")
+            return
+
+        log.info(
+            f"Computing sample weights with strategy '{self.sample_weight_strategy}'..."
+        )
+
+        n_samples = len(self.y)
+        n_targets = len(self.targets)
+        weights = np.ones((n_samples, n_targets), dtype=np.float32)
+
+        if self.sample_weight_strategy == "abs_value":
+            # Weight by (1 + |target|)^power
+            targets = self.y
+            weights = (1.0 + np.abs(targets)) ** self.sample_weight_power
+
+        else:
+            raise ValueError(
+                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. "
+                f"Supported: None, 'abs_value'"
+            )
+
+        # Normalize weights per target so that sum = n_samples (mean = 1.0)
+        for i in range(n_targets):
+            weight_sum = weights[:, i].sum()
+            if weight_sum > 1e-8:
+                weights[:, i] = weights[:, i] * (n_samples / weight_sum)
+                log.info(
+                    f"Target {self.targets[i]}: normalized weights from sum={weight_sum:.2f} to {n_samples} "
+                    f"(mean={weights[:, i].mean():.4f}, std={weights[:, i].std():.4f}, "
+                    f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
+                )
+
+        self.weights = weights
+        log.info(f"Sample weights computed and normalized for {n_samples} samples")
+
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.
 
@@ -311,8 +372,11 @@ class SimpleWWMDataset(Dataset):
             idx: Index of the sample to retrieve.
 
         Returns:
-            Tuple of (features, targets) for the given index.
+            Tuple of (features, targets, weights) if weights are computed,
+            otherwise (features, targets).
         """
+        if self.weights is not None:
+            return self.X[idx], self.y[idx], self.weights[idx]
         return self.X[idx], self.y[idx]
 
 
@@ -330,6 +394,8 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
+        sample_weight_strategy: Optional[str] = None,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the SimpleWWMPredictDataset.
 
@@ -339,6 +405,8 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
+            sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
+            sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
         """
         super().__init__(
             data_dir=data_dir,
@@ -346,11 +414,19 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             features=features,
             targets=targets,
             scaling_config=scaling_config,
+            sample_weight_strategy=sample_weight_strategy,
+            sample_weight_power=sample_weight_power,
         )
 
-    def __getitem__(self, idx):
-        """Overwritten __getitem__. Returns previous value on top
+    def __getitem__(self, idx: int) -> Tuple:
+        """Overwritten __getitem__. Returns features, targets, and optionally weights.
 
         Args:
-            idx (_type_): _description_
+            idx: Index of the sample to retrieve.
+
+        Returns:
+            Tuple of (features, targets, weights) if weights are computed,
+            otherwise (features, targets).
         """
+        # Use parent's __getitem__ implementation
+        return super().__getitem__(idx)
