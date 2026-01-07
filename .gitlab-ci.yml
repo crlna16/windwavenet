@@ -83,7 +83,7 @@ deep-learning-pipeline: # runs in test
     # install the project, without the development group, mimicking production environment
     - uv sync --no-group dev --active --frozen
     # download dummy data
-    - wget -O data.zip https://share.hereon.de/index.php/s/trCGM3WdYAkgNoP
+    - wget -O data.zip "https://share.hereon.de/index.php/s/trCGM3WdYAkgNoP/download"
     - mkdir -p DATA
     - unzip data.zip -d DATA
     - pwd -P
