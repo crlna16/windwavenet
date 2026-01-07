@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import torch
 import xarray as xr
 import yaml
 from torch.utils.data import Dataset
@@ -80,8 +79,8 @@ class SimpleWWMDataset(Dataset):
         self.X = self._retrieve_data(self.ds, self.features)
         self.y = self._retrieve_data(self.ds, self.targets)
 
-        # Initialize weights (will be computed later if strategy is specified)
-        self.weights = None
+        # Compute weights
+        self.compute_weights()
 
         log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
 
@@ -307,28 +306,14 @@ class SimpleWWMDataset(Dataset):
 
         return dataset
 
-    def __len__(self) -> int:
-        """Return the number of samples in the dataset.
-
-        Returns:
-            int: Number of samples.
-        """
-        return len(self.y)
-
-    def compute_weights(
-        self, model: torch.nn.Module, device: str = "cpu", batch_size: int = 256
-    ) -> None:
-        """Compute and normalize sample weights using a forward pass through the model.
+    def compute_weights(self) -> None:
+        """Compute and normalize sample weights.
 
         Weights are computed based on the sample_weight_strategy and normalized so that
         their sum equals the number of samples (mean = 1.0).
-
-        Args:
-            model: The neural network model to use for forward pass (not used for 'abs_value' strategy).
-            device: Device to run computations on.
-            batch_size: Batch size for forward pass computations.
         """
         if self.sample_weight_strategy is None:
+            self.weights = None
             log.info("No sample weight strategy specified, skipping weight computation")
             return
 
@@ -354,16 +339,23 @@ class SimpleWWMDataset(Dataset):
         # Normalize weights per target so that sum = n_samples (mean = 1.0)
         for i in range(n_targets):
             weight_sum = weights[:, i].sum()
-            if weight_sum > 1e-8:
-                weights[:, i] = weights[:, i] * (n_samples / weight_sum)
-                log.info(
-                    f"Target {self.targets[i]}: normalized weights from sum={weight_sum:.2f} to {n_samples} "
-                    f"(mean={weights[:, i].mean():.4f}, std={weights[:, i].std():.4f}, "
-                    f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
-                )
+            weights[:, i] = weights[:, i] * (n_samples / weight_sum)
+            log.info(
+                f"Target {self.targets[i]}: normalized weights from sum={weight_sum:.2f} to {n_samples} "
+                f"(mean={weights[:, i].mean():.4f}, std={weights[:, i].std():.4f}, "
+                f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
+            )
 
         self.weights = weights
         log.info(f"Sample weights computed and normalized for {n_samples} samples")
+
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset.
+
+        Returns:
+            int: Number of samples.
+        """
+        return len(self.y)
 
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.

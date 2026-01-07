@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
@@ -158,42 +158,6 @@ class WWMDataModule(L.LightningDataModule):
 
         else:
             raise ValueError(f"Unknown stage: {stage}")
-
-    def compute_sample_weights(self, model: Any, device: str = "cpu") -> None:
-        """Compute sample weights for all datasets using a forward pass through the model.
-
-        This should be called after setup() and before training starts, typically in a
-        Lightning callback or at the beginning of training.
-
-        Args:
-            model: The neural network model to use for forward pass.
-            device: Device to run computations on (e.g., 'cpu', 'cuda').
-        """
-        if self.sample_weight_strategy is None:
-            log.info("No sample weight strategy specified, skipping weight computation")
-            return
-
-        log.info(f"Computing sample weights for datasets on device '{device}'...")
-
-        if self.ds_train is not None:
-            log.info("Computing weights for training dataset...")
-            self.ds_train.compute_weights(
-                model, device=device, batch_size=self.batch_size
-            )
-
-        if self.ds_val is not None:
-            log.info("Computing weights for validation dataset...")
-            self.ds_val.compute_weights(
-                model, device=device, batch_size=self.batch_size
-            )
-
-        if self.ds_test is not None:
-            log.info("Computing weights for test dataset...")
-            self.ds_test.compute_weights(
-                model, device=device, batch_size=self.batch_size
-            )
-
-        log.info("Sample weight computation complete for all datasets")
 
     def train_dataloader(self) -> DataLoader:
         """Create and return the train dataloader.

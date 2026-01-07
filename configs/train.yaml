@@ -133,10 +133,6 @@ logger:
     log_model: False # upload lightning ckpts
 
 callbacks:
-  compute_sample_weights:
-    _target_: src.utils.callbacks.ComputeSampleWeightsCallback
-    compute_on_device: null # null to use model's device, or specify 'cpu', 'cuda', etc.
-
   model_checkpoint:
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
     monitor: val/loss
