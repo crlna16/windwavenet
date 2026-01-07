@@ -83,7 +83,13 @@ deep-learning-pipeline: # runs in test
     # install the project, without the development group, mimicking production environment
     - uv sync --no-group dev --active --frozen
     # download dummy data
-    - echo "This is a dummy for the deep learning pipeline"
+    - wget -O data.zip "https://share.hereon.de/index.php/s/trCGM3WdYAkgNoP/download"
+    - mkdir -p DATA
+    - unzip data.zip -d DATA
+    - pwd -P
+    - echo "This runs the deep learning pipeline for various experiments."
+    - uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
+    - echo "Finished deep learning tests without errors."
   only:
     - merge_requests
     - main

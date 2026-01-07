@@ -25,6 +25,7 @@ class SimpleWWMDataset(Dataset):
     def __init__(
         self,
         data_dir: Path,
+        data_range: List[int],
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
@@ -32,7 +33,8 @@ class SimpleWWMDataset(Dataset):
         """Initialize the SimpleWWM Dataset.
 
         Args:
-            data_dir: Directory containing netCDF data files to load.
+            data_dir: Directory containing netCDF data files.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -40,10 +42,11 @@ class SimpleWWMDataset(Dataset):
         super().__init__()
 
         self.data_dir = Path(data_dir)
+        self.data_range = data_range
         self.features = features
         self.targets = targets
 
-        self.files = self._collect_files(self.data_dir)
+        self.files = self._collect_files(self.data_dir, self.data_range)
         self.ds = self._open_dataset(self.files)
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
@@ -72,21 +75,45 @@ class SimpleWWMDataset(Dataset):
         log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
 
     @staticmethod
-    def _collect_files(data_dir: Path) -> List[Path]:
-        """Collect all netCDF files in the specified directory.
+    def _collect_files(data_dir: Path, data_range: List[int]) -> List[Path]:
+        """Collect netCDF files for specified day range.
 
         Args:
             data_dir: Directory containing netCDF data files.
+            data_range: Day range as [start_day, end_day] inclusive.
 
         Returns:
-            List of file paths sorted alphabetically.
+            List of file paths for the specified day range.
         """
-        files = sorted(data_dir.glob("*.nc"))
+        all_files = sorted(data_dir.glob("out2d_*.nc"))
 
-        if not files:
+        if not all_files:
             raise FileNotFoundError(f"No netCDF files found in {data_dir}")
 
-        log.info(f"Collected {len(files)} files from {data_dir}")
+        if len(data_range) != 2:
+            raise ValueError(
+                f"data_range must be [start_day, end_day], got {data_range}"
+            )
+
+        start_day, end_day = data_range
+
+        # Select files for the day range (inclusive)
+        all_days = list(range(start_day, end_day + 1))
+        files = []
+
+        for d in all_days:
+            files.extend(data_dir.glob(f"out2d_{d}.nc"))
+
+        if not files:
+            raise ValueError(
+                f"No files found for days {start_day}-{end_day}. Total files available: {len(all_files)}"
+            )
+
+        files = sorted(files)
+
+        log.info(
+            f"Collected {len(files)} files from {data_dir} for days {start_day}-{end_day}"
+        )
 
         return files
 
@@ -299,8 +326,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
     def __init__(
         self,
         data_dir: Path,
-        start_day: int,
-        end_day: int,
+        data_range: List[int],
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
@@ -309,16 +335,14 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
 
         Args:
             data_dir: Root directory containing netCDF data files.
-            start_day: Starting day index (inclusive).
-            end_day: Ending day index (exclusive).
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
         """
         super().__init__(
             data_dir=data_dir,
-            start_day=start_day,
-            end_day=end_day,
+            data_range=data_range,
             features=features,
             targets=targets,
             scaling_config=scaling_config,

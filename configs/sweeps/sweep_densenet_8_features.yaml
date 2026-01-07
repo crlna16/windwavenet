@@ -4,7 +4,7 @@ entity: wwm-emulator
 method: bayes
 metric:
   goal: minimize
-  name: val/best_loss
+  name: val/rmse_delta_sigWaveHeight_>=0.1
 command:
   - ${env}
   - python
@@ -13,12 +13,25 @@ command:
   - experiment=densenet_8_features
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
+  - model.sample_weight_strategy=abs_value
 parameters:
   # Data parameters
   data.batch_size:
     distribution: int_uniform
     max: 4096
     min: 32
+
+  # Model options
+  model.sample_weight_power:
+    distribution: uniform
+    min: 0
+    max: 100
+
+  model.normalize_sample_weights:
+    distribution: categorical
+    values:
+      - true
+      - false
 
   # Model backbone parameters - architecture configuration
   model.backbone.num_hidden_layers:

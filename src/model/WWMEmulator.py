@@ -29,6 +29,10 @@ class WWMEmulator(L.LightningModule):
         optimizer: torch.optim.Optimizer,  # accessed via hparams
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
         loss_weights: Optional[Dict[str, float]] = None,
+        target_bins: Optional[Dict[str, List[float]]] = None,
+        sample_weight_strategy: Optional[str] = None,
+        sample_weight_power: float = 1.0,
+        normalize_sample_weights: bool = False,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -38,6 +42,14 @@ class WWMEmulator(L.LightningModule):
             optimizer: PyTorch optimizer (partially instantiated via Hydra).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
             loss_weights: Optional dict mapping target names to loss weights (default: equal weights of 1.0).
+            target_bins: Optional dict mapping target names to bin edges for binned metrics.
+                        E.g., {'sigWaveHeight': [-1.0, 0.0, 0.5]} creates bins: <-1, [-1,0), [0,0.5), >=0.5
+            sample_weight_strategy: Strategy for computing per-sample weights based on target values.
+                        Options: None (no weighting), 'abs_value' (weight by absolute value of targets).
+            sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
+                        Higher values increase the weight difference between small and large target values.
+            normalize_sample_weights: If True, normalize weights to mean=1.0 (redistributes focus but keeps loss scale).
+                        If False, large values genuinely increase total loss (more aggressive, may need LR tuning).
         """
         super().__init__()
 
@@ -70,6 +82,22 @@ class WWMEmulator(L.LightningModule):
 
         log.info(f"Loss weights: {self.loss_weights}")
 
+        # Store target bins for binned metrics
+        self.target_bins = target_bins if target_bins is not None else {}
+        if self.target_bins:
+            log.info(f"Target bins: {self.target_bins}")
+
+        # Store sample weighting strategy
+        self.sample_weight_strategy = sample_weight_strategy
+        self.sample_weight_power = sample_weight_power
+        self.normalize_sample_weights = normalize_sample_weights
+        if self.sample_weight_strategy:
+            log.info(
+                f"Sample weighting strategy: '{self.sample_weight_strategy}' "
+                f"with power={self.sample_weight_power}, "
+                f"normalize={self.normalize_sample_weights}"
+            )
+
         # Loss function (reduction='none' to get per-sample loss)
         self.criterion = nn.MSELoss(reduction="none")
 
@@ -86,6 +114,84 @@ class WWMEmulator(L.LightningModule):
         self.test_rmse = nn.ModuleDict(
             {name: MeanSquaredError(squared=False) for name in target_names}
         )
+
+        # Binned RMSE metrics for validation (only create if bins are specified)
+        self.val_rmse_binned = nn.ModuleDict()
+        for name in target_names:
+            log.info(f"Checking if {name} has target bins ...")
+            if name in self.target_bins:
+                bins = self.target_bins[name]
+                # Create one metric per bin range
+                for i in range(len(bins) + 1):
+                    bin_key = f"{name}_bin{i}"
+                    self.val_rmse_binned[bin_key] = MeanSquaredError(squared=False)
+                    log.info(f"Added validation metric {bin_key} for {name}")
+
+    def _compute_sample_weights(self, targets: torch.Tensor) -> torch.Tensor:
+        """Compute per-sample weights based on target values.
+
+        Args:
+            targets: Target tensor of shape (batch_size, num_targets).
+
+        Returns:
+            Weight tensor of shape (batch_size, num_targets) where larger absolute
+            target values receive higher weights.
+        """
+        if self.sample_weight_strategy is None:
+            # No weighting, return ones
+            return torch.ones_like(targets)
+
+        elif self.sample_weight_strategy == "abs_value":
+            # Weight by (1 + |target|)^power
+            # This ensures that larger absolute values always get higher weights,
+            # even when |target| < 1 (which is typical for delta_sigWaveHeight)
+            #
+            # Examples with power=2.0:
+            #   |target|=0.0  -> weight = 1.0^2 = 1.0
+            #   |target|=0.1  -> weight = 1.1^2 = 1.21
+            #   |target|=0.5  -> weight = 1.5^2 = 2.25
+            #   |target|=1.0  -> weight = 2.0^2 = 4.0
+            weights = (1.0 + torch.abs(targets)) ** self.sample_weight_power
+
+            # Optional: Normalize weights per target so mean weight = 1.0
+            # When True: redistributes focus but keeps loss scale (conservative)
+            # When False: large values genuinely increase total loss (more aggressive)
+            if self.normalize_sample_weights:
+                for i in range(targets.shape[1]):
+                    mean_weight = weights[:, i].mean()
+                    if mean_weight > 1e-8:
+                        weights[:, i] = weights[:, i] / mean_weight
+
+            return weights
+
+        else:
+            raise ValueError(
+                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. "
+                f"Supported: None, 'abs_value'"
+            )
+
+    def _get_bin_mask(
+        self, values: torch.Tensor, bins: List[float], bin_idx: int
+    ) -> torch.Tensor:
+        """Get boolean mask for samples in a specific bin.
+
+        Args:
+            values: Tensor of values to bin.
+            bins: List of bin edges (sorted).
+            bin_idx: Index of the bin (0 = < first edge, 1 = [first, second), etc.).
+
+        Returns:
+            Boolean mask for samples in the specified bin.
+        """
+        if bin_idx == 0:
+            # First bin: values < bins[0]
+            return values < bins[0]
+        elif bin_idx == len(bins):
+            # Last bin: values >= bins[-1]
+            return values >= bins[-1]
+        else:
+            # Middle bins: bins[bin_idx-1] <= values < bins[bin_idx]
+            return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
@@ -116,10 +222,16 @@ class WWMEmulator(L.LightningModule):
         # Compute per-sample, per-variable MSE loss
         per_sample_loss = self.criterion(preds, y)  # shape: (batch, num_targets)
 
+        # Compute sample weights based on target values
+        sample_weights = self._compute_sample_weights(y)  # shape: (batch, num_targets)
+
+        # Apply sample weights to the loss
+        weighted_loss = per_sample_loss * sample_weights  # shape: (batch, num_targets)
+
         # Compute per-variable loss (mean over batch)
         per_variable_losses = {}
         for i, name in enumerate(self.target_names):
-            per_variable_losses[name] = per_sample_loss[:, i].mean()
+            per_variable_losses[name] = weighted_loss[:, i].mean()
 
         # Total loss is weighted sum of per-variable losses
         total_loss = sum(
@@ -184,6 +296,37 @@ class WWMEmulator(L.LightningModule):
             self.log(
                 f"val/rmse_{name}", self.val_rmse[name], on_step=False, on_epoch=True
             )
+
+            # Compute binned RMSE if bins are specified for this target
+            if name in self.target_bins:
+                bins = self.target_bins[name]
+                target_vals = targets[:, i]
+                pred_vals = preds[:, i]
+
+                for bin_idx in range(len(bins) + 1):
+                    mask = self._get_bin_mask(target_vals, bins, bin_idx)
+
+                    # Only update metric if there are samples in this bin
+                    if mask.sum() > 0:
+                        bin_key = f"{name}_bin{bin_idx}"
+                        self.val_rmse_binned[bin_key](
+                            pred_vals[mask], target_vals[mask]
+                        )
+
+                        # Create descriptive bin label for logging
+                        if bin_idx == 0:
+                            bin_label = f"<{bins[0]}"
+                        elif bin_idx == len(bins):
+                            bin_label = f">={bins[-1]}"
+                        else:
+                            bin_label = f"[{bins[bin_idx - 1]},{bins[bin_idx]})"
+
+                        self.log(
+                            f"val/rmse_{name}_{bin_label}",
+                            self.val_rmse_binned[bin_key],
+                            on_step=False,
+                            on_epoch=True,
+                        )
 
     def on_validation_epoch_end(self) -> None:
         """Called at the end of the validation epoch to track best validation loss."""

@@ -45,9 +45,10 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  train_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/train
-  val_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/val
-  test_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined/test
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
+  train_days: [31, 33]  # Day range for training [start_day, end_day] inclusive
+  val_days: [34, 34]  # Day range for validation [start_day, end_day] inclusive
+  test_days: [35, 36]  # Day range for testing [start_day, end_day] inclusive
   features:
     - windSpeedX
     - windSpeedY
@@ -68,6 +69,30 @@ model:
   # Use this when targets are on different scales to balance their contribution to total loss
   # Example: loss_weights: {sigWaveHeight: 1.0, waveDirection: 0.01}
   loss_weights: null
+
+  # Optional: specify bin edges for tracking binned RMSE metrics on validation set
+  # Useful for analyzing model performance across different value ranges
+  # Example: target_bins: {delta_sigWaveHeight: [-1.0, 0.0, 0.5]}
+  # Creates bins: <-1, [-1,0), [0,0.5), >=0.5 and tracks RMSE for each
+  target_bins: null
+
+  # Optional: sample weighting strategy for imbalanced regression
+  # Strategy for computing per-sample weights based on target values
+  # Options: null (no weighting), 'abs_value' (weight by absolute value of targets)
+  # 'abs_value' uses formula: weight = (1 + |target|)^power, so larger values get higher weight
+  sample_weight_strategy: "abs_value" # Set to 'abs_value' to enable sample weighting
+
+  # Power for sample weighting (only used when sample_weight_strategy is not null)
+  # Higher values increase focus on large target values (default: 1.0)
+  # With power=1.0: weight = (1 + |target|), linear increase
+  # With power=2.0: weight = (1 + |target|)^2, quadratic increase (more aggressive)
+  # Example: |target|=0.1 -> weight=1.1 (power=1) or 1.21 (power=2)
+  #          |target|=0.5 -> weight=1.5 (power=1) or 2.25 (power=2)
+  sample_weight_power: 4.0
+  # Whether to normalize sample weights to mean=1.0
+  # false (recommended): Large values genuinely increase loss - model learns they matter more
+  # true: Just redistributes focus while keeping loss scale - more conservative
+  normalize_sample_weights: false
 
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet

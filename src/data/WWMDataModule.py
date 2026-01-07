@@ -18,15 +18,16 @@ log = RankedLogger(__name__, rank_zero_only=False)
 class WWMDataModule(L.LightningDataModule):
     """Lightning DataModule for Wave Wind Model data with time-based splits.
 
-    Train, validation, and test datasets are separated by time periods (days).
+    Train, validation, and test datasets are separated by day ranges.
     All data is loaded from the same root directory.
     """
 
     def __init__(
         self,
-        train_dir: str,
-        val_dir: str,
-        test_dir: str,
+        data_dir: str,
+        train_days: List[int],
+        val_days: List[int],
+        test_days: List[int],
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
@@ -37,9 +38,10 @@ class WWMDataModule(L.LightningDataModule):
         """Initialize the WWM DataModule.
 
         Args:
-            train_dir: Directory containing training data netCDF files.
-            val_dir: Directory containing validation data netCDF files.
-            test_dir: Directory containing test data netCDF files.
+            data_dir: Directory containing all netCDF data files.
+            train_days: Day range for training as [start_day, end_day] inclusive (e.g., [0, 10]).
+            val_days: Day range for validation as [start_day, end_day] inclusive (e.g., [11, 13]).
+            test_days: Day range for testing as [start_day, end_day] inclusive (e.g., [14, 15]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -51,9 +53,10 @@ class WWMDataModule(L.LightningDataModule):
 
         self.save_hyperparameters(logger=False)
 
-        self.train_dir = Path(train_dir)
-        self.val_dir = Path(val_dir)
-        self.test_dir = Path(test_dir)
+        self.data_dir = Path(data_dir)
+        self.train_days = train_days
+        self.val_days = val_days
+        self.test_days = test_days
 
         self.features = features
         self.targets = targets
@@ -73,14 +76,9 @@ class WWMDataModule(L.LightningDataModule):
         This is where you might download or preprocess data that should only
         happen once (e.g., downloading files, creating cache).
         """
-        # Check if data directories exist
-        for dir_name, dir_path in [
-            ("train", self.train_dir),
-            ("val", self.val_dir),
-            ("test", self.test_dir),
-        ]:
-            if not dir_path.exists():
-                raise FileNotFoundError(f"{dir_name} directory not found: {dir_path}")
+        # Check if data directory exists
+        if not self.data_dir.exists():
+            raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
 
         pass
 
@@ -96,21 +94,24 @@ class WWMDataModule(L.LightningDataModule):
         """
         if stage == "fit":
             self.ds_train = SimpleWWMDataset(
-                data_dir=self.train_dir,
+                data_dir=self.data_dir,
+                data_range=self.train_days,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
             )
 
             self.ds_val = SimpleWWMDataset(
-                data_dir=self.val_dir,
+                data_dir=self.data_dir,
+                data_range=self.val_days,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
             )
 
             self.ds_test = SimpleWWMDataset(
-                data_dir=self.test_dir,
+                data_dir=self.data_dir,
+                data_range=self.test_days,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
@@ -118,7 +119,8 @@ class WWMDataModule(L.LightningDataModule):
 
         elif stage == "test":
             self.ds_test = SimpleWWMDataset(
-                data_dir=self.test_dir,
+                data_dir=self.data_dir,
+                data_range=self.test_days,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
@@ -127,7 +129,8 @@ class WWMDataModule(L.LightningDataModule):
         elif stage == "predict":
             log.info("Predict dataset is the same as test dataset.")
             self.ds_pred = SimpleWWMDataset(
-                data_dir=self.test_dir,
+                data_dir=self.data_dir,
+                data_range=self.test_days,
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
