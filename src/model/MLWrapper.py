@@ -31,6 +31,7 @@ class MLModelWrapper:
         model: BaseEstimator,
         target_names: List[str],
         target_bins: Optional[Dict[str, List[float]]] = None,
+        early_stopping_rounds: Optional[int] = 50,
     ) -> None:
         """Initialize the ML model wrapper.
 
@@ -38,11 +39,13 @@ class MLModelWrapper:
             model: Scikit-learn compatible model (XGBoost, RandomForest, etc.)
             target_names: List of target variable names
             target_bins: Optional dict mapping target names to bin edges for binned metrics
+            early_stopping_rounds: Number of rounds for early stopping (XGBoost/LightGBM only)
         """
         self.model = model
         self.target_names = target_names
         self.target_bins = target_bins if target_bins is not None else {}
         self.num_targets = len(target_names)
+        self.early_stopping_rounds = early_stopping_rounds
 
         log.info(f"Initialized ML model: {type(model).__name__}")
         log.info(f"Target names: {target_names}")
@@ -69,26 +72,18 @@ class MLModelWrapper:
         """
         log.info(f"Training {type(self.model).__name__} on {len(X_train)} samples...")
 
-        # Check if model supports early stopping (XGBoost, LightGBM, etc.)
-        if (
-            X_val is not None
-            and hasattr(self.model, "fit")
-            and "eval_set" in self.model.fit.__code__.co_varnames
-        ):
-            log.info("Using validation set for early stopping")
-            self.model.fit(
-                X_train,
-                y_train,
-                eval_set=[(X_val, y_val)],
-                sample_weight=sample_weight,
-                verbose=False,
-            )
+        if X_val is None or y_val is None:
+            eval_set = None
         else:
-            # Standard scikit-learn fit
-            if sample_weight is not None:
-                self.model.fit(X_train, y_train, sample_weight=sample_weight)
-            else:
-                self.model.fit(X_train, y_train)
+            eval_set = [(X_val, y_val)]
+
+        self.model.fit(
+            X_train,
+            y_train,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            verbose=True,
+        )
 
         log.info("Training complete")
 

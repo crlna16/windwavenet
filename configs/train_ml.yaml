@@ -61,6 +61,9 @@ model:
 
   target_names: ${data.targets}
 
+  # Early stopping rounds for XGBoost/LightGBM (null to disable)
+  early_stopping_rounds: 50
+
   # Optional: specify bin edges for binned metrics
   target_bins: null
   # target_bins:
@@ -77,7 +80,7 @@ model:
     objective: "reg:squarederror"
     random_state: ${seed}
     n_jobs: -1  # Use all CPU cores
-    early_stopping_rounds: 50
+    # Note: early_stopping_rounds is passed during fit(), not during initialization
     # GPU acceleration (uncomment if you have GPU with XGBoost GPU support)
     # tree_method: "gpu_hist"
     # gpu_id: 0
