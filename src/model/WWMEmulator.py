@@ -11,6 +11,7 @@ import torch.nn as nn
 from torchmetrics import MeanSquaredError
 
 from src.utils.pylogger import RankedLogger
+from src.utils.utils import get_bin_mask
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
@@ -110,29 +111,6 @@ class WWMEmulator(L.LightningModule):
                     bin_key = f"{name}_bin{i}"
                     self.val_rmse_binned[bin_key] = MeanSquaredError(squared=False)
                     log.info(f"Added validation metric {bin_key} for {name}")
-
-    def _get_bin_mask(
-        self, values: torch.Tensor, bins: List[float], bin_idx: int
-    ) -> torch.Tensor:
-        """Get boolean mask for samples in a specific bin.
-
-        Args:
-            values: Tensor of values to bin.
-            bins: List of bin edges (sorted).
-            bin_idx: Index of the bin (0 = < first edge, 1 = [first, second), etc.).
-
-        Returns:
-            Boolean mask for samples in the specified bin.
-        """
-        if bin_idx == 0:
-            # First bin: values < bins[0]
-            return values < bins[0]
-        elif bin_idx == len(bins):
-            # Last bin: values >= bins[-1]
-            return values >= bins[-1]
-        else:
-            # Middle bins: bins[bin_idx-1] <= values < bins[bin_idx]
-            return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
@@ -248,7 +226,7 @@ class WWMEmulator(L.LightningModule):
                 pred_vals = preds[:, i]
 
                 for bin_idx in range(len(bins) + 1):
-                    mask = self._get_bin_mask(target_vals, bins, bin_idx)
+                    mask = get_bin_mask(target_vals, bins, bin_idx)
 
                     # Only update metric if there are samples in this bin
                     if mask.sum() > 0:

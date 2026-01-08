@@ -13,6 +13,7 @@ from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_squared_error
 
 from src.utils.pylogger import RankedLogger
+from src.utils.utils import get_bin_mask
 
 # Initialize rank for single-process execution to use RankedLogger
 rank_zero_only.rank = 0
@@ -31,7 +32,6 @@ class MLModelWrapper:
         model: BaseEstimator,
         target_names: List[str],
         target_bins: Optional[Dict[str, List[float]]] = None,
-        early_stopping_rounds: Optional[int] = 50,
     ) -> None:
         """Initialize the ML model wrapper.
 
@@ -39,13 +39,11 @@ class MLModelWrapper:
             model: Scikit-learn compatible model (XGBoost, RandomForest, etc.)
             target_names: List of target variable names
             target_bins: Optional dict mapping target names to bin edges for binned metrics
-            early_stopping_rounds: Number of rounds for early stopping (XGBoost/LightGBM only)
         """
         self.model = model
         self.target_names = target_names
         self.target_bins = target_bins if target_bins is not None else {}
         self.num_targets = len(target_names)
-        self.early_stopping_rounds = early_stopping_rounds
 
         log.info(f"Initialized ML model: {type(model).__name__}")
         log.info(f"Target names: {target_names}")
@@ -164,7 +162,7 @@ class MLModelWrapper:
             if target_name in self.target_bins:
                 bins = self.target_bins[target_name]
                 for bin_idx in range(len(bins) + 1):
-                    mask = self._get_bin_mask(y_true[:, i], bins, bin_idx)
+                    mask = get_bin_mask(y_true[:, i], bins, bin_idx)
 
                     if mask.sum() > 0:
                         rmse_bin = np.sqrt(
@@ -182,26 +180,6 @@ class MLModelWrapper:
                         metrics[f"{prefix}/rmse_{target_name}_{bin_label}"] = rmse_bin
 
         return metrics
-
-    def _get_bin_mask(
-        self, values: np.ndarray, bins: List[float], bin_idx: int
-    ) -> np.ndarray:
-        """Get boolean mask for samples in a specific bin.
-
-        Args:
-            values: Array of values to bin
-            bins: List of bin edges (sorted)
-            bin_idx: Index of the bin
-
-        Returns:
-            Boolean mask for samples in the specified bin
-        """
-        if bin_idx == 0:
-            return values < bins[0]
-        elif bin_idx == len(bins):
-            return values >= bins[-1]
-        else:
-            return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
 
     def save(self, path: str) -> None:
         """Save model to disk.

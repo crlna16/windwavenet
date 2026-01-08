@@ -7,12 +7,15 @@
 from pathlib import Path
 from importlib.util import find_spec
 from lightning_utilities.core.rank_zero import rank_zero_only
-from typing import Any, Callable, Dict, Optional, Tuple, Sequence
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, Sequence
 
 import rich
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf
+
+import numpy as np
+import torch
 
 from src.utils import pylogger
 
@@ -214,3 +217,28 @@ def print_config_tree(
     if save_to_file:
         with open(Path(cfg.paths.output_dir, "config_tree.log"), "w") as file:
             rich.print(tree, file=file)
+
+
+def get_bin_mask(
+    values: Union[np.ndarray, torch.Tensor], bins: List[float], bin_idx: int
+) -> Union[np.ndarray, torch.Tensor]:
+    """Get boolean mask for samples in a specific bin.
+
+    First bin: values < bins[0]
+    Middle bins: bins[bin_idx-1] <= values < bins[bin_idx]
+    Last bin: values >= bins[-1]
+
+    Args:
+        values: Tensor of values to bin.
+        bins: List of bin edges (sorted).
+        bin_idx: Index of the bin (0 = < first edge, 1 = [first, second), etc.).
+
+    Returns:
+        Boolean mask for samples in the specified bin.
+    """
+    if bin_idx == 0:
+        return values < bins[0]
+    elif bin_idx == len(bins):
+        return values >= bins[-1]
+    else:
+        return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
