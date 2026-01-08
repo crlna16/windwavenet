@@ -83,7 +83,7 @@ model:
   # Callbacks for XGBoost/LightGBM (e.g., WandB)
   callbacks:
     - _target_: wandb.integration.xgboost.WandbCallback
-      # log_model: true  # Set to true to log model checkpoints
+      log_model: false # Set to true to log model checkpoints
 
   # XGBoost model configuration
   model:
