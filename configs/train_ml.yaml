@@ -43,7 +43,7 @@ data:
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
-  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
+  scaling_config: null # do not scale for classical ML
   batch_size: 2048  # Not used for ML but kept for compatibility
   num_workers: 0  # Set to 0 for ML to avoid multiprocessing issues
   pin_memory: false

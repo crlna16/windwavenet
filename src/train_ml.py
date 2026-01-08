@@ -10,10 +10,14 @@ from typing import Any, Dict, Tuple
 
 import hydra
 import numpy as np
+from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
 
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import print_config_tree, task_wrapper
+
+# Initialize rank for single-process execution to use RankedLogger
+rank_zero_only.rank = 0
 
 log = RankedLogger(__name__, rank_zero_only=True)
 

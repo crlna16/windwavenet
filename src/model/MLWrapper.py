@@ -8,10 +8,14 @@ from typing import Any, Dict, List, Optional
 
 import joblib
 import numpy as np
+from lightning_utilities.core.rank_zero import rank_zero_only
 from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_squared_error
 
 from src.utils.pylogger import RankedLogger
+
+# Initialize rank for single-process execution to use RankedLogger
+rank_zero_only.rank = 0
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
