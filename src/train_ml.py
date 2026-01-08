@@ -12,6 +12,7 @@ import hydra
 import numpy as np
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
+import wandb
 
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import print_config_tree, task_wrapper
@@ -95,6 +96,20 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Printing config tree")
     print_config_tree(cfg, resolve=True, save_to_file=True)
 
+    log.info("Initializing WandB...")
+    wandb_config = cfg.logger.wandb
+    wandb_run = wandb.init(
+        project=wandb_config.project,
+        entity=wandb_config.get("entity"),
+        name=wandb_config.get("name"),
+        dir=wandb_config.save_dir,
+        tags=cfg.get("tags", []),
+        notes=wandb_config.get("notes"),
+        config=dict(cfg),
+        mode="offline" if wandb_config.get("offline", False) else "online",
+    )
+    log.info(f"WandB run initialized: {wandb_run.name}")
+
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule = hydra.utils.instantiate(cfg.data)
@@ -117,11 +132,7 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating ML model <{cfg.model._target_}>")
     ml_model = hydra.utils.instantiate(cfg.model)
 
-    # Flatten sample weights if needed (most ML models expect 1D weights)
-    if weights_train is not None and weights_train.ndim > 1:
-        # Use weights from first target column (assuming same weights for all targets)
-        weights_train = weights_train[:, 0]
-        log.info("Flattened sample weights for training")
+    # FIXME flatten sample weights?
 
     # Train model
     if cfg.get("train"):
@@ -135,6 +146,10 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         for key, value in train_metrics.items():
             log.info(f"  {key}: {value:.6f}")
 
+        # Log to WandB
+        if wandb_run is not None:
+            wandb.log(train_metrics)
+
     # Test model
     test_metrics = {}
     if cfg.get("test"):
@@ -146,10 +161,19 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         for key, value in test_metrics.items():
             log.info(f"  {key}: {value:.6f}")
 
+        # Log to WandB
+        if wandb_run is not None:
+            wandb.log(test_metrics)
+
     # Save model
     if cfg.get("save_model", True):
         save_path = Path(cfg.paths.output_dir) / "model.joblib"
         ml_model.save(str(save_path))
+
+    # Finish WandB run
+    if wandb_run is not None:
+        wandb.finish()
+        log.info("WandB run finished")
 
     # Merge metrics
     metric_dict = {**train_metrics, **test_metrics}

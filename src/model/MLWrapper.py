@@ -32,6 +32,7 @@ class MLModelWrapper:
         model: BaseEstimator,
         target_names: List[str],
         target_bins: Optional[Dict[str, List[float]]] = None,
+        callbacks: Optional[List[Any]] = None,
     ) -> None:
         """Initialize the ML model wrapper.
 
@@ -39,14 +40,18 @@ class MLModelWrapper:
             model: Scikit-learn compatible model (XGBoost, RandomForest, etc.)
             target_names: List of target variable names
             target_bins: Optional dict mapping target names to bin edges for binned metrics
+            callbacks: Optional list of callbacks (e.g., WandB callback for XGBoost)
         """
         self.model = model
         self.target_names = target_names
         self.target_bins = target_bins if target_bins is not None else {}
         self.num_targets = len(target_names)
+        self.callbacks = callbacks if callbacks is not None else []
 
         log.info(f"Initialized ML model: {type(model).__name__}")
         log.info(f"Target names: {target_names}")
+        if self.callbacks:
+            log.info(f"Callbacks: {[type(cb).__name__ for cb in self.callbacks]}")
 
     def fit(
         self,
