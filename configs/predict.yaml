@@ -54,6 +54,8 @@ data:
   batch_size: 2048
   num_workers: 8
   pin_memory: true
+  sample_weight_strategy: null
+  sample_weight_power: 1.0
 
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
@@ -61,9 +63,6 @@ model:
   target_names: ${data.targets} # automatically use target names from data config
   loss_weights: null
   target_bins: null
-  sample_weight_strategy: null
-  sample_weight_power: 1.0
-  normalize_sample_weights: false
 
   backbone:
     _target_: src.model.backbones.DenseNet.DenseNet
