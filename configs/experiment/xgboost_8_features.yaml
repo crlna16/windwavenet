@@ -1,0 +1,34 @@
+# @package _global_
+
+# XGBoost with more relevant features
+
+experiment_name: "xgboost_8_features"
+
+data:
+  features:
+    - windSpeedX
+    - windSpeedY
+    - elevation
+    - windStressX
+    - windStressY
+    - depthAverageVelX
+    - depthAverageVelY
+    - prev_sigWaveHeight
+  targets:
+    - delta_sigWaveHeight
+  sample_weight_strategy: abs_value
+
+model:
+  target_bins:
+    delta_sigWaveHeight: [-0.1, 0.1]
+  max_depth: null
+  n_estimators: null
+  learning_rate: null
+  subsample: null
+  colsample_bytree: null
+  colsample_bylevel: null
+  eta: null
+  gamma: null
+  lambda: null
+
+tags: ["dev", "xgboost"]

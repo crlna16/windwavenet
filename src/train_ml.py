@@ -13,6 +13,7 @@ import numpy as np
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
 import wandb
+from wandb.integration.xgboost import WandbCallback
 
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import print_config_tree, task_wrapper
@@ -97,18 +98,7 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     print_config_tree(cfg, resolve=True, save_to_file=True)
 
     log.info("Initializing WandB...")
-    wandb_config = cfg.logger.wandb
-    wandb_run = wandb.init(
-        project=wandb_config.project,
-        entity=wandb_config.get("entity"),
-        name=wandb_config.get("name"),
-        dir=wandb_config.save_dir,
-        tags=cfg.get("tags", []),
-        notes=wandb_config.get("notes"),
-        config=dict(cfg),
-        mode="offline" if wandb_config.get("offline", False) else "online",
-    )
-    log.info(f"WandB run initialized: {wandb_run.name}")
+    wandb_run = wandb.init(**cfg.logger.wandb, config=dict(cfg))
 
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
@@ -130,25 +120,24 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Instantiate ML model
     log.info(f"Instantiating ML model <{cfg.model._target_}>")
-    ml_model = hydra.utils.instantiate(cfg.model)
+    ml_model = hydra.utils.instantiate(
+        cfg.model, callbacks=[WandbCallback(log_model=False)]
+    )
 
     # FIXME flatten sample weights?
 
-    # Train model
-    if cfg.get("train"):
-        log.info("Starting training...")
-        train_metrics = ml_model.fit(
-            X_train, y_train, X_val=X_val, y_val=y_val, sample_weight=weights_train
-        )
+    log.info("Starting training...")
+    train_metrics = ml_model.fit(
+        X_train, y_train, X_val=X_val, y_val=y_val, sample_weight=weights_train
+    )
 
-        # Log training metrics
-        log.info("Training metrics:")
-        for key, value in train_metrics.items():
-            log.info(f"  {key}: {value:.6f}")
+    log.info("Training metrics:")
+    for key, value in train_metrics.items():
+        log.info(f"  {key}: {value:.6f}")
 
-        # Log to WandB
-        if wandb_run is not None:
-            wandb.log(train_metrics)
+    # Log to WandB
+    if wandb_run is not None:
+        wandb.log(train_metrics)
 
     # Test model
     test_metrics = {}
