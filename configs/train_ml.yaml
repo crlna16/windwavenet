@@ -16,17 +16,10 @@ experiment_name: "xgboost_default"
 
 tags: ["classical_ml", "xgboost"]
 
-# set False to skip model training
-train: True
-
-# evaluate on test set after training
-test: True
-
-# save trained model
+test: True # evaluate on test set after training
 save_model: True
 
-# seed for random number generators
-seed: 42
+seed: 260801
 
 ## ----------------------------------
 ## Data configuration (same as DL training)
@@ -56,16 +49,14 @@ data:
 ## ----------------------------------
 ## Logger configuration
 ## ----------------------------------
-logger:
-  use_wandb: True  # Set to False to disable WandB logging
+logger: # set to null to disable logging
   wandb:
     project: simple-wwm-emulator
     entity: wwm-emulator
     name: null  # Auto-generated if null
-    save_dir: "${paths.output_dir}"
-    offline: False
+    #save_dir: "${paths.output_dir}"
+    mode: online
     tags: ${tags}
-    notes: "Classical ML model training"
 
 ## ----------------------------------
 ## ML Model configuration
@@ -88,15 +79,19 @@ model:
   # XGBoost model configuration
   model:
     _target_: xgboost.XGBRegressor
+    objective: "reg:squarederror"
+    random_state: ${seed}
+    n_jobs: -1  # Use all CPU cores
+    early_stopping_rounds: 10
     n_estimators: 1000
     max_depth: 8
     learning_rate: 0.1
     subsample: 0.8
     colsample_bytree: 0.8
-    objective: "reg:squarederror"
-    random_state: ${seed}
-    n_jobs: -1  # Use all CPU cores
-    early_stopping_rounds: 10
+    colsample_bylevel: 0.8
+    lambda: 0.1
+    gamma: 0.1
+    eta: 0.1
     # GPU acceleration (uncomment if you have GPU with XGBoost GPU support)
     # tree_method: "gpu_hist"
     # gpu_id: 0

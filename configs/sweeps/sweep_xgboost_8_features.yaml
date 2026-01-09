@@ -1,4 +1,4 @@
-program: src/train.py
+program: src/train_ml.py
 project: simple-wwm-emulator
 entity: wwm-emulator
 method: bayes
@@ -19,47 +19,47 @@ parameters:
     max: 100
 
   # XGBoost parameters
-  model.n_estimators:
+  model.model.n_estimators:
     distribution: int_uniform
     min: 1
     max: 4000
 
-  model.max_depth:
+  model.model.max_depth:
     distribution: int_uniform
     min: 1
     max: 20
 
-  model.learning_rate:
+  model.model.learning_rate:
     distribution: log_uniform_values
     min: 0.000001
     max: 0.5
 
-  model.subsample:
+  model.model.subsample:
     distribution: uniform
     min: 0.1
     max: 0.99
 
-  model.colsample_bytree:
+  model.model.colsample_bytree:
     distribution: uniform
     min: 0.1
     max: 0.99
 
-  model.colsample_bylevel:
+  model.model.colsample_bylevel:
     distribution: uniform
     min: 0.1
     max: 0.99
 
-  model.eta:
+  model.model.eta:
     distribution: uniform
     min: 0.01
     max: 0.99
 
-  model.gamma:
+  model.model.gamma:
     distribution: uniform
     min: 0
     max: 10
 
-  model.lambda:
+  model.model.lambda:
     distribution: uniform
     min: 0.1
     max: 10
