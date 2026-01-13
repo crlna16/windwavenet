@@ -17,6 +17,7 @@ experiment_name: "xgboost_default"
 tags: ["classical_ml", "xgboost"]
 
 test: True # evaluate on test set after training
+predict: False # if True, generate predictions
 save_model: True
 
 seed: 260801

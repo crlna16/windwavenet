@@ -16,67 +16,17 @@ import wandb
 from wandb.integration.xgboost import WandbCallback
 
 from src.utils.pylogger import RankedLogger
-from src.utils.utils import print_config_tree, task_wrapper
+from src.utils.utils import (
+    print_config_tree,
+    task_wrapper,
+    extract_data_from_datamodule,
+    generate_predictions_ml,
+)
 
 # Initialize rank for single-process execution to use RankedLogger
 rank_zero_only.rank = 0
 
 log = RankedLogger(__name__, rank_zero_only=True)
-
-
-def extract_data_from_datamodule(datamodule, stage: str = "fit"):
-    """Extract numpy arrays from Lightning DataModule.
-
-    Args:
-        datamodule: Lightning DataModule
-        stage: Stage to setup ('fit', 'test', etc.)
-
-    Returns:
-        Tuple of (X_train, y_train, weights_train, X_val, y_val, weights_val, X_test, y_test, weights_test)
-    """
-    datamodule.setup(stage=stage)
-
-    # Extract training data
-    train_dataset = datamodule.ds_train
-    X_train = train_dataset.X.cpu().numpy()
-    y_train = train_dataset.y.cpu().numpy()
-    weights_train = (
-        train_dataset.weights.cpu().numpy()
-        if train_dataset.weights is not None
-        else None
-    )
-
-    # Extract validation data
-    val_dataset = datamodule.ds_val
-    X_val = val_dataset.X.cpu().numpy()
-    y_val = val_dataset.y.cpu().numpy()
-    weights_val = (
-        val_dataset.weights.cpu().numpy() if val_dataset.weights is not None else None
-    )
-
-    # Extract test data
-    test_dataset = datamodule.ds_test
-    X_test = test_dataset.X.cpu().numpy()
-    y_test = test_dataset.y.cpu().numpy()
-    weights_test = (
-        test_dataset.weights.cpu().numpy() if test_dataset.weights is not None else None
-    )
-
-    log.info(
-        f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}"
-    )
-
-    return (
-        X_train,
-        y_train,
-        weights_train,
-        X_val,
-        y_val,
-        weights_val,
-        X_test,
-        y_test,
-        weights_test,
-    )
 
 
 @task_wrapper
@@ -158,6 +108,22 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("save_model", True):
         save_path = Path(cfg.paths.output_dir) / "model.joblib"
         ml_model.save(str(save_path))
+
+    # Generate predictions
+    if cfg.get("predict", True):
+        log.info("Generating predictions on test set...")
+        ds_pred = generate_predictions_ml(
+            ml_model=ml_model,
+            datamodule=datamodule,
+            target_names=cfg.data.targets,
+            model_target=cfg.model._target_,
+        )
+
+        # Save predictions to netCDF
+        output_path = Path(cfg.paths.output_dir) / "predictions.nc"
+        log.info(f"Saving predictions to {output_path}")
+        ds_pred.to_netcdf(output_path)
+        log.info(f"Predictions saved successfully to {output_path}")
 
     # Finish WandB run
     if wandb_run is not None:
