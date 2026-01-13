@@ -94,6 +94,25 @@ deep-learning-pipeline: # runs in test
     - merge_requests
     - main
 
+machine-learning-pipeline: # runs in test
+  stage: test
+  image: python:3.12
+  script:
+    - pip install uv
+    # install the project, without the development group, mimicking production environment
+    - uv sync --no-group dev --active --frozen
+    # download dummy data
+    - wget -O data.zip "https://share.hereon.de/index.php/s/trCGM3WdYAkgNoP/download"
+    - mkdir -p DATA
+    - unzip data.zip -d DATA
+    - pwd -P
+    - echo "This runs the machine learning pipeline for various experiments."
+    - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml"
+    - echo "Finished machine learning tests without errors."
+  only:
+    - merge_requests
+    - main
+
 pages:
   stage: deploy
   image: python:3.12

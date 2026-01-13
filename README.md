@@ -165,3 +165,202 @@ data:
 3. `src/model/WWMEmulator.py`: Removed dynamic weight computation, accepts precomputed weights
 4. `src/utils/callbacks.py`: New callback for triggering weight computation
 5. `configs/train.yaml`: Moved parameters from model to data, added callback
+
+# Classical ML Integration
+
+This directory contains the integration for classical machine learning models (XGBoost, RandomForest, AdaBoost, LightGBM, etc.) with the Lightning/Hydra framework.
+
+## Overview
+
+The ML integration is **completely separated** from the deep learning training pipeline but shares the same:
+- Data loading infrastructure (`WWMDataModule`)
+- Configuration system (Hydra)
+- Logging and metrics tracking
+- Sample weighting strategy
+
+## Quick Start
+
+### Train XGBoost model (default):
+```bash
+python src/train_ml.py
+```
+
+### Train with different models:
+```bash
+# Random Forest
+python src/train_ml.py experiment=ml/random_forest
+
+# Gradient Boosting
+python src/train_ml.py experiment=ml/gradient_boosting
+
+# AdaBoost
+python src/train_ml.py experiment=ml/adaboost
+
+# LightGBM (faster than XGBoost)
+python src/train_ml.py experiment=ml/lightgbm
+
+# Optimized XGBoost
+python src/train_ml.py experiment=ml/xgboost_optimized
+```
+
+### With sample weighting:
+```bash
+python src/train_ml.py \
+  data.sample_weight_strategy=abs_value \
+  data.sample_weight_power=2.0
+```
+
+### Override hyperparameters:
+```bash
+python src/train_ml.py \
+  experiment=ml/xgboost_optimized \
+  model.model.n_estimators=5000 \
+  model.model.learning_rate=0.01 \
+  model.model.max_depth=12
+```
+
+## Architecture
+
+### Files Structure:
+```
+src/
+├── train_ml.py              # ML training script (separate from train.py)
+└── model/
+    └── MLWrapper.py         # Wrapper class for scikit-learn compatible models
+
+configs/
+├── train_ml.yaml            # Default ML training config
+└── experiment/
+    └── ml/                  # ML-specific experiment configs
+        ├── xgboost_optimized.yaml
+        ├── random_forest.yaml
+        ├── gradient_boosting.yaml
+        ├── adaboost.yaml
+        └── lightgbm.yaml
+```
+
+### Key Components:
+
+#### 1. `MLWrapper` Class
+- Wraps any scikit-learn compatible model
+- Provides consistent interface: `fit()`, `predict()`, `evaluate()`
+- Computes same metrics as Lightning models (RMSE, binned RMSE)
+- Supports sample weights
+- Handles early stopping for models that support it
+
+#### 2. `train_ml.py` Script
+- Extracts numpy arrays from `WWMDataModule`
+- Trains classical ML models
+- Evaluates on validation and test sets
+- Saves trained models with joblib
+
+#### 3. Configuration System
+- Uses same Hydra configs as DL training
+- Shares data configuration
+- Separate model configs for each ML algorithm
+
+## Model Support
+
+### Supported Models:
+
+| Model | Library | Early Stopping | Sample Weights | Speed |
+|-------|---------|----------------|----------------|-------|
+| **XGBoost** | xgboost | ✅ | ✅ | Fast |
+| **LightGBM** | lightgbm | ✅ | ✅ | Very Fast |
+| **Random Forest** | scikit-learn | ❌ | ✅ | Medium |
+| **Gradient Boosting** | scikit-learn | ❌ | ✅ | Slow |
+| **AdaBoost** | scikit-learn | ❌ | ✅ | Medium |
+
+### Adding New Models:
+
+Any scikit-learn compatible model can be added. Just create a new experiment config:
+
+```yaml
+# configs/experiment/ml/my_model.yaml
+# @package _global_
+
+experiment_name: "my_model"
+
+model:
+  _target_: src.model.MLWrapper.MLModelWrapper
+  target_names: ${data.targets}
+
+  model:
+    _target_: sklearn.linear_model.Ridge  # or any sklearn model
+    alpha: 1.0
+    random_state: ${seed}
+```
+
+## Output
+
+Trained models are saved to:
+```
+logs/train_ml/<experiment_name>/runs/<timestamp>/model.joblib
+```
+
+Logs and metrics are saved to the same directory.
+
+## Comparison with Deep Learning
+
+### Advantages of Classical ML:
+- ✅ Faster training (no epochs, no backprop)
+- ✅ Less hyperparameter tuning needed
+- ✅ No GPU required
+- ✅ Better interpretability (feature importance)
+- ✅ Works well on tabular data
+
+### Advantages of Deep Learning:
+- ✅ Better at learning complex patterns
+- ✅ Scales better with more data
+- ✅ Can leverage GPU acceleration
+- ✅ More flexible architecture
+
+## Performance Tips
+
+1. **XGBoost/LightGBM are usually the best performers** for tabular data
+2. **Use sample weighting** for imbalanced regression tasks
+3. **Enable early stopping** to avoid overfitting (XGBoost/LightGBM)
+4. **Tune hyperparameters** with Hydra sweeps (see example below)
+
+## Hyperparameter Sweeps
+
+Create a sweep config for grid/random search:
+
+```yaml
+# configs/sweeps/xgboost_sweep.yaml
+defaults:
+  - override /hydra/sweeper: optuna
+
+experiment_name: "xgboost_sweep"
+
+hydra:
+  sweeper:
+    n_trials: 50
+    direction: minimize
+
+    params:
+      model.model.max_depth: range(5, 15)
+      model.model.learning_rate: interval(0.01, 0.3)
+      model.model.n_estimators: range(500, 3000, step=500)
+      model.model.subsample: interval(0.6, 1.0)
+      model.model.colsample_bytree: interval(0.6, 1.0)
+```
+
+Run sweep:
+```bash
+python src/train_ml.py -m hydra/sweeper=optuna \
+  experiment=ml/xgboost_optimized \
+  --config-name=train_ml
+```
+
+## Dependencies
+
+Install required packages:
+```bash
+pip install xgboost lightgbm scikit-learn joblib
+```
+
+Optional for hyperparameter optimization:
+```bash
+pip install optuna
+```
