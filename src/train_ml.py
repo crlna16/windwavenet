@@ -6,7 +6,7 @@
 """Training script for classical ML models (XGBoost, RandomForest, etc.)."""
 
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union
 
 import hydra
 import numpy as np
@@ -30,7 +30,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def train_ml(cfg: DictConfig) -> Union[None, Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Train a classical ML model.
 
     Args:
@@ -47,16 +47,13 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Printing config tree")
     print_config_tree(cfg, resolve=True, save_to_file=True)
 
-    if cfg.logger:
-        log.info("Initializing WandB...")
-        wandb_run = wandb.init(**cfg.logger.wandb, config=dict(cfg))
-        callbacks = [WandbCallback(log_model=False)]
-    else:
-        wandb_run = None
-        callbacks = None
-
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
+    if len(cfg.data.targets > 1):
+        log.info(
+            f"ML pipeline works only with single target. Received {cfg.data.targets}."
+        )
+        return None
     datamodule = hydra.utils.instantiate(cfg.data)
 
     # Extract data
@@ -73,11 +70,17 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         weights_test,
     ) = extract_data_from_datamodule(datamodule, stage="fit")
 
+    if cfg.logger:
+        log.info("Initializing WandB...")
+        wandb_run = wandb.init(**cfg.logger.wandb, config=dict(cfg))
+        callbacks = [WandbCallback(log_model=False)]
+    else:
+        wandb_run = None
+        callbacks = None
+
     # Instantiate ML model
     log.info(f"Instantiating ML model <{cfg.model._target_}>")
     ml_model = hydra.utils.instantiate(cfg.model, callbacks=callbacks)
-
-    # FIXME flatten sample weights?
 
     log.info("Starting training...")
     train_metrics = ml_model.fit(
