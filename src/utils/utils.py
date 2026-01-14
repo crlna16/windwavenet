@@ -7,14 +7,19 @@
 from pathlib import Path
 from importlib.util import find_spec
 from lightning_utilities.core.rank_zero import rank_zero_only
-from typing import Any, Callable, Dict, Optional, Tuple, Sequence
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, Sequence
 
 import rich
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf
 
+import numpy as np
+import torch
+import xarray as xr
+
 from src.utils import pylogger
+from src.data.SimpleWWMDataset import SimpleWWMDataset
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -214,3 +219,186 @@ def print_config_tree(
     if save_to_file:
         with open(Path(cfg.paths.output_dir, "config_tree.log"), "w") as file:
             rich.print(tree, file=file)
+
+
+def get_bin_mask(
+    values: Union[np.ndarray, torch.Tensor], bins: List[float], bin_idx: int
+) -> Union[np.ndarray, torch.Tensor]:
+    """Get boolean mask for samples in a specific bin.
+
+    First bin: values < bins[0]
+    Middle bins: bins[bin_idx-1] <= values < bins[bin_idx]
+    Last bin: values >= bins[-1]
+
+    Args:
+        values: Tensor of values to bin.
+        bins: List of bin edges (sorted).
+        bin_idx: Index of the bin (0 = < first edge, 1 = [first, second), etc.).
+
+    Returns:
+        Boolean mask for samples in the specified bin.
+    """
+    if bin_idx == 0:
+        return values < bins[0]
+    elif bin_idx == len(bins):
+        return values >= bins[-1]
+    else:
+        return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
+
+
+def extract_data_from_datamodule(datamodule, stage: str = "fit"):
+    """Extract numpy arrays from Lightning DataModule.
+
+    Args:
+        datamodule: Lightning DataModule
+        stage: Stage to setup ('fit', 'test', etc.)
+
+    Returns:
+        Tuple of (X_train, y_train, weights_train, X_val, y_val, weights_val, X_test, y_test, weights_test)
+    """
+    datamodule.setup(stage=stage)
+
+    # Extract training data
+    train_dataset = datamodule.ds_train
+    X_train = train_dataset.X.cpu().numpy()
+    y_train = train_dataset.y.cpu().numpy()
+    weights_train = (
+        train_dataset.weights.cpu().numpy()
+        if train_dataset.weights is not None
+        else None
+    )
+
+    # Extract validation data
+    val_dataset = datamodule.ds_val
+    X_val = val_dataset.X.cpu().numpy()
+    y_val = val_dataset.y.cpu().numpy()
+    weights_val = (
+        val_dataset.weights.cpu().numpy() if val_dataset.weights is not None else None
+    )
+
+    # Extract test data
+    test_dataset = datamodule.ds_test
+    X_test = test_dataset.X.cpu().numpy()
+    y_test = test_dataset.y.cpu().numpy()
+    weights_test = (
+        test_dataset.weights.cpu().numpy() if test_dataset.weights is not None else None
+    )
+
+    log.info(
+        f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}"
+    )
+
+    return (
+        X_train,
+        y_train,
+        weights_train,
+        X_val,
+        y_val,
+        weights_val,
+        X_test,
+        y_test,
+        weights_test,
+    )
+
+
+def generate_predictions_ml(
+    ml_model,
+    datamodule,
+    target_names: List[str],
+    model_target: str,
+) -> xr.Dataset:
+    """Generate predictions with a machine learning model.
+
+    Args:
+        ml_model: Trained ML model wrapper
+        datamodule: Lightning DataModule
+        target_names: List of target variable names
+        model_target: Model target name for attributes
+        output_dir: Directory to save predictions
+
+    Returns:
+        xr.Dataset with predictions
+    """
+    log.info("Generating predictions on test set...")
+
+    # Get test dataset
+    test_dataset = datamodule.ds_test
+    X_test = test_dataset.X
+
+    # Generate predictions
+    predictions = ml_model.predict(X_test)  # Shape: (n_samples, n_targets)
+    if len(predictions.shape) == 1:  # unsqueeze if single target
+        predictions = predictions[:, np.newaxis]
+
+    log.info("Retrieving metadata from source dataset")
+    ds = datamodule.ds_test.ds
+
+    ds_dims = ds.sizes
+    log.info(
+        f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}"
+    )
+
+    log.info(f"Target names: {target_names}")
+
+    # Create xarray Dataset with predictions
+    data_vars = {}
+
+    for i, target_name in enumerate(target_names):
+        # Extract predictions for this target
+        target_predictions = predictions[:, i]
+
+        # Reshape to match spatial and temporal dimensions
+        predictions_reshaped = target_predictions.reshape(
+            ds_dims["time"], ds_dims["nSCHISM_hgrid_node"]
+        )
+
+        # If this is a delta prediction, reconstruct the full values
+        if target_name.startswith("delta_"):
+            original_var = target_name.replace("delta_", "")
+            log.info(f"Reconstructing {original_var} from delta predictions")
+
+            # Get initial values from dataset
+            prev_var = f"prev_{original_var}"
+            if prev_var not in ds:
+                log.info(f"Adding previous values for {original_var}")
+                ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
+                log.info(f"Finished adding previous values for {original_var}")
+
+            # Note: Since data is NOT scaled in ML training, no need to unscale
+            prev_values = ds[prev_var].values
+            # Cumulative sum: value[t] = prev_value[t] + delta[t]
+            reconstructed = prev_values + predictions_reshaped
+
+            # Store both the reconstructed values and the delta predictions
+            data_vars[original_var] = (
+                ["time", "nSCHISM_hgrid_node"],
+                reconstructed,
+            )
+            data_vars[target_name] = (
+                ["time", "nSCHISM_hgrid_node"],
+                predictions_reshaped,
+            )
+        else:
+            # Direct prediction of the target variable
+            data_vars[target_name] = (
+                ["time", "nSCHISM_hgrid_node"],
+                predictions_reshaped,
+            )
+
+    otn = [tn.replace("delta_", "") for tn in target_names]
+
+    ds_pred = xr.Dataset(
+        data_vars,
+        coords={
+            "time": ds.time,
+            "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
+            "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
+            "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
+        },
+        attrs={
+            "description": f"Predictions for {', '.join(otn)}",
+            "model": model_target,
+        },
+    )
+
+    return ds_pred
