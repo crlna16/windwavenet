@@ -6,7 +6,7 @@
 """Training script for classical ML models (XGBoost, RandomForest, etc.)."""
 
 from pathlib import Path
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Tuple
 
 import hydra
 import numpy as np
@@ -30,7 +30,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def train_ml(cfg: DictConfig) -> Union[None, Tuple[Dict[str, Any], Dict[str, Any]]]:
+def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Train a classical ML model.
 
     Args:
@@ -53,7 +53,7 @@ def train_ml(cfg: DictConfig) -> Union[None, Tuple[Dict[str, Any], Dict[str, Any
         log.info(
             f"ML pipeline works only with single target. Received {cfg.data.targets}."
         )
-        return None
+        return ({}, {})
     datamodule = hydra.utils.instantiate(cfg.data)
 
     # Extract data
