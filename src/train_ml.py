@@ -47,8 +47,13 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Printing config tree")
     print_config_tree(cfg, resolve=True, save_to_file=True)
 
-    log.info("Initializing WandB...")
-    wandb_run = wandb.init(**cfg.logger.wandb, config=dict(cfg))
+    if cfg.logger:
+        log.info("Initializing WandB...")
+        wandb_run = wandb.init(**cfg.logger.wandb, config=dict(cfg))
+        callbacks = [WandbCallback(log_model=False)]
+    else:
+        wandb_run = None
+        callbacks = None
 
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
@@ -70,9 +75,7 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Instantiate ML model
     log.info(f"Instantiating ML model <{cfg.model._target_}>")
-    ml_model = hydra.utils.instantiate(
-        cfg.model, callbacks=[WandbCallback(log_model=False)]
-    )
+    ml_model = hydra.utils.instantiate(cfg.model, callbacks=callbacks)
 
     # FIXME flatten sample weights?
 
