@@ -108,6 +108,8 @@ machine-learning-pipeline: # runs in test
     - pwd -P
     - echo "This runs the machine learning pipeline for various experiments."
     - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml"
+    - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_dominantDirection"]'
+    - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["sigWaveHeight", "dominantDirection"]'
     - echo "Finished machine learning tests without errors."
   only:
     - merge_requests
