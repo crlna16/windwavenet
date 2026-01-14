@@ -49,7 +49,7 @@ def train_ml(cfg: DictConfig) -> Union[None, Tuple[Dict[str, Any], Dict[str, Any
 
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
-    if len(cfg.data.targets > 1):
+    if len(cfg.data.targets) > 1:
         log.info(
             f"ML pipeline works only with single target. Received {cfg.data.targets}."
         )
