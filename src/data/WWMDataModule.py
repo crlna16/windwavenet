@@ -119,8 +119,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                sample_weight_strategy=self.sample_weight_strategy,
-                sample_weight_power=self.sample_weight_power,
+                sample_weight_strategy=None,
+                sample_weight_power=None,
             )
 
             self.ds_test = SimpleWWMDataset(
@@ -129,8 +129,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                sample_weight_strategy=self.sample_weight_strategy,
-                sample_weight_power=self.sample_weight_power,
+                sample_weight_strategy=None,
+                sample_weight_power=None,
             )
 
         elif stage == "test":
@@ -140,8 +140,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                sample_weight_strategy=self.sample_weight_strategy,
-                sample_weight_power=self.sample_weight_power,
+                sample_weight_strategy=None,
+                sample_weight_power=None,
             )
 
         elif stage == "predict":
@@ -152,8 +152,8 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
-                sample_weight_strategy=self.sample_weight_strategy,
-                sample_weight_power=self.sample_weight_power,
+                sample_weight_strategy=None,
+                sample_weight_power=None,
             )
 
         elif stage in ["validate"]:
