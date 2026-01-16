@@ -2710,6 +2710,20 @@ wheels = [
 ]
 
 [[package]]
+name = "smogn"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/fb/db39a4c4df49bc1754439027978e064191447b8979e69692833a6a4ccdb1/smogn-0.1.2.tar.gz", hash = "sha256:6555b907f2c9df223eae8813abd09054ad6491fc8509a23fccc9d578b3e76d89", size = 185758, upload-time = "2020-04-06T02:54:58.498Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/a6/a3f78f5e2e18fa302fd23a32019908657113faa917463a9d49cbe9d20625/smogn-0.1.2-py3-none-any.whl", hash = "sha256:3df02540674d2164713e661446ff73994f98bb3029d5ea7ad0107ffedb700fec", size = 30348, upload-time = "2020-04-06T02:54:56.769Z" },
+]
+
+[[package]]
 name = "stack-data"
 version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3053,6 +3067,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "seaborn" },
+    { name = "smogn" },
     { name = "trame" },
     { name = "wandb" },
     { name = "xarray" },
@@ -3086,6 +3101,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "smogn", specifier = ">=0.1.2" },
     { name = "trame", specifier = ">=3.12.0" },
     { name = "wandb", specifier = ">=0.23.0" },
     { name = "xarray", specifier = ">=2025.10.1" },

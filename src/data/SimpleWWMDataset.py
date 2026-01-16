@@ -329,21 +329,24 @@ class SimpleWWMDataset(Dataset):
 
         if self.sample_weight_strategy == "abs_value":
             # Weight by (1 + |target|)^power
-            targets = self.y
-            weights = (1.0 + np.abs(targets)) ** self.sample_weight_power
+            weights = (1.0 + np.abs(self.y)) ** self.sample_weight_power
+
+        elif self.sample_weight_strategy == "z_score":
+            z_scores = (self.y - torch.mean(self.y)) / torch.std(self.y)
+            weights = 1.0 - torch.exp(-(z_scores**2) / self.sample_weight_power)
 
         else:
             raise ValueError(
                 f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. "
-                f"Supported: None, 'abs_value'"
+                f"Supported: None, 'abs_value', 'z_score'"
             )
 
-        # Normalize weights per target so that sum = n_samples (mean = 1.0)
+        # Normalize weights per target so that mean = 1.0
         for i in range(n_targets):
             weight_sum = weights[:, i].sum()
             weights[:, i] = weights[:, i] * (n_samples / weight_sum)
             log.info(
-                f"Target {self.targets[i]}: normalized weights from sum={weight_sum:.2f} to {n_samples} "
+                f"Target {self.targets[i]}: normalized weights, "
                 f"(mean={weights[:, i].mean():.4f}, std={weights[:, i].std():.4f}, "
                 f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
             )
