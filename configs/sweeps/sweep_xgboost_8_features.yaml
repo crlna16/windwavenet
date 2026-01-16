@@ -15,7 +15,7 @@ parameters:
   # Data parameters
   data.sample_weight_power:
     distribution: uniform
-    min: 0
+    min: 0.00001
     max: 100
 
   # XGBoost parameters
