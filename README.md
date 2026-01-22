@@ -364,3 +364,101 @@ Optional for hyperparameter optimization:
 ```bash
 pip install optuna
 ```
+
+# Z-Score Based Subsampling Implementation
+
+## Overview
+Added the ability to subsample the training dataset based on z_score-derived probabilities. This feature allows preferential retention of outliers (samples with high z-scores) in the training data.
+
+## Changes Made
+
+### 1. SimpleWWMDataset.py
+- **Added parameter**: `subsample_prob: Optional[float] = None`
+  - When set (e.g., 0.3), enables subsampling based on z_score
+  - Only applied during dataset initialization
+
+- **Added method**: `_subsample_by_zscore()`
+  - Computes z-scores for all targets
+  - Calculates retention probability: `p = 1 - exp(-z^2 / 2)`
+  - Scales probabilities so max equals `subsample_prob`
+  - Applies stochastic sampling to keep/discard samples
+  - Logs subsampling statistics
+
+- **Updated type hints**: Changed `sample_weight_power` to `Optional[float]` to allow `None` values
+
+### 2. WWMDataModule.py
+- **Added parameter**: `subsample_prob: Optional[float] = None`
+- **Training dataset only**: Parameter is passed only to `ds_train`
+- **Validation/test datasets**: Always use `subsample_prob=None` (no subsampling)
+- **Updated type hints**: Changed `sample_weight_power` to `Optional[float]`
+
+### 3. configs/train.yaml
+- **Added configuration option**: `subsample_prob: null`
+- **Documentation**: Added comments explaining usage
+- **Example values**: Suggested range 0-1 (e.g., 0.3 for 30% max retention)
+
+## How It Works
+
+### Retention Probability Formula
+```
+p(sample) = 1 - exp(-z^2 / 2)
+```
+
+Where `z` is the maximum absolute z-score across all target variables for that sample.
+
+### Properties
+- Samples near the mean (z ≈ 0) → low retention probability (~0)
+- Outliers (high |z|) → high retention probability (~1)
+- Probabilities are scaled so the maximum equals `subsample_prob`
+
+### Example Usage
+
+In your config file:
+```yaml
+data:
+  # ... other settings ...
+  subsample_prob: 0.3  # Keep up to 30% of samples, preferring outliers
+```
+
+Or from command line:
+```bash
+python src/train.py data.subsample_prob=0.3
+```
+
+## Testing
+
+A test script is provided at `test_subsampling.py` that demonstrates:
+1. Creating synthetic data with outliers
+2. Computing retention probabilities
+3. Applying subsampling
+4. Verifying outlier preference
+
+Run it with:
+```bash
+python test_subsampling.py
+```
+
+## Implementation Details
+
+### When Subsampling Occurs
+- **During**: Dataset initialization (`__init__`)
+- **After**: Data loading and scaling
+- **Before**: Weight computation
+
+### Memory Efficiency
+- Data is loaded into memory first
+- Subsampling filters the tensors (`self.X` and `self.y`)
+- Reduced memory footprint after subsampling
+
+### Logging
+The implementation logs:
+- Number of samples before/after subsampling
+- Retention rate percentage
+- Retention probability statistics (mean, std, min, max)
+
+## Notes
+
+- **Training only**: Subsampling is never applied to validation or test sets
+- **Stochastic**: Results vary between runs unless seed is fixed
+- **Configurable**: Easy to enable/disable via config file
+- **Non-intrusive**: Setting `subsample_prob: null` disables the feature entirely

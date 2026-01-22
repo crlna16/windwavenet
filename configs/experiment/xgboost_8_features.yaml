@@ -16,7 +16,7 @@ data:
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
-  sample_weight_strategy: abs_value
+  sample_weight_strategy: z_score
 
 model:
   target_bins:

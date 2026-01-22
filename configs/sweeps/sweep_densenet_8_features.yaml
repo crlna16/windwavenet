@@ -13,8 +13,8 @@ command:
   - experiment=densenet_8_features
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
+  - data.sample_weight_strategy="z_score"
 parameters:
-  # Data parameters
   data.batch_size:
     distribution: int_uniform
     max: 4096
@@ -22,10 +22,14 @@ parameters:
 
   data.sample_weight_power:
     distribution: uniform
-    min: 0
+    min: 0.00001
     max: 100
 
-  # Model backbone parameters - architecture configuration
+  data.subsample_prob:
+    distribution: uniform
+    min: 0.01
+    max: 1.0
+
   model.backbone.num_hidden_layers:
     distribution: int_uniform
     max: 6
