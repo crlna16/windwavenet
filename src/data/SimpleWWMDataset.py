@@ -381,24 +381,6 @@ class SimpleWWMDataset(Dataset):
 
         n_samples_before = len(self.y)
 
-        # Log quantiles before subsampling
-        quantiles = [
-            0.00001,
-            0.0001,
-            0.001,
-            0.01,
-            0.1,
-            0.9,
-            0.99,
-            0.999,
-            0.9999,
-            0.99999,
-        ]
-        quantile_values_before = torch.quantile(self.y, torch.tensor(quantiles), dim=0)
-        log.info("Target quantiles BEFORE subsampling:")
-        for i, q in enumerate(quantiles):
-            log.info(f"  {q:.5f}: {quantile_values_before[i].tolist()}")
-
         # Compute z-scores for all targets (average across targets)
         z_scores = (self.y - torch.mean(self.y, dim=0)) / torch.std(self.y, dim=0)
         # Take the maximum absolute z-score across all targets for each sample
@@ -431,11 +413,6 @@ class SimpleWWMDataset(Dataset):
             f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples "
             f"({retention_rate:.2f}%)"
         )
-
-        quantile_values_after = torch.quantile(self.y, torch.tensor(quantiles), dim=0)
-        log.info("Target quantiles AFTER subsampling:")
-        for i, q in enumerate(quantiles):
-            log.info(f"  {q:.5f}: {quantile_values_after[i].tolist()}")
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
