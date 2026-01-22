@@ -18,6 +18,11 @@ parameters:
     min: 0.00001
     max: 100
 
+  data.subsample_prob:
+    distribution: uniform
+    min: 0.01
+    max: 1.0
+
   # XGBoost parameters
   model.model.n_estimators:
     distribution: int_uniform

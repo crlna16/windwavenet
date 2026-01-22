@@ -46,6 +46,7 @@ data:
   # Sample weighting (optional)
   sample_weight_strategy: null
   sample_weight_power: 1.0
+  subsample_prob: null # Set to value between 0 and 1 to enable subsampling (e.g., 0.3)
 
 ## ----------------------------------
 ## Logger configuration

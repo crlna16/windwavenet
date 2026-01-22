@@ -25,6 +25,11 @@ parameters:
     min: 0.00001
     max: 100
 
+  data.subsample_prob:
+    distribution: uniform
+    min: 0.01
+    max: 1.0
+
   model.backbone.num_hidden_layers:
     distribution: int_uniform
     max: 6

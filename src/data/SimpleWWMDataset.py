@@ -31,7 +31,8 @@ class SimpleWWMDataset(Dataset):
         targets: List[str],
         scaling_config: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: float = 1.0,
+        sample_weight_power: Optional[float] = 1.0,
+        subsample_prob: Optional[float] = None,
     ) -> None:
         """Initialize the SimpleWWM Dataset.
 
@@ -44,6 +45,9 @@ class SimpleWWMDataset(Dataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'abs_value' (weight by absolute value of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
+            subsample_prob: Optional probability threshold for subsampling based on z_score.
+                If provided, samples are retained with probability derived from their z_score.
+                Higher z_score (outliers) have higher retention probability.
         """
         super().__init__()
 
@@ -53,6 +57,7 @@ class SimpleWWMDataset(Dataset):
         self.targets = targets
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
+        self.subsample_prob = subsample_prob
 
         self.files = self._collect_files(self.data_dir, self.data_range)
         self.ds = self._open_dataset(self.files)
@@ -79,6 +84,10 @@ class SimpleWWMDataset(Dataset):
         # Load data in memory as PyTorch tensors
         self.X = self._retrieve_data(self.ds, self.features)
         self.y = self._retrieve_data(self.ds, self.targets)
+
+        # Apply subsampling if requested
+        if self.subsample_prob is not None:
+            self._subsample_by_zscore()
 
         # Compute weights (still as numpy for flexibility during computation)
         self.compute_weights()
@@ -354,6 +363,80 @@ class SimpleWWMDataset(Dataset):
         self.weights = weights.float()
         log.info(f"Sample weights computed and normalized for {n_samples} samples")
 
+    def _subsample_by_zscore(self) -> None:
+        """Subsample the dataset based on z_score-derived probabilities.
+
+        Samples with higher z_scores (outliers) have higher retention probability.
+        The retention probability is computed as: p = 1 - exp(-z^2 / 2)
+        This ensures that:
+        - Samples near the mean (z=0) have low retention probability (~0)
+        - Samples far from mean (high |z|) have high retention probability (~1)
+
+        The actual retention is determined by comparing these probabilities against
+        a uniform random draw.
+        """
+        log.info(
+            f"Subsampling dataset based on z_score with threshold {self.subsample_prob}..."
+        )
+
+        n_samples_before = len(self.y)
+
+        # Log quantiles before subsampling
+        quantiles = [
+            0.00001,
+            0.0001,
+            0.001,
+            0.01,
+            0.1,
+            0.9,
+            0.99,
+            0.999,
+            0.9999,
+            0.99999,
+        ]
+        quantile_values_before = torch.quantile(self.y, torch.tensor(quantiles), dim=0)
+        log.info("Target quantiles BEFORE subsampling:")
+        for i, q in enumerate(quantiles):
+            log.info(f"  {q:.5f}: {quantile_values_before[i].tolist()}")
+
+        # Compute z-scores for all targets (average across targets)
+        z_scores = (self.y - torch.mean(self.y, dim=0)) / torch.std(self.y, dim=0)
+        # Take the maximum absolute z-score across all targets for each sample
+        max_abs_z = torch.abs(z_scores).max(dim=1)[0]
+
+        # Compute retention probability: p = 1 - exp(-z^2 / 2)
+        retention_probs = 1.0 - torch.exp(-(max_abs_z**2) / 2.0)
+
+        # Scale probabilities so that the expected (mean) retention rate equals subsample_prob
+        # This ensures that approximately subsample_prob fraction of samples are retained
+        if retention_probs.mean() > 0:
+            retention_probs = retention_probs * (
+                self.subsample_prob / retention_probs.mean()
+            )
+            # Clip to [0, 1] range in case scaling pushes values above 1
+            retention_probs = torch.clamp(retention_probs, 0.0, 1.0)
+
+        # Generate random values and keep samples where random < retention_prob
+        random_vals = torch.rand(n_samples_before)
+        keep_mask = random_vals < retention_probs
+
+        # Apply mask to data
+        self.X = self.X[keep_mask]
+        self.y = self.y[keep_mask]
+
+        n_samples_after = len(self.y)
+        retention_rate = n_samples_after / n_samples_before * 100
+
+        log.info(
+            f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples "
+            f"({retention_rate:.2f}%)"
+        )
+
+        quantile_values_after = torch.quantile(self.y, torch.tensor(quantiles), dim=0)
+        log.info("Target quantiles AFTER subsampling:")
+        for i, q in enumerate(quantiles):
+            log.info(f"  {q:.5f}: {quantile_values_after[i].tolist()}")
+
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
 
@@ -392,7 +475,8 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
         targets: List[str],
         scaling_config: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: float = 1.0,
+        sample_weight_power: Optional[float] = 1.0,
+        subsample_prob: Optional[float] = None,
     ) -> None:
         """Initialize the SimpleWWMPredictDataset.
 
@@ -404,6 +488,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             scaling_config: Path to YAML file containing mean and std for each variable.
             sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
             sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
+            subsample_prob: Optional probability threshold for subsampling (inherited from parent).
         """
         super().__init__(
             data_dir=data_dir,
@@ -413,6 +498,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             scaling_config=scaling_config,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
+            subsample_prob=subsample_prob,
         )
 
     def __getitem__(self, idx: int) -> Tuple:
