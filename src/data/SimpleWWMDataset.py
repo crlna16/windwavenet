@@ -43,7 +43,7 @@ class SimpleWWMDataset(Dataset):
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
             sample_weight_strategy: Strategy for computing per-sample weights.
-                Options: None (no weighting), 'abs_value' (weight by absolute value of targets).
+                Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
             subsample_prob: Optional probability threshold for subsampling based on z_score.
                 If provided, samples are retained with probability derived from their z_score.
@@ -336,18 +336,16 @@ class SimpleWWMDataset(Dataset):
         n_targets = len(self.targets)
         weights = np.ones((n_samples, n_targets), dtype=np.float32)
 
-        if self.sample_weight_strategy == "abs_value":
-            # Weight by (1 + |target|)^power
-            weights = (1.0 + np.abs(self.y)) ** self.sample_weight_power
-
-        elif self.sample_weight_strategy == "z_score":
+        if self.sample_weight_strategy == "z_score":
             z_scores = (self.y - torch.mean(self.y)) / torch.std(self.y)
-            weights = 1.0 - torch.exp(-(z_scores**2) / self.sample_weight_power)
+            weights = 1.0 - torch.exp(
+                -(z_scores**2) / torch.tensor(self.sample_weight_power)
+            )
 
         else:
             raise ValueError(
                 f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. "
-                f"Supported: None, 'abs_value', 'z_score'"
+                f"Supported: None, 'z_score'"
             )
 
         # Normalize weights per target so that mean = 1.0
