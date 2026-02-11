@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import xarray as xr
 import yaml
+import time
 from torch.utils.data import Dataset
 
 from src.utils.pylogger import RankedLogger
@@ -63,7 +64,6 @@ class SimpleWWMDataset(Dataset):
         self.ds = self._open_dataset(self.files)
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
-
         # keep original variables always for reconstruction
         selected_targets = self.targets + [
             tt.replace("delta_", "") for tt in self.targets
@@ -72,6 +72,8 @@ class SimpleWWMDataset(Dataset):
 
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
+        # stack AFTER computing previous values
+        self.ds = self._stack_dimensions(self.ds)
 
         # scale all variables
         self.scaling_params = (
@@ -151,6 +153,20 @@ class SimpleWWMDataset(Dataset):
         return ds
 
     @staticmethod
+    def _stack_dimensions(ds: xr.Dataset) -> xr.Dataset:
+        """Stack all dimensions to form a 1D sample dimension.
+        Keep former dimensions as a multiindex.
+
+        Args:
+            ds (xr.Dataset): Dataset
+
+        Returns:
+            xr.Dataset: Dataset with dimension "sample"
+        """
+        ds = ds.stack(sample=("time", "nSCHISM_hgrid_node"))
+        return ds
+
+    @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
         """Compute Delta(target) = target(t) - target(t-1).
 
@@ -223,10 +239,12 @@ class SimpleWWMDataset(Dataset):
         Returns:
             Dataset with first time step removed if it contained NaN values.
         """
-        first_time = dataset.isel(time=0)
-        if first_time.to_array().isnull().any():
-            log.info("Removing first time step (contains NaN values)")
-            return dataset.isel(time=slice(1, None))
+        # sufficient to check one grid cell since delta was applied across all
+        first_time = dataset.isel(time=0, nSCHISM_hgrid_node=0)
+        for var in first_time.data_vars:
+            if first_time[var].isnull().any():
+                log.info("Removing first time step (contains NaN values)")
+                return dataset.isel(time=slice(1, None))
         return dataset
 
     @staticmethod
@@ -240,12 +258,19 @@ class SimpleWWMDataset(Dataset):
         Returns:
             PyTorch tensor of shape (n_samples, n_variables).
         """
-        x = []
-        for var in variables:
-            xx = dataset[var].values
-            x.append(xx)
-        data_np = np.asarray(x).reshape(len(variables), -1).transpose()
-        return torch.from_numpy(data_np).float()
+        start_time = time.time()
+        # stack in xarray
+        da = dataset[variables].to_array(dim="variable")
+        da = da.stack(sample=[d for d in da.dims if d != "variable"])
+        da = da.transpose("sample", "variable")
+
+        # convert to numpy
+        data_np = da.data
+        data_np = np.asarray(data_np)
+        tensor = torch.from_numpy(data_np)
+
+        print(f"Finished retrieving data in {time.time() - start_time:.0f} seconds.")
+        return tensor
 
     @staticmethod
     def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
