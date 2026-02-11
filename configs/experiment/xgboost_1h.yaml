@@ -1,0 +1,36 @@
+# @package _global_
+
+# XGBoost with hourly output
+
+predict: true
+
+experiment_name: "xgboost_1h"
+
+data:
+  data_dir: /work/bg1186/g260200/RUN04b_JUWELS_wpile/outputs_all/
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
+  features:
+    - windSpeedX
+    - windSpeedY
+    - elevation
+    - depthAverageVelX
+    - depthAverageVelY
+    - prev_sigWaveHeight
+  targets:
+    - delta_sigWaveHeight
+  sample_weight_strategy: z_score
+  scaling_config: null
+
+model:
+  target_bins:
+    delta_sigWaveHeight: [-0.1, 0.1]
+  #model:
+  #  device: cuda
+
+logger: # set to null to disable logging
+  wandb:
+    project: wwm-emulator-hourly
+
+tags: ["dev", "xgboost"]

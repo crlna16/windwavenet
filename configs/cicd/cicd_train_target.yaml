@@ -59,7 +59,7 @@ data:
   batch_size: 32
   num_workers: 0
   pin_memory: false
-  sample_weight_strategy: abs_value
+  sample_weight_strategy: z_score
   sample_weight_power: 1.8
 
 model:
