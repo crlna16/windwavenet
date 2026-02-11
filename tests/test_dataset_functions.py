@@ -17,7 +17,7 @@ class TestDatasetFunctions:
     def sample_dataset(self):
         """Create a synthetic xarray dataset for testing."""
         time = np.arange(5)
-        space = np.arange(3)
+        nSCHISM_hgrid_node = np.arange(3)
 
         # Create synthetic data
         temperature = np.array(
@@ -42,12 +42,12 @@ class TestDatasetFunctions:
 
         ds = xr.Dataset(
             {
-                "temperature": (["time", "space"], temperature),
-                "wind_speed": (["time", "space"], wind_speed),
+                "temperature": (["time", "nSCHISM_hgrid_node"], temperature),
+                "wind_speed": (["time", "nSCHISM_hgrid_node"], wind_speed),
             },
             coords={
                 "time": time,
-                "space": space,
+                "nSCHISM_hgrid_node": nSCHISM_hgrid_node,
             },
         )
         return ds
@@ -140,7 +140,7 @@ class TestDatasetFunctions:
     def test_remove_first_timestep_if_nan_with_nans(self):
         """Test _remove_first_timestep_if_nan removes first timestep when it has NaN."""
         time = np.arange(4)
-        space = np.arange(2)
+        nSCHISM_hgrid_node = np.arange(2)
 
         # Create dataset with NaN in first timestep
         data = np.array(
@@ -153,7 +153,8 @@ class TestDatasetFunctions:
         )
 
         ds = xr.Dataset(
-            {"var": (["time", "space"], data)}, coords={"time": time, "space": space}
+            {"var": (["time", "nSCHISM_hgrid_node"], data)},
+            coords={"time": time, "nSCHISM_hgrid_node": nSCHISM_hgrid_node},
         )
 
         result = SimpleWWMDataset._remove_first_timestep_if_nan(ds)
@@ -182,7 +183,7 @@ class TestDatasetFunctions:
     def test_remove_first_timestep_if_nan_partial_nans(self):
         """Test _remove_first_timestep_if_nan removes first timestep with partial NaN."""
         time = np.arange(3)
-        space = np.arange(2)
+        nSCHISM_hgrid_node = np.arange(2)
 
         # Create dataset with some NaN in first timestep
         data = np.array(
@@ -194,7 +195,8 @@ class TestDatasetFunctions:
         )
 
         ds = xr.Dataset(
-            {"var": (["time", "space"], data)}, coords={"time": time, "space": space}
+            {"var": (["time", "nSCHISM_hgrid_node"], data)},
+            coords={"time": time, "nSCHISM_hgrid_node": nSCHISM_hgrid_node},
         )
 
         result = SimpleWWMDataset._remove_first_timestep_if_nan(ds)

@@ -82,7 +82,6 @@ class SimpleWWMDataset(Dataset):
         self.ds = self._remove_first_timestep_if_nan(self.ds)
         # stack AFTER computing previous values
         self.ds = self._stack_dimensions(self.ds)
-        print("STACKED", self.ds)
 
         # scale all variables
         self.scaling_params = (
