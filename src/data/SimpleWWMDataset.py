@@ -165,7 +165,7 @@ class SimpleWWMDataset(Dataset):
         Returns:
             xarray Dataset containing all variables.
         """
-        ds = xr.open_mfdataset(files).chunk("auto")
+        ds = xr.open_mfdataset(files)  # .chunk("auto")
         return ds
 
     @staticmethod
@@ -482,9 +482,8 @@ class SimpleWWMDataset(Dataset):
             return self.X[idx], self.y[idx]
 
         # select features from current sample idx
-        print(f"DEBUG load {idx}")
-        x = [self.ds.isel(sample=idx)[feat].values for feat in self.features]
-        x = torch.from_numpy(np.stack([np.asarray(v) for v in x]))
+        xa = self.ds.isel(sample=idx)[self.features].to_dataarray()
+        x = torch.from_numpy(xa.values)
 
         if self.weights is not None:
             return x, self.y[idx], self.weights[idx]

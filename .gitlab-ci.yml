@@ -89,6 +89,7 @@ deep-learning-pipeline: # runs in test
     - pwd -P
     - echo "This runs the deep learning pipeline for various experiments."
     - uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
+    - uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.preload_data=false
     - echo "Finished deep learning tests without errors."
   only:
     - merge_requests
