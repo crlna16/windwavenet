@@ -73,7 +73,7 @@ class SimpleWWMDataset(Dataset):
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
         # stack AFTER computing previous values
-        self.ds = self._stack_dimensions(self.ds)
+        # self.ds = self._stack_dimensions(self.ds)
 
         # scale all variables
         self.scaling_params = (
@@ -259,7 +259,8 @@ class SimpleWWMDataset(Dataset):
             PyTorch tensor of shape (n_samples, n_variables).
         """
         start_time = time.time()
-        # stack in xarray
+        # stack in xarray, account for omegaconf list
+        variables = [str(var) for var in list(variables)]
         da = dataset[variables].to_array(dim="variable")
         da = da.stack(sample=[d for d in da.dims if d != "variable"])
         da = da.transpose("sample", "variable")
