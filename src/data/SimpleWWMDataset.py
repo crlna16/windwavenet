@@ -265,10 +265,8 @@ class SimpleWWMDataset(Dataset):
         da = da.stack(sample=[d for d in da.dims if d != "variable"])
         da = da.transpose("sample", "variable")
 
-        # convert to numpy
-        data_np = da.data
-        data_np = np.asarray(data_np)
-        tensor = torch.from_numpy(data_np)
+        # convert to torch
+        tensor = torch.from_numpy(np.asarray(da.data))
 
         print(f"Finished retrieving data in {time.time() - start_time:.0f} seconds.")
         return tensor
