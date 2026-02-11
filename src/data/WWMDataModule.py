@@ -38,6 +38,7 @@ class WWMDataModule(L.LightningDataModule):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
     ) -> None:
         """Initialize the WWM DataModule.
 
@@ -58,6 +59,8 @@ class WWMDataModule(L.LightningDataModule):
             subsample_prob: Optional probability threshold for subsampling training data based on z_score.
                 Only applied to training dataset. If provided, samples with higher z_scores
                 (outliers) are more likely to be retained.
+            preload_data: If True, preload training features in memory. Validation/test/predict
+                data are always preloaded.
         """
         super().__init__()
 
@@ -80,6 +83,7 @@ class WWMDataModule(L.LightningDataModule):
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
+        self.preload_data = preload_data
 
         self.ds_train: Optional[Dataset] = None
         self.ds_val: Optional[Dataset] = None
@@ -117,6 +121,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=self.sample_weight_strategy,
                 sample_weight_power=self.sample_weight_power,
                 subsample_prob=self.subsample_prob,
+                preload_data=self.preload_data,
             )
 
             self.ds_val = SimpleWWMDataset(
@@ -128,6 +133,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
             self.ds_test = SimpleWWMDataset(
@@ -139,6 +145,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
         elif stage == "test":
@@ -151,6 +158,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
         elif stage == "predict":
@@ -164,6 +172,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
         elif stage in ["validate"]:

@@ -74,6 +74,9 @@ data:
   # Only applied to training dataset, not validation or test
   subsample_prob: null # Set to value between 0 and 1 to enable subsampling (e.g., 0.3)
 
+  # Preload training features in memory (targets are always preloaded)
+  preload_data: true
+
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
 

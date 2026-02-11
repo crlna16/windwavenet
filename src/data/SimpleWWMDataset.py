@@ -34,6 +34,7 @@ class SimpleWWMDataset(Dataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
     ) -> None:
         """Initialize the SimpleWWM Dataset.
 
@@ -49,6 +50,8 @@ class SimpleWWMDataset(Dataset):
             subsample_prob: Optional probability threshold for subsampling based on z_score.
                 If provided, samples are retained with probability derived from their z_score.
                 Higher z_score (outliers) have higher retention probability.
+            preload_data: If True, preload X in memory. If False, load X lazily in __getitem__.
+                Targets y are always preloaded.
         """
         super().__init__()
 
@@ -59,6 +62,7 @@ class SimpleWWMDataset(Dataset):
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
+        self.preload_data = preload_data
 
         self.files = self._collect_files(self.data_dir, self.data_range)
         self.ds = self._open_dataset(self.files)
@@ -83,9 +87,14 @@ class SimpleWWMDataset(Dataset):
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        # Load data in memory as PyTorch tensors
-        self.X = self._retrieve_data(self.ds, self.features)
+        # Always load targets in memory
         self.y = self._retrieve_data(self.ds, self.targets)
+
+        if self.preload_data:
+            # Load features in memory
+            self.X = self._retrieve_data(self.ds, self.features)
+        else:
+            self.X = None
 
         # Apply subsampling if requested
         if self.subsample_prob is not None:
@@ -94,7 +103,10 @@ class SimpleWWMDataset(Dataset):
         # Compute weights
         self.compute_weights()
 
-        log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
+        if self.preload_data:
+            log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
+        else:
+            log.info(f"Dataset initialized in lazy X mode with y: {self.y.shape}")
 
     @staticmethod
     def _collect_files(data_dir: Path, data_range: List[int]) -> List[Path]:
@@ -268,7 +280,9 @@ class SimpleWWMDataset(Dataset):
         # convert to torch
         tensor = torch.from_numpy(np.asarray(da.data))
 
-        print(f"Finished retrieving data in {time.time() - start_time:.0f} seconds.")
+        print(
+            f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds."
+        )
         return tensor
 
     @staticmethod
@@ -425,7 +439,12 @@ class SimpleWWMDataset(Dataset):
         keep_mask = random_vals < retention_probs
 
         # Apply mask to data
-        self.X = self.X[keep_mask]
+        if self.X is not None:
+            self.X = self.X[keep_mask]
+            self.sample_index = None
+        else:
+            self.sample_index = torch.nonzero(keep_mask, as_tuple=False).squeeze(1)
+
         self.y = self.y[keep_mask]
 
         n_samples_after = len(self.y)
@@ -454,9 +473,21 @@ class SimpleWWMDataset(Dataset):
             Tuple of (features, targets, weights) as PyTorch tensors if weights are computed,
             otherwise (features, targets).
         """
+        if self.preload_data:
+            if self.weights is not None:
+                return self.X[idx], self.y[idx], self.weights[idx]
+            return self.X[idx], self.y[idx]
+
+        sample_idx = idx
+        if hasattr(self, "sample_index") and self.sample_index is not None:
+            sample_idx = int(self.sample_index[idx])
+
+        features = [str(var) for var in list(self.features)]
+        x_da = self.ds[features].to_array(dim="variable").isel(sample=sample_idx)
+        x = torch.from_numpy(np.asarray(x_da.data))
         if self.weights is not None:
-            return self.X[idx], self.y[idx], self.weights[idx]
-        return self.X[idx], self.y[idx]
+            return x, self.y[idx], self.weights[idx]
+        return x, self.y[idx]
 
 
 class SimpleWWMPredictDataset(SimpleWWMDataset):
@@ -476,6 +507,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
     ) -> None:
         """Initialize the SimpleWWMPredictDataset.
 
@@ -488,6 +520,8 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
             sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
             subsample_prob: Optional probability threshold for subsampling (inherited from parent).
+            preload_data: If True, preload X in memory. If False, load X lazily in __getitem__.
+                Targets y are always preloaded.
         """
         super().__init__(
             data_dir=data_dir,
@@ -498,6 +532,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             subsample_prob=subsample_prob,
+            preload_data=preload_data,
         )
 
     def __getitem__(self, idx: int) -> Tuple:
