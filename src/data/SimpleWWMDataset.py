@@ -64,6 +64,10 @@ class SimpleWWMDataset(Dataset):
         self.subsample_prob = subsample_prob
         self.preload_data = preload_data
 
+        # account for omegaconf list
+        self.features = [str(var) for var in list(self.features)]
+        self.targets = [str(var) for var in list(self.targets)]
+
         self.files = self._collect_files(self.data_dir, self.data_range)
         self.ds = self._open_dataset(self.files)
         self.ds = self._compute_prevT(self.ds, self.features)
@@ -77,7 +81,8 @@ class SimpleWWMDataset(Dataset):
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
         # stack AFTER computing previous values
-        # self.ds = self._stack_dimensions(self.ds)
+        self.ds = self._stack_dimensions(self.ds)
+        print("STACKED", self.ds)
 
         # scale all variables
         self.scaling_params = (
@@ -103,10 +108,9 @@ class SimpleWWMDataset(Dataset):
         # Compute weights
         self.compute_weights()
 
-        if self.preload_data:
-            log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
-        else:
-            log.info(f"Dataset initialized in lazy X mode with y: {self.y.shape}")
+        log.info(
+            f"Dataset initialised with {self.y.shape} targets. Preload data: {self.preload_data}."
+        )
 
     @staticmethod
     def _collect_files(data_dir: Path, data_range: List[int]) -> List[Path]:
@@ -271,10 +275,9 @@ class SimpleWWMDataset(Dataset):
             PyTorch tensor of shape (n_samples, n_variables).
         """
         start_time = time.time()
-        # stack in xarray, account for omegaconf list
-        variables = [str(var) for var in list(variables)]
+        # stack in xarray
         da = dataset[variables].to_array(dim="variable")
-        da = da.stack(sample=[d for d in da.dims if d != "variable"])
+        # da = da.stack(sample=[d for d in da.dims if d != "variable"])
         da = da.transpose("sample", "variable")
 
         # convert to torch
@@ -478,13 +481,11 @@ class SimpleWWMDataset(Dataset):
                 return self.X[idx], self.y[idx], self.weights[idx]
             return self.X[idx], self.y[idx]
 
-        sample_idx = idx
-        if hasattr(self, "sample_index") and self.sample_index is not None:
-            sample_idx = int(self.sample_index[idx])
+        # select features from current sample idx
+        print(f"DEBUG load {idx}")
+        x = [self.ds.isel(sample=idx)[feat].values for feat in self.features]
+        x = torch.from_numpy(np.stack([np.asarray(v) for v in x]))
 
-        features = [str(var) for var in list(self.features)]
-        x_da = self.ds[features].to_array(dim="variable").isel(sample=sample_idx)
-        x = torch.from_numpy(np.asarray(x_da.data))
         if self.weights is not None:
             return x, self.y[idx], self.weights[idx]
         return x, self.y[idx]
