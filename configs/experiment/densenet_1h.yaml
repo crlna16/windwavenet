@@ -1,0 +1,44 @@
+# @package _global_
+
+# DenseNet with hourly output
+
+predict: true
+
+experiment_name: "densenet_1h"
+
+data:
+  data_dir: /work/bg1186/g260200/RUN04b_JUWELS_wpile/outputs_all/
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
+  features:
+    - windSpeedX
+    - windSpeedY
+    - elevation
+    - depthAverageVelX
+    - depthAverageVelY
+    - prev_sigWaveHeight
+  targets:
+    - delta_sigWaveHeight
+  sample_weight_strategy: z_score
+  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
+
+model:
+  target_bins:
+    delta_sigWaveHeight: [-0.1, 0.1]
+  backbone:
+    input_dim: 6
+    num_hidden_layers: 3
+    first_layer_neurons: 512
+    layer_scaling: halving
+    dropout_rate: 0.3
+
+trainer:
+  devices: 1
+
+
+logger: # set to null to disable logging
+  wandb:
+    project: wwm-emulator-hourly
+
+tags: ["dev", "densenet"]

@@ -89,7 +89,7 @@ class SimpleWWMDataset(Dataset):
         if self.subsample_prob is not None:
             self._subsample_by_zscore()
 
-        # Compute weights (still as numpy for flexibility during computation)
+        # Compute weights
         self.compute_weights()
 
         log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
