@@ -332,6 +332,7 @@ def generate_predictions_ml(
 
     log.info("Retrieving metadata from source dataset")
     ds = datamodule.ds_test.ds
+    ds = ds.unstack("sample")  # was stacked before
 
     ds_dims = ds.sizes
     log.info(

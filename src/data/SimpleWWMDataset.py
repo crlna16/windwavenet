@@ -11,6 +11,7 @@ import torch
 import xarray as xr
 import yaml
 import time
+import pandas as pd
 from torch.utils.data import Dataset
 
 from src.utils.pylogger import RankedLogger
@@ -19,9 +20,9 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class SimpleWWMDataset(Dataset):
-    """Simple Wave Wind Model Dataset that loads netCDF files for a time range.
+    """Simple Wave Wind Model Dataset that loads a zarr dataset and returns features and targets per grid point.
 
-    Loads all netCDF files from a directory between start_day and end_day indices.
+    Note that preprocessing the zarr files is handled externally (CreateZarr.ipynb).
     """
 
     def __init__(
@@ -39,7 +40,7 @@ class SimpleWWMDataset(Dataset):
         """Initialize the SimpleWWM Dataset.
 
         Args:
-            data_dir: Directory containing netCDF data files.
+            data_dir: Directory of the preprocessed zarr dataset.
             data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
@@ -68,8 +69,19 @@ class SimpleWWMDataset(Dataset):
         self.features = [str(var) for var in list(self.features)]
         self.targets = [str(var) for var in list(self.targets)]
 
-        self.files = self._collect_files(self.data_dir, self.data_range)
-        self.ds = self._open_dataset(self.files)
+        self.ds = xr.open_dataset(self.data_dir)
+        # get samples per day for indexing
+        time_delta = self.ds.time.values[1] - self.ds.time.values[0]
+        samples_per_day = int(pd.Timedelta(days=1) / time_delta)
+        log.info(f"Dataset has {samples_per_day} samples per day.")
+        start_idx = (self.data_range[0] - 1) * samples_per_day
+        end_idx = (self.data_range[1] - 1) * samples_per_day
+        self.ds = self.ds.isel(time=slice(start_idx, end_idx))
+        log.info(
+            f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}."
+        )
+
+        # now this is the same dataset
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
         # keep original variables always for reconstruction
@@ -110,62 +122,6 @@ class SimpleWWMDataset(Dataset):
         )
 
     @staticmethod
-    def _collect_files(data_dir: Path, data_range: List[int]) -> List[Path]:
-        """Collect netCDF files for specified day range.
-
-        Args:
-            data_dir: Directory containing netCDF data files.
-            data_range: Day range as [start_day, end_day] inclusive.
-
-        Returns:
-            List of file paths for the specified day range.
-        """
-        all_files = sorted(data_dir.glob("out2d_*.nc"))
-
-        if not all_files:
-            raise FileNotFoundError(f"No netCDF files found in {data_dir}")
-
-        if len(data_range) != 2:
-            raise ValueError(
-                f"data_range must be [start_day, end_day], got {data_range}"
-            )
-
-        start_day, end_day = data_range
-
-        # Select files for the day range (inclusive)
-        all_days = list(range(start_day, end_day + 1))
-        files = []
-
-        for d in all_days:
-            files.extend(data_dir.glob(f"out2d_{d}.nc"))
-
-        if not files:
-            raise ValueError(
-                f"No files found for days {start_day}-{end_day}. Total files available: {len(all_files)}"
-            )
-
-        files = sorted(files)
-
-        log.info(
-            f"Collected {len(files)} files from {data_dir} for days {start_day}-{end_day}"
-        )
-
-        return files
-
-    @staticmethod
-    def _open_dataset(files: List[Path]) -> xr.Dataset:
-        """Open dataset from netCDF files without variable selection.
-
-        Args:
-            files: List of file paths to load.
-
-        Returns:
-            xarray Dataset containing all variables.
-        """
-        ds = xr.open_mfdataset(files)  # .chunk("auto")
-        return ds
-
-    @staticmethod
     def _stack_dimensions(ds: xr.Dataset) -> xr.Dataset:
         """Stack all dimensions to form a 1D sample dimension.
         Keep former dimensions as a multiindex.
@@ -177,6 +133,19 @@ class SimpleWWMDataset(Dataset):
             xr.Dataset: Dataset with dimension "sample"
         """
         ds = ds.stack(sample=("time", "nSCHISM_hgrid_node"))
+        return ds
+
+    @staticmethod
+    def _unstack_dimensions(ds: xr.Dataset) -> xr.Dataset:
+        """Unstack the sample dimension back to time and spatial dimensions.
+
+        Args:
+            ds (xr.Dataset): Dataset with stacked "sample" dimension
+
+        Returns:
+            xr.Dataset: Dataset with "time" and "nSCHISM_hgrid_node" dimensions
+        """
+        ds = ds.unstack("sample")
         return ds
 
     @staticmethod
