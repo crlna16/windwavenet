@@ -32,6 +32,10 @@ The project is tracked online at [https://wandb.ai/wwm-emulator/simple-wwm-emula
 
 # Technical notes
 
+## Preprocessing
+
+We create zarr archives from the netcdf output. Follow the notebook `CreateZarr.ipynb`.
+
 
 ## Sample Weights Implementation
 

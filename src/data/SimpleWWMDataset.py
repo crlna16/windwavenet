@@ -91,11 +91,9 @@ class SimpleWWMDataset(Dataset):
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        # Always load targets in memory
         self.y = self._retrieve_data(self.ds, self.targets)
 
         if self.preload_data:
-            # Load features in memory
             self.X = self._retrieve_data(self.ds, self.features)
         else:
             self.X = None
