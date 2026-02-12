@@ -91,6 +91,9 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     for key, value in train_metrics.items():
         log.info(f"  {key}: {value:.6f}")
 
+    # Print feature importance
+    ml_model.print_feature_importance(cfg.data.features)
+
     # Log to WandB
     if wandb_run is not None:
         wandb.log(train_metrics)
