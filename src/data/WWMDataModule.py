@@ -202,6 +202,7 @@ class WWMDataModule(L.LightningDataModule):
             else False,
             shuffle=True,
             worker_init_fn=worker_init_fn,
+            prefetch_factor=4,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -216,6 +217,7 @@ class WWMDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             shuffle=True,  # for limit val batches (?)
+            prefetch_factor=4,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -230,6 +232,7 @@ class WWMDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             shuffle=False,
+            prefetch_factor=4,
         )
 
     def predict_dataloader(self) -> DataLoader:

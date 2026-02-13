@@ -96,8 +96,6 @@ class SimpleWWMDataset(Dataset):
 
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
-        # stack AFTER computing previous values
-        self.ds = self._stack_dimensions(self.ds)
 
         # scale all variables
         self.scaling_params = (
@@ -139,38 +137,10 @@ class SimpleWWMDataset(Dataset):
         else:
             self.compute_weights()
 
-        num_samples = len(self.ds.sample)
+        num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
         log.info(
             f"Dataset initialised with {num_samples} samples. Preload data: {self.preload_data}."
         )
-
-    @staticmethod
-    def _stack_dimensions(ds: xr.Dataset) -> xr.Dataset:
-        """Stack all dimensions to form a 1D sample dimension.
-        Keep former dimensions as a multiindex.
-
-        Args:
-            ds (xr.Dataset): Dataset
-
-        Returns:
-            xr.Dataset: Dataset with dimension "sample"
-        """
-        ds = ds.stack(sample=("time", "nSCHISM_hgrid_node"))
-        log.info(f"Stacked dimensions, now: {ds.dims}")
-        return ds
-
-    @staticmethod
-    def _unstack_dimensions(ds: xr.Dataset) -> xr.Dataset:
-        """Unstack the sample dimension back to time and spatial dimensions.
-
-        Args:
-            ds (xr.Dataset): Dataset with stacked "sample" dimension
-
-        Returns:
-            xr.Dataset: Dataset with "time" and "nSCHISM_hgrid_node" dimensions
-        """
-        ds = ds.unstack("sample")
-        return ds
 
     @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
@@ -265,7 +235,7 @@ class SimpleWWMDataset(Dataset):
         start_time = time.time()
         # stack in xarray
         da = dataset[variables].to_array(dim="variable")
-        # da = da.stack(sample=[d for d in da.dims if d != "variable"])
+        da = da.stack(sample=[d for d in da.dims if d != "variable"])
         da = da.transpose("sample", "variable")
 
         # convert to torch
@@ -452,7 +422,7 @@ class SimpleWWMDataset(Dataset):
         Returns:
             int: Number of samples.
         """
-        return len(self.ds.sample)
+        return len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
 
     def worker_init_fn(self, worker_id: int) -> None:
         """Initialize worker by splitting dataset across workers.
@@ -477,7 +447,7 @@ class SimpleWWMDataset(Dataset):
         self.num_workers = worker_info.num_workers
 
         # Split the already-preprocessed dataset across workers
-        total_samples = len(self.ds.sample)
+        total_samples = len(self.ds.time)
         samples_per_worker = total_samples // self.num_workers
         start_sample = self.worker_id * samples_per_worker
 
@@ -488,10 +458,10 @@ class SimpleWWMDataset(Dataset):
             end_sample = start_sample + samples_per_worker
 
         # Filter dataset to this worker's samples
-        self.ds = self.ds.isel(sample=slice(start_sample, end_sample))
+        self.ds = self.ds.isel(time=slice(start_sample, end_sample))
 
         log.info(
-            f"Worker {self.worker_id}/{self.num_workers}: Handling samples [{start_sample}:{end_sample}] "
+            f"Worker {self.worker_id}/{self.num_workers}: Handling times [{start_sample}:{end_sample}] "
             f"({end_sample - start_sample}/{total_samples})"
         )
 

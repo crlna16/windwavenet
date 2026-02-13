@@ -40,22 +40,37 @@ seed: null
 ## ------------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
-  train_days: [31, 33]  # Day range for training [start_day, end_day] inclusive
-  val_days: [34, 34]  # Day range for validation [start_day, end_day] inclusive
-  test_days: [35, 36]  # Day range for testing [start_day, end_day] inclusive
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
   features:
     - windSpeedX
     - windSpeedY
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
-  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
+  scaling_config: src/data/scaling/scale_2020_hourly.yaml
   batch_size: 2048
   num_workers: 8
   pin_memory: true
+  # Set persistent_workers to avoid recreating workers each epoch
+  # Only works with num_workers > 0
+  persistent_workers: true
+
+  # Optional: sample weighting strategy for imbalanced regression
+  # Options: null (no weighting), 'abs_value' (weight by absolute value of targets), 'z_score'
   sample_weight_strategy: null
-  sample_weight_power: 1.0
+
+  sample_weight_power: 1.0 # Exponent for controlling sample weight intensity
+
+  # Optional: subsample training data based on z_score probability
+  # If set (e.g., 0.5), samples with higher z_scores (outliers) are more likely to be retained
+  # Only applied to training dataset, not validation or test
+  subsample_prob: null # Set to value between 0 and 1 to enable subsampling (e.g., 0.3)
+
+  # Preload training features in memory (targets are always preloaded)
+  preload_data: true
 
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
@@ -101,6 +116,7 @@ trainer:
   max_epochs: 1000
   accelerator: auto
   devices: auto
+  enable_progress_bar: false
 
 paths:
   root_dir: ${hydra:runtime.cwd}

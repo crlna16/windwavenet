@@ -55,7 +55,7 @@ data:
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
-  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
+  scaling_config: src/data/scaling/scale_2020_hourly.yaml
   batch_size: 2048
   num_workers: 8
   pin_memory: true
@@ -116,7 +116,7 @@ model:
 
 trainer:
   _target_: lightning.pytorch.trainer.Trainer
-  min_epochs: 1
+  min_epochs: 0
   max_epochs: 1000
   accelerator: auto
   devices: auto
