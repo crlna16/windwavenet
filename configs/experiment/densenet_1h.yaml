@@ -7,7 +7,6 @@ predict: true
 experiment_name: "densenet_1h"
 
 data:
-  data_dir: /work/bg1186/g260200/RUN04b_JUWELS_wpile/outputs_all/
   train_days: [1, 304]
   val_days: [305, 334]
   test_days: [335, 365]

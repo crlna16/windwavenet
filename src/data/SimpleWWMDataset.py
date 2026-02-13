@@ -69,13 +69,17 @@ class SimpleWWMDataset(Dataset):
         self.features = [str(var) for var in list(self.features)]
         self.targets = [str(var) for var in list(self.targets)]
 
-        self.ds = xr.open_dataset(self.data_dir)
+        # Store parameters for worker initialization
+        self.worker_id = None
+        self.num_workers = None
+
+        self.ds = xr.open_dataset(self.data_dir, engine="zarr", chunks="auto")
         # get samples per day for indexing
         time_delta = self.ds.time.values[1] - self.ds.time.values[0]
-        samples_per_day = int(pd.Timedelta(days=1) / time_delta)
-        log.info(f"Dataset has {samples_per_day} samples per day.")
-        start_idx = (self.data_range[0] - 1) * samples_per_day
-        end_idx = (self.data_range[1] - 1) * samples_per_day
+        self.samples_per_day = int(pd.Timedelta(days=1) / time_delta)
+        log.info(f"Dataset has {self.samples_per_day} samples per day.")
+        start_idx = (self.data_range[0] - 1) * self.samples_per_day
+        end_idx = (self.data_range[1] - 1) * self.samples_per_day
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
         log.info(
             f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}."
@@ -103,22 +107,41 @@ class SimpleWWMDataset(Dataset):
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        self.y = self._retrieve_data(self.ds, self.targets)
-
+        # Preload data based on preload_data flag
         if self.preload_data:
             self.X = self._retrieve_data(self.ds, self.features)
+            self.y = self._retrieve_data(self.ds, self.targets)
         else:
             self.X = None
+            self.y = None
+            log.info(
+                "Lazy loading enabled: features and targets will be loaded on-demand"
+            )
 
-        # Apply subsampling if requested
+        # Apply subsampling if requested (only works with preloaded data)
         if self.subsample_prob is not None:
-            self._subsample_by_zscore()
+            if self.preload_data:
+                self._subsample_by_zscore()
+            else:
+                log.warning(
+                    "Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling."
+                )
 
-        # Compute weights
-        self.compute_weights()
+        # Compute weights (only works with preloaded data)
+        if self.sample_weight_strategy is not None:
+            if self.preload_data:
+                self.compute_weights()
+            else:
+                log.warning(
+                    "Sample weighting requires preload_data=True. Skipping weight computation."
+                )
+                self.weights = None
+        else:
+            self.compute_weights()
 
+        num_samples = len(self.ds.sample)
         log.info(
-            f"Dataset initialised with {self.y.shape} targets. Preload data: {self.preload_data}."
+            f"Dataset initialised with {num_samples} samples. Preload data: {self.preload_data}."
         )
 
     @staticmethod
@@ -133,6 +156,7 @@ class SimpleWWMDataset(Dataset):
             xr.Dataset: Dataset with dimension "sample"
         """
         ds = ds.stack(sample=("time", "nSCHISM_hgrid_node"))
+        log.info(f"Stacked dimensions, now: {ds.dims}")
         return ds
 
     @staticmethod
@@ -213,21 +237,19 @@ class SimpleWWMDataset(Dataset):
         """Remove first time step if it contains NaN values.
 
         When computing shifted variables (prev_* or delta_*), the first time step
-        will contain NaN values. This method checks and removes it if needed.
+        will contain NaN values. This method removes it unconditionally to avoid
+        triggering computation with .any() check.
 
         Args:
             dataset: xarray Dataset containing the data.
 
         Returns:
-            Dataset with first time step removed if it contained NaN values.
+            Dataset with first time step removed.
         """
-        # sufficient to check one grid cell since delta was applied across all
-        first_time = dataset.isel(time=0, nSCHISM_hgrid_node=0)
-        for var in first_time.data_vars:
-            if first_time[var].isnull().any():
-                log.info("Removing first time step (contains NaN values)")
-                return dataset.isel(time=slice(1, None))
-        return dataset
+        # Unconditionally remove first timestep to avoid triggering .any() computation
+        # We know it will have NaN values from shift/diff operations
+        log.info("Removing first time step (contains NaN from shift/diff operations)")
+        return dataset.isel(time=slice(1, None))
 
     @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
@@ -430,7 +452,48 @@ class SimpleWWMDataset(Dataset):
         Returns:
             int: Number of samples.
         """
-        return len(self.y)
+        return len(self.ds.sample)
+
+    def worker_init_fn(self, worker_id: int) -> None:
+        """Initialize worker by splitting dataset across workers.
+
+        Called after the dataset is pickled to the worker process. The dataset
+        (self.ds) is already preprocessed; we just split it across workers.
+
+        This allows lazy loading (preload_data=False) to work with multiple workers
+        by having each worker load only its portion of the data.
+
+        Args:
+            worker_id: Worker ID assigned by DataLoader
+        """
+        import torch.utils.data
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            # Single-process loading
+            return
+
+        self.worker_id = worker_info.id
+        self.num_workers = worker_info.num_workers
+
+        # Split the already-preprocessed dataset across workers
+        total_samples = len(self.ds.sample)
+        samples_per_worker = total_samples // self.num_workers
+        start_sample = self.worker_id * samples_per_worker
+
+        if self.worker_id == self.num_workers - 1:
+            # Last worker takes remaining samples
+            end_sample = total_samples
+        else:
+            end_sample = start_sample + samples_per_worker
+
+        # Filter dataset to this worker's samples
+        self.ds = self.ds.isel(sample=slice(start_sample, end_sample))
+
+        log.info(
+            f"Worker {self.worker_id}/{self.num_workers}: Handling samples [{start_sample}:{end_sample}] "
+            f"({end_sample - start_sample}/{total_samples})"
+        )
 
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.
@@ -447,13 +510,30 @@ class SimpleWWMDataset(Dataset):
                 return self.X[idx], self.y[idx], self.weights[idx]
             return self.X[idx], self.y[idx]
 
-        # select features from current sample idx
-        xa = self.ds.isel(sample=idx)[self.features].to_dataarray()
+        # Lazy loading mode: load both features and targets from dataset
+        # When using workers, map global index to worker-local index
+        if self.num_workers is not None and self.num_workers > 1:
+            # Calculate which samples this worker handles
+            total_samples = len(self.ds.sample)
+            samples_per_worker = total_samples // self.num_workers
+            start_sample = self.worker_id * samples_per_worker
+            local_idx = idx - start_sample
+        else:
+            local_idx = idx
+
+        # Load features and targets from dataset
+        sample_data = self.ds.isel(sample=local_idx)
+
+        xa = sample_data[self.features].to_dataarray()
         x = torch.from_numpy(xa.values)
 
+        ya = sample_data[self.targets].to_dataarray()
+        y = torch.from_numpy(ya.values)
+
+        # Weights are not supported in lazy loading mode
         if self.weights is not None:
-            return x, self.y[idx], self.weights[idx]
-        return x, self.y[idx]
+            return x, y, self.weights[idx]
+        return x, y
 
 
 class SimpleWWMPredictDataset(SimpleWWMDataset):

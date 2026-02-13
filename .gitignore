@@ -13,3 +13,4 @@ scripts/slurm/
 wandb/
 public/
 *.png
+slurm*out

@@ -187,6 +187,11 @@ class WWMDataModule(L.LightningDataModule):
         Returns:
             The train dataloader.
         """
+        # Use worker_init_fn when not preloading data and using multiple workers
+        worker_init_fn = None
+        if self.num_workers > 0 and not self.preload_data:
+            worker_init_fn = lambda worker_id: self.ds_train.worker_init_fn(worker_id)  # noqa: E731
+
         return DataLoader(
             dataset=self.ds_train,
             batch_size=self.batch_size,
@@ -196,6 +201,7 @@ class WWMDataModule(L.LightningDataModule):
             if self.num_workers > 0
             else False,
             shuffle=True,
+            worker_init_fn=worker_init_fn,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -206,13 +212,10 @@ class WWMDataModule(L.LightningDataModule):
         """
         return DataLoader(
             dataset=self.ds_val,
-            batch_size=self.batch_size,
+            batch_size=4 * self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
-            shuffle=False,
+            shuffle=True,  # for limit val batches (?)
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -223,12 +226,9 @@ class WWMDataModule(L.LightningDataModule):
         """
         return DataLoader(
             dataset=self.ds_test,
-            batch_size=self.batch_size,
+            batch_size=4 * self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
             shuffle=False,
         )
 
@@ -243,8 +243,5 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
             shuffle=False,
         )

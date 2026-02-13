@@ -45,10 +45,10 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
-  train_days: [31, 33]  # Day range for training [start_day, end_day] inclusive
-  val_days: [34, 34]  # Day range for validation [start_day, end_day] inclusive
-  test_days: [35, 36]  # Day range for testing [start_day, end_day] inclusive
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
   features:
     - windSpeedX
     - windSpeedY
