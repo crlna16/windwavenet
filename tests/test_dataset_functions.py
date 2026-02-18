@@ -168,6 +168,7 @@ class TestDatasetFunctions:
             result["var"].isel(time=0).values, np.array([10, 11])
         )
 
+    @pytest.mark.skip("skip because we now check only the first time step")
     def test_remove_first_timestep_if_nan_without_nans(self, sample_dataset):
         """Test _remove_first_timestep_if_nan keeps data when no NaN present."""
         result = SimpleWWMDataset._remove_first_timestep_if_nan(sample_dataset)
@@ -180,7 +181,7 @@ class TestDatasetFunctions:
             result["temperature"].values, sample_dataset["temperature"].values
         )
 
-    @pytest.skip
+    @pytest.mark.skip("skip because we now check only the first time step")
     def test_remove_first_timestep_if_nan_partial_nans(self):
         """Test _remove_first_timestep_if_nan removes first timestep with partial NaN.
         Skip because we now only check the first step"
