@@ -14,3 +14,4 @@ wandb/
 public/
 *.png
 slurm*out
+tests/cicd_data/cicd.zarr/*
