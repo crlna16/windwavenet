@@ -90,7 +90,7 @@ class WWMDataModule(L.LightningDataModule):
         self.ds_test: Optional[Dataset] = None
 
         if self.num_workers == 0:
-            self.prefetch_factor = 0
+            self.prefetch_factor = None
         else:
             self.prefetch_factor = 4
 
