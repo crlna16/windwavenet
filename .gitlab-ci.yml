@@ -88,8 +88,8 @@ deep-learning-pipeline: # runs in test
     - unzip data.zip -d DATA
     - pwd -P
     - echo "This runs the deep learning pipeline for various experiments."
-    - uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
-    - uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.preload_data=false
+    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.preload_data=false
     - echo "Finished deep learning tests without errors."
   only:
     - merge_requests
@@ -108,10 +108,10 @@ machine-learning-pipeline: # runs in test
     - unzip data.zip -d DATA
     - pwd -P
     - echo "This runs the machine learning pipeline for various experiments."
-    - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml"
-    - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["sigWaveHeight"]'
+    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["sigWaveHeight"]'
     # this should exit gracefully
-    - uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_dominantDirection"]'
+    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_dominantDirection"]'
     - echo "Finished machine learning tests without errors."
   only:
     - merge_requests
