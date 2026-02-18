@@ -46,7 +46,7 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /builds/hereon-ksn/wave-wind-model-emulator/DATA/cicd_data/
+  data_dir: /builds/hereon-ksn/wave-wind-model-emulator/DATA/cicd.zarr
   train_days: [11, 12]  # Single day for CI/CD testing [start, end] inclusive
   val_days: [13, 13]  # Single day for CI/CD testing [start, end] inclusive
   test_days: [14, 14]  # Single day for CI/CD testing [start, end] inclusive
