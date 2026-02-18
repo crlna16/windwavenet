@@ -81,6 +81,7 @@ class SimpleWWMDataset(Dataset):
         start_idx = (self.data_range[0] - 1) * self.samples_per_day
         end_idx = (self.data_range[1] - 1) * self.samples_per_day
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
+        log.info(self.ds.time)
         log.info(
             f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}."
         )
@@ -241,7 +242,7 @@ class SimpleWWMDataset(Dataset):
         # convert to torch
         tensor = torch.from_numpy(np.asarray(da.data))
 
-        print(
+        log.info(
             f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds."
         )
         return tensor
