@@ -89,6 +89,11 @@ class WWMDataModule(L.LightningDataModule):
         self.ds_val: Optional[Dataset] = None
         self.ds_test: Optional[Dataset] = None
 
+        if self.num_workers == 0:
+            self.prefetch_factor = 0
+        else:
+            self.prefetch_factor = 4
+
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures this runs only on 1 GPU.
 
@@ -202,7 +207,7 @@ class WWMDataModule(L.LightningDataModule):
             else False,
             shuffle=True,
             worker_init_fn=worker_init_fn,
-            prefetch_factor=4,
+            prefetch_factor=self.prefetch_factor,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -217,7 +222,7 @@ class WWMDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             shuffle=True,  # for limit val batches (?)
-            prefetch_factor=4,
+            prefetch_factor=self.prefetch_factor,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -232,7 +237,7 @@ class WWMDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             shuffle=False,
-            prefetch_factor=4,
+            prefetch_factor=self.prefetch_factor,
         )
 
     def predict_dataloader(self) -> DataLoader:
