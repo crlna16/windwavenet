@@ -74,7 +74,10 @@ class SimpleWWMDataset(Dataset):
         self.num_workers = None
         self.worker_time_len = None
 
-        self.ds = xr.open_dataset(self.data_dir, engine="zarr", chunks="auto")
+        self.ds = xr.open_dataset(
+            self.data_dir,
+            engine="zarr",
+        )
         # get samples per day for indexing
         time_delta = self.ds.time.values[1] - self.ds.time.values[0]
         self.samples_per_day = int(pd.Timedelta(days=1) / time_delta)
@@ -498,7 +501,6 @@ class SimpleWWMDataset(Dataset):
         local_t_idx = local_idx // n_nodes
         local_x_idx = local_idx % n_nodes
 
-        # Load features and targets from dataset
         sample_data = self.ds.isel(time=local_t_idx, nSCHISM_hgrid_node=local_x_idx)
 
         xa = sample_data[self.features].to_dataarray()
