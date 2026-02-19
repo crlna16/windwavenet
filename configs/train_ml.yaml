@@ -27,10 +27,10 @@ seed: 260801
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
-  train_days: [31, 33]
-  val_days: [34, 34]
-  test_days: [35, 36]
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
   features:
     - windSpeedX
     - windSpeedY
@@ -48,12 +48,15 @@ data:
   sample_weight_power: 1.0
   subsample_prob: null # Set to value between 0 and 1 to enable subsampling (e.g., 0.3)
 
+  # Preload training features in memory (targets are always preloaded)
+  preload_data: true
+
 ## ----------------------------------
 ## Logger configuration
 ## ----------------------------------
 logger: # set to null to disable logging
   wandb:
-    project: simple-wwm-emulator
+    project: wwm-emulator-hourly
     entity: wwm-emulator
     name: null  # Auto-generated if null
     #save_dir: "${paths.output_dir}"

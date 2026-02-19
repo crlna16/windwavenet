@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileContributor: Caroline Arnold
+#
+# SPDX-License-Identifier: MIT
+
+windSpeedX:
+  mean: 5.038548
+  std: 6.027648
+windSpeedY:
+  mean: 3.3067167
+  std: 6.2532287
+elevation:
+  mean: 0.30683705
+  std: 0.91909295
+depthAverageVelX:
+  mean: -0.017730717
+  std: 0.30434707
+depthAverageVelY:
+  mean: 0.008856153
+  std: 0.2007033
+sigWaveHeight:
+  mean: 1.7700078
+  std: 1.115033
+prev_sigWaveHeight:
+  mean: 1.7700078
+  std: 1.115033
+peakPeriod:
+  mean: 6.191719
+  std: 2.0858357
+meanWavePeriod:
+  mean: 5.330238
+  std: 1.5788294
+TM10:
+  mean: 5.254476
+  std: 1.6329303

@@ -38,6 +38,7 @@ class WWMDataModule(L.LightningDataModule):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
     ) -> None:
         """Initialize the WWM DataModule.
 
@@ -58,6 +59,8 @@ class WWMDataModule(L.LightningDataModule):
             subsample_prob: Optional probability threshold for subsampling training data based on z_score.
                 Only applied to training dataset. If provided, samples with higher z_scores
                 (outliers) are more likely to be retained.
+            preload_data: If True, preload training features in memory. Validation/test/predict
+                data are always preloaded.
         """
         super().__init__()
 
@@ -80,10 +83,16 @@ class WWMDataModule(L.LightningDataModule):
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
+        self.preload_data = preload_data
 
         self.ds_train: Optional[Dataset] = None
         self.ds_val: Optional[Dataset] = None
         self.ds_test: Optional[Dataset] = None
+
+        if self.num_workers == 0:
+            self.prefetch_factor = None
+        else:
+            self.prefetch_factor = 4
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures this runs only on 1 GPU.
@@ -117,6 +126,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=self.sample_weight_strategy,
                 sample_weight_power=self.sample_weight_power,
                 subsample_prob=self.subsample_prob,
+                preload_data=self.preload_data,
             )
 
             self.ds_val = SimpleWWMDataset(
@@ -128,6 +138,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
             self.ds_test = SimpleWWMDataset(
@@ -139,6 +150,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
         elif stage == "test":
@@ -151,6 +163,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
         elif stage == "predict":
@@ -164,6 +177,7 @@ class WWMDataModule(L.LightningDataModule):
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
+                preload_data=True,
             )
 
         elif stage in ["validate"]:
@@ -178,6 +192,11 @@ class WWMDataModule(L.LightningDataModule):
         Returns:
             The train dataloader.
         """
+        # Use worker_init_fn when not preloading data and using multiple workers
+        worker_init_fn = None
+        if self.num_workers > 0 and not self.preload_data:
+            worker_init_fn = lambda worker_id: self.ds_train.worker_init_fn(worker_id)  # noqa: E731
+
         return DataLoader(
             dataset=self.ds_train,
             batch_size=self.batch_size,
@@ -187,6 +206,8 @@ class WWMDataModule(L.LightningDataModule):
             if self.num_workers > 0
             else False,
             shuffle=True,
+            worker_init_fn=worker_init_fn,
+            prefetch_factor=self.prefetch_factor,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -197,13 +218,11 @@ class WWMDataModule(L.LightningDataModule):
         """
         return DataLoader(
             dataset=self.ds_val,
-            batch_size=self.batch_size,
+            batch_size=4 * self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
-            shuffle=False,
+            shuffle=True,  # for limit val batches (?)
+            prefetch_factor=self.prefetch_factor,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -214,13 +233,11 @@ class WWMDataModule(L.LightningDataModule):
         """
         return DataLoader(
             dataset=self.ds_test,
-            batch_size=self.batch_size,
+            batch_size=4 * self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
             shuffle=False,
+            prefetch_factor=self.prefetch_factor,
         )
 
     def predict_dataloader(self) -> DataLoader:
@@ -234,8 +251,5 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
             shuffle=False,
         )

@@ -10,6 +10,8 @@ import numpy as np
 import torch
 import xarray as xr
 import yaml
+import time
+import pandas as pd
 from torch.utils.data import Dataset
 
 from src.utils.pylogger import RankedLogger
@@ -18,9 +20,9 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class SimpleWWMDataset(Dataset):
-    """Simple Wave Wind Model Dataset that loads netCDF files for a time range.
+    """Dataset that loads a Zarr dataset and returns features and targets per grid point and time.
 
-    Loads all netCDF files from a directory between start_day and end_day indices.
+    Note that preprocessing the zarr files is handled externally (CreateZarr.ipynb).
     """
 
     def __init__(
@@ -33,12 +35,13 @@ class SimpleWWMDataset(Dataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
     ) -> None:
-        """Initialize the SimpleWWM Dataset.
+        """Initialize the dataset.
 
         Args:
-            data_dir: Directory containing netCDF data files.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
+            data_dir: Directory of the preprocessed Zarr dataset.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -48,6 +51,8 @@ class SimpleWWMDataset(Dataset):
             subsample_prob: Optional probability threshold for subsampling based on z_score.
                 If provided, samples are retained with probability derived from their z_score.
                 Higher z_score (outliers) have higher retention probability.
+            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
+                With multiple workers, each worker slices the time axis to avoid shared Zarr chunks.
         """
         super().__init__()
 
@@ -58,12 +63,35 @@ class SimpleWWMDataset(Dataset):
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
+        self.preload_data = preload_data
 
-        self.files = self._collect_files(self.data_dir, self.data_range)
-        self.ds = self._open_dataset(self.files)
+        # account for omegaconf list
+        self.features = [str(var) for var in list(self.features)]
+        self.targets = [str(var) for var in list(self.targets)]
+
+        # Store parameters for worker initialization
+        self.worker_id = None
+        self.num_workers = None
+        self.worker_time_len = None
+
+        self.ds = xr.open_dataset(
+            self.data_dir,
+            engine="zarr",
+        )
+        # get samples per day for indexing
+        time_delta = self.ds.time.values[1] - self.ds.time.values[0]
+        self.samples_per_day = int(pd.Timedelta(days=1) / time_delta)
+        log.info(f"Dataset has {self.samples_per_day} samples per day.")
+        start_idx = (self.data_range[0] - 1) * self.samples_per_day
+        end_idx = (self.data_range[1] - 1) * self.samples_per_day
+        self.ds = self.ds.isel(time=slice(start_idx, end_idx))
+        log.info(
+            f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}."
+        )
+
+        # now this is the same dataset
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
-
         # keep original variables always for reconstruction
         selected_targets = self.targets + [
             tt.replace("delta_", "") for tt in self.targets
@@ -73,6 +101,8 @@ class SimpleWWMDataset(Dataset):
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
 
+        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
+
         # scale all variables
         self.scaling_params = (
             self._load_scaling_config(scaling_config) if scaling_config else None
@@ -81,91 +111,59 @@ class SimpleWWMDataset(Dataset):
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        # Load data in memory as PyTorch tensors
-        self.X = self._retrieve_data(self.ds, self.features)
-        self.y = self._retrieve_data(self.ds, self.targets)
+        # Preload data based on preload_data flag
+        if self.preload_data:
+            self.X = self._retrieve_data(self.ds, self.features)
+            self.y = self._retrieve_data(self.ds, self.targets)
+        else:
+            self.X = None
+            self.y = None
+            log.info(
+                "Lazy loading enabled: features and targets will be loaded on-demand"
+            )
 
-        # Apply subsampling if requested
+        # Apply subsampling if requested (only works with preloaded data)
         if self.subsample_prob is not None:
-            self._subsample_by_zscore()
+            if self.preload_data:
+                self._subsample_by_zscore()
+            else:
+                log.warning(
+                    "Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling."
+                )
 
-        # Compute weights
-        self.compute_weights()
+        # Compute weights (only works with preloaded data)
+        if self.sample_weight_strategy is not None:
+            if self.preload_data:
+                self.compute_weights()
+            else:
+                log.warning(
+                    "Sample weighting requires preload_data=True. Skipping weight computation."
+                )
+                self.weights = None
+        else:
+            self.compute_weights()
 
-        log.info(f"Dataset loaded with X: {self.X.shape} / y: {self.y.shape}")
-
-    @staticmethod
-    def _collect_files(data_dir: Path, data_range: List[int]) -> List[Path]:
-        """Collect netCDF files for specified day range.
-
-        Args:
-            data_dir: Directory containing netCDF data files.
-            data_range: Day range as [start_day, end_day] inclusive.
-
-        Returns:
-            List of file paths for the specified day range.
-        """
-        all_files = sorted(data_dir.glob("out2d_*.nc"))
-
-        if not all_files:
-            raise FileNotFoundError(f"No netCDF files found in {data_dir}")
-
-        if len(data_range) != 2:
-            raise ValueError(
-                f"data_range must be [start_day, end_day], got {data_range}"
-            )
-
-        start_day, end_day = data_range
-
-        # Select files for the day range (inclusive)
-        all_days = list(range(start_day, end_day + 1))
-        files = []
-
-        for d in all_days:
-            files.extend(data_dir.glob(f"out2d_{d}.nc"))
-
-        if not files:
-            raise ValueError(
-                f"No files found for days {start_day}-{end_day}. Total files available: {len(all_files)}"
-            )
-
-        files = sorted(files)
-
+        num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
         log.info(
-            f"Collected {len(files)} files from {data_dir} for days {start_day}-{end_day}"
+            f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}."
         )
-
-        return files
-
-    @staticmethod
-    def _open_dataset(files: List[Path]) -> xr.Dataset:
-        """Open dataset from netCDF files without variable selection.
-
-        Args:
-            files: List of file paths to load.
-
-        Returns:
-            xarray Dataset containing all variables.
-        """
-        ds = xr.open_mfdataset(files).chunk("auto")
-        return ds
 
     @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
-        """Compute Delta(target) = target(t) - target(t-1).
+        """Compute delta_target = target(t) - target(t-1).
 
         For targets starting with 'delta_', computes the difference with respect to the
         previous time step and stores that value in a new variable.
 
-        E.g. for sigWaveHeight and time=t:
-          ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
+                Example for sigWaveHeight and time=t:
+                    ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
 
         Args:
             dataset: xarray Dataset containing the data.
             targets: List of target variable names.
 
         Returns:
-            Dataset with difference wrto time per variable added.
+            Dataset with per-target differences with respect to time added.
         """
         for target in targets:
             if target.startswith("delta_"):
@@ -177,10 +175,10 @@ class SimpleWWMDataset(Dataset):
 
     @staticmethod
     def _compute_prevT(dataset: xr.Dataset, features: List[str]) -> xr.Dataset:
-        """Compute prev(feature) = feature(t-1)
+        """Compute prev_feature = feature(t-1).
 
-        E.g. for sigWaveHeight and time=t:
-          ds["prev_sigWaveHeight"][t]  = ds["sigWaveHeight"][t-1]
+                Example for sigWaveHeight and time=t:
+                    ds["prev_sigWaveHeight"][t] = ds["sigWaveHeight"][t-1]
 
         Args:
             dataset (xr.Dataset): xarray Dataset containing the data.
@@ -215,44 +213,52 @@ class SimpleWWMDataset(Dataset):
         """Remove first time step if it contains NaN values.
 
         When computing shifted variables (prev_* or delta_*), the first time step
-        will contain NaN values. This method checks and removes it if needed.
+        will contain NaN values. This method removes it unconditionally to avoid
+        triggering computation with .any() check.
 
         Args:
             dataset: xarray Dataset containing the data.
 
         Returns:
-            Dataset with first time step removed if it contained NaN values.
+            Dataset with first time step removed.
         """
-        first_time = dataset.isel(time=0)
-        if first_time.to_array().isnull().any():
-            log.info("Removing first time step (contains NaN values)")
-            return dataset.isel(time=slice(1, None))
-        return dataset
+        # Unconditionally remove first timestep to avoid triggering .any() computation
+        # We know it will have NaN values from shift/diff operations
+        log.info("Removing first time step (NaN from shift/diff operations)")
+        return dataset.isel(time=slice(1, None))
 
     @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
-        """Extract variable data from xarray Dataset and convert to PyTorch tensor.
+        """Extract variable data from an xarray Dataset and convert to a PyTorch tensor.
 
         Args:
             dataset: xarray Dataset containing the data.
             variables: List of variable names to extract.
 
         Returns:
-            PyTorch tensor of shape (n_samples, n_variables).
+            PyTorch tensor of shape (n_samples, n_variables) with time as the slow axis
+            and nSCHISM_hgrid_node as the fast axis.
         """
-        x = []
-        for var in variables:
-            xx = dataset[var].values
-            x.append(xx)
-        data_np = np.asarray(x).reshape(len(variables), -1).transpose()
-        return torch.from_numpy(data_np).float()
+        start_time = time.time()
+        # stack in xarray
+        da = dataset[variables].to_array(dim="variable")
+        da = da.stack(sample=[d for d in da.dims if d != "variable"])
+        da = da.transpose("sample", "variable")
+
+        # convert to torch
+        tensor = torch.from_numpy(np.asarray(da.data))
+
+        log.info(
+            f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds."
+        )
+        return tensor
 
     @staticmethod
     def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
         """Load scaling parameters from YAML file.
 
         Args:
-            config_path: Path to YAML file containing mean and std for each ggvariable.
+            config_path: Path to a YAML file containing mean and std for each variable.
 
         Returns:
             Dictionary mapping variable names to their mean and std values.
@@ -298,7 +304,7 @@ class SimpleWWMDataset(Dataset):
         """Revert standardization scaling of variables in the dataset.
 
         Args:
-            dataset (xr.Dataset): xarray Dataset containing the variabels.
+            dataset (xr.Dataset): xarray Dataset containing the variables.
             variables (List[str]): List of variable names to un-scale.
             scaling_params (Dict[str, Dict[str, float]]): Dictionary mapping variable names to
               their mean and std values.
@@ -311,7 +317,7 @@ class SimpleWWMDataset(Dataset):
                 mean = scaling_params[var]["mean"]
                 std = scaling_params[var]["std"]
                 dataset[var] = dataset[var] * std + mean
-                log.info(f"Reverted scaling for varibale {var}.")
+                log.info(f"Reverted scaling for variable {var}.")
             else:
                 raise ValueError(f"No parameters found to revert scaling for {var}.")
 
@@ -371,10 +377,10 @@ class SimpleWWMDataset(Dataset):
         - Samples far from mean (high |z|) have high retention probability (~1)
 
         The actual retention is determined by comparing these probabilities against
-        a uniform random draw.
+        a uniform random draw. Only supported when data is preloaded.
         """
         log.info(
-            f"Subsampling dataset based on z_score with threshold {self.subsample_prob}..."
+            f"Subsampling dataset based on z-score with target rate {self.subsample_prob}..."
         )
 
         n_samples_before = len(self.y)
@@ -401,7 +407,12 @@ class SimpleWWMDataset(Dataset):
         keep_mask = random_vals < retention_probs
 
         # Apply mask to data
-        self.X = self.X[keep_mask]
+        if self.X is not None:
+            self.X = self.X[keep_mask]
+            self.sample_index = None
+        else:
+            self.sample_index = torch.nonzero(keep_mask, as_tuple=False).squeeze(1)
+
         self.y = self.y[keep_mask]
 
         n_samples_after = len(self.y)
@@ -413,12 +424,54 @@ class SimpleWWMDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        """Return the number of samples in the dataset.
+        """Return the number of samples in the (possibly worker-sliced) dataset.
 
         Returns:
             int: Number of samples.
         """
-        return len(self.y)
+        return len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
+
+    def worker_init_fn(self, worker_id: int) -> None:
+        """Initialize a worker by slicing the dataset across the time dimension.
+
+        Called after the dataset is pickled to the worker process. The dataset
+        (self.ds) is already preprocessed; we just split it across workers.
+
+        This allows lazy loading (preload_data=False) to work with multiple workers
+        by having each worker load only its portion of the time axis.
+
+        Args:
+            worker_id: Worker ID assigned by DataLoader
+        """
+        import torch.utils.data
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            # Single-process loading
+            return
+
+        self.worker_id = worker_info.id
+        self.num_workers = worker_info.num_workers
+
+        # Split the already-preprocessed dataset across workers
+        total_times = len(self.ds.time)
+        times_per_worker = total_times // self.num_workers
+        start_time = self.worker_id * times_per_worker
+
+        if self.worker_id == self.num_workers - 1:
+            # Last worker takes remaining samples
+            end_time = total_times
+        else:
+            end_time = start_time + times_per_worker
+
+        # Filter dataset to this worker's samples
+        self.ds = self.ds.isel(time=slice(start_time, end_time))
+        self.worker_time_len = end_time - start_time
+
+        log.info(
+            f"Worker {self.worker_id}/{self.num_workers}: handling time indices [{start_time}:{end_time}] "
+            f"({end_time - start_time}/{total_times})"
+        )
 
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.
@@ -428,18 +481,45 @@ class SimpleWWMDataset(Dataset):
 
         Returns:
             Tuple of (features, targets, weights) as PyTorch tensors if weights are computed,
-            otherwise (features, targets).
+            otherwise (features, targets). In lazy mode with multiple workers, the index
+            is wrapped to the worker-local time slice.
         """
+        if self.preload_data:
+            if self.weights is not None:
+                return self.X[idx], self.y[idx], self.weights[idx]
+            return self.X[idx], self.y[idx]
+
+        # Lazy loading mode: load both features and targets from dataset
+        # Indexing follows the stacked order: time is the slow axis, node is the fast axis.
+        local_idx = idx
+
+        n_nodes = self.n_nodes
+        if self.worker_time_len is not None:
+            local_total = self.worker_time_len * n_nodes
+            local_idx = local_idx % local_total
+
+        local_t_idx = local_idx // n_nodes
+        local_x_idx = local_idx % n_nodes
+
+        sample_data = self.ds.isel(time=local_t_idx, nSCHISM_hgrid_node=local_x_idx)
+
+        xa = sample_data[self.features].to_dataarray()
+        x = torch.from_numpy(xa.values)
+
+        ya = sample_data[self.targets].to_dataarray()
+        y = torch.from_numpy(ya.values)
+
+        # Weights are not supported in lazy loading mode
         if self.weights is not None:
-            return self.X[idx], self.y[idx], self.weights[idx]
-        return self.X[idx], self.y[idx]
+            return x, y, self.weights[idx]
+        return x, y
 
 
 class SimpleWWMPredictDataset(SimpleWWMDataset):
     """Dataset to be used for predictions.
 
     Args:
-        SimpleWWMDataset (torch.Dataset): Dataset class handling grid-point-wise WWM data.
+        SimpleWWMDataset (torch.Dataset): Base dataset class handling grid-point-wise WWM data.
     """
 
     def __init__(
@@ -452,18 +532,20 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
     ) -> None:
-        """Initialize the SimpleWWMPredictDataset.
+        """Initialize the prediction dataset.
 
         Args:
-            data_dir: Root directory containing netCDF data files.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
+            data_dir: Directory of the preprocessed Zarr dataset.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
             sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
             sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
             subsample_prob: Optional probability threshold for subsampling (inherited from parent).
+            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
         """
         super().__init__(
             data_dir=data_dir,
@@ -474,10 +556,11 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             subsample_prob=subsample_prob,
+            preload_data=preload_data,
         )
 
     def __getitem__(self, idx: int) -> Tuple:
-        """Overwritten __getitem__. Returns features, targets, and optionally weights.
+        """Return features, targets, and optionally weights.
 
         Args:
             idx: Index of the sample to retrieve.

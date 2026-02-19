@@ -204,3 +204,32 @@ class MLModelWrapper:
         """
         self.model = joblib.load(path)
         log.info(f"Model loaded from {path}")
+
+    def print_feature_importance(self, feature_names: List[str]) -> None:
+        """Print feature importance sorted by importance (descending).
+
+        Args:
+            feature_names: List of feature names corresponding to model inputs
+        """
+        if not hasattr(self.model, "feature_importances_"):
+            log.warning(
+                f"Model {type(self.model).__name__} does not have feature_importances_ attribute"
+            )
+            return
+
+        importances = self.model.feature_importances_
+
+        if len(feature_names) != len(importances):
+            log.warning(
+                f"Number of feature names ({len(feature_names)}) does not match "
+                f"number of importances ({len(importances)})"
+            )
+            return
+
+        # Create list of (feature, importance) tuples and sort by importance descending
+        feature_importance_pairs = list(zip(feature_names, importances))
+        feature_importance_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        log.info("Feature Importances:")
+        for feature, importance in feature_importance_pairs:
+            log.info(f"{feature}\t{importance}")

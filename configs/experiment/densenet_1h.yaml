@@ -2,12 +2,11 @@
 
 # DenseNet with hourly output
 
-predict: true
+predict: false
 
 experiment_name: "densenet_1h"
 
 data:
-  data_dir: /work/bg1186/g260200/RUN04b_JUWELS_wpile/outputs_all/
   train_days: [1, 304]
   val_days: [305, 334]
   test_days: [335, 365]
@@ -21,7 +20,6 @@ data:
   targets:
     - delta_sigWaveHeight
   sample_weight_strategy: z_score
-  scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
 
 model:
   target_bins:
@@ -35,6 +33,7 @@ model:
 
 trainer:
   devices: 1
+  val_check_interval: 20000 # set to 1.0 to cover all
 
 
 logger: # set to null to disable logging
