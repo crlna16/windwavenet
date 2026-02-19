@@ -142,7 +142,7 @@ class SimpleWWMDataset(Dataset):
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
         log.info(
-            f"Dataset initialised with {num_samples} samples. Preload data: {self.preload_data}."
+            f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}."
         )
 
     @staticmethod
@@ -221,7 +221,7 @@ class SimpleWWMDataset(Dataset):
         """
         # Unconditionally remove first timestep to avoid triggering .any() computation
         # We know it will have NaN values from shift/diff operations
-        log.info("Removing first time step (contains NaN from shift/diff operations)")
+        log.info("Removing first time step (NaN from shift/diff operations)")
         return dataset.isel(time=slice(1, None))
 
     @staticmethod
@@ -314,7 +314,7 @@ class SimpleWWMDataset(Dataset):
                 mean = scaling_params[var]["mean"]
                 std = scaling_params[var]["std"]
                 dataset[var] = dataset[var] * std + mean
-                log.info(f"Reverted scaling for varibale {var}.")
+                log.info(f"Reverted scaling for variable {var}.")
             else:
                 raise ValueError(f"No parameters found to revert scaling for {var}.")
 
@@ -377,7 +377,7 @@ class SimpleWWMDataset(Dataset):
         a uniform random draw. Only supported when data is preloaded.
         """
         log.info(
-            f"Subsampling dataset based on z_score with threshold {self.subsample_prob}..."
+            f"Subsampling dataset based on z-score with target rate {self.subsample_prob}..."
         )
 
         n_samples_before = len(self.y)
@@ -466,7 +466,7 @@ class SimpleWWMDataset(Dataset):
         self.worker_time_len = end_time - start_time
 
         log.info(
-            f"Worker {self.worker_id}/{self.num_workers}: Handling times [{start_time}:{end_time}] "
+            f"Worker {self.worker_id}/{self.num_workers}: handling time indices [{start_time}:{end_time}] "
             f"({end_time - start_time}/{total_times})"
         )
 
