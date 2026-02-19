@@ -20,7 +20,7 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class SimpleWWMDataset(Dataset):
-    """Simple Wave Wind Model Dataset that loads a zarr dataset and returns features and targets per grid point.
+    """Dataset that loads a Zarr dataset and returns features and targets per grid point and time.
 
     Note that preprocessing the zarr files is handled externally (CreateZarr.ipynb).
     """
@@ -37,11 +37,11 @@ class SimpleWWMDataset(Dataset):
         subsample_prob: Optional[float] = None,
         preload_data: bool = True,
     ) -> None:
-        """Initialize the SimpleWWM Dataset.
+        """Initialize the dataset.
 
         Args:
-            data_dir: Directory of the preprocessed zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
+            data_dir: Directory of the preprocessed Zarr dataset.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -51,8 +51,8 @@ class SimpleWWMDataset(Dataset):
             subsample_prob: Optional probability threshold for subsampling based on z_score.
                 If provided, samples are retained with probability derived from their z_score.
                 Higher z_score (outliers) have higher retention probability.
-            preload_data: If True, preload X in memory. If False, load X lazily in __getitem__.
-                Targets y are always preloaded.
+            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
+                With multiple workers, each worker slices the time axis to avoid shared Zarr chunks.
         """
         super().__init__()
 
@@ -72,6 +72,7 @@ class SimpleWWMDataset(Dataset):
         # Store parameters for worker initialization
         self.worker_id = None
         self.num_workers = None
+        self.worker_time_len = None
 
         self.ds = xr.open_dataset(self.data_dir, engine="zarr", chunks="auto")
         # get samples per day for indexing
@@ -96,6 +97,8 @@ class SimpleWWMDataset(Dataset):
 
         # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
+
+        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
 
         # scale all variables
         self.scaling_params = (
@@ -144,20 +147,20 @@ class SimpleWWMDataset(Dataset):
 
     @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
-        """Compute Delta(target) = target(t) - target(t-1).
+        """Compute delta_target = target(t) - target(t-1).
 
         For targets starting with 'delta_', computes the difference with respect to the
         previous time step and stores that value in a new variable.
 
-        E.g. for sigWaveHeight and time=t:
-          ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
+                Example for sigWaveHeight and time=t:
+                    ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
 
         Args:
             dataset: xarray Dataset containing the data.
             targets: List of target variable names.
 
         Returns:
-            Dataset with difference wrto time per variable added.
+            Dataset with per-target differences with respect to time added.
         """
         for target in targets:
             if target.startswith("delta_"):
@@ -169,10 +172,10 @@ class SimpleWWMDataset(Dataset):
 
     @staticmethod
     def _compute_prevT(dataset: xr.Dataset, features: List[str]) -> xr.Dataset:
-        """Compute prev(feature) = feature(t-1)
+        """Compute prev_feature = feature(t-1).
 
-        E.g. for sigWaveHeight and time=t:
-          ds["prev_sigWaveHeight"][t]  = ds["sigWaveHeight"][t-1]
+                Example for sigWaveHeight and time=t:
+                    ds["prev_sigWaveHeight"][t] = ds["sigWaveHeight"][t-1]
 
         Args:
             dataset (xr.Dataset): xarray Dataset containing the data.
@@ -223,14 +226,15 @@ class SimpleWWMDataset(Dataset):
 
     @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
-        """Extract variable data from xarray Dataset and convert to PyTorch tensor.
+        """Extract variable data from an xarray Dataset and convert to a PyTorch tensor.
 
         Args:
             dataset: xarray Dataset containing the data.
             variables: List of variable names to extract.
 
         Returns:
-            PyTorch tensor of shape (n_samples, n_variables).
+            PyTorch tensor of shape (n_samples, n_variables) with time as the slow axis
+            and nSCHISM_hgrid_node as the fast axis.
         """
         start_time = time.time()
         # stack in xarray
@@ -251,7 +255,7 @@ class SimpleWWMDataset(Dataset):
         """Load scaling parameters from YAML file.
 
         Args:
-            config_path: Path to YAML file containing mean and std for each ggvariable.
+            config_path: Path to a YAML file containing mean and std for each variable.
 
         Returns:
             Dictionary mapping variable names to their mean and std values.
@@ -297,7 +301,7 @@ class SimpleWWMDataset(Dataset):
         """Revert standardization scaling of variables in the dataset.
 
         Args:
-            dataset (xr.Dataset): xarray Dataset containing the variabels.
+            dataset (xr.Dataset): xarray Dataset containing the variables.
             variables (List[str]): List of variable names to un-scale.
             scaling_params (Dict[str, Dict[str, float]]): Dictionary mapping variable names to
               their mean and std values.
@@ -370,7 +374,7 @@ class SimpleWWMDataset(Dataset):
         - Samples far from mean (high |z|) have high retention probability (~1)
 
         The actual retention is determined by comparing these probabilities against
-        a uniform random draw.
+        a uniform random draw. Only supported when data is preloaded.
         """
         log.info(
             f"Subsampling dataset based on z_score with threshold {self.subsample_prob}..."
@@ -417,7 +421,7 @@ class SimpleWWMDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        """Return the number of samples in the dataset.
+        """Return the number of samples in the (possibly worker-sliced) dataset.
 
         Returns:
             int: Number of samples.
@@ -425,13 +429,13 @@ class SimpleWWMDataset(Dataset):
         return len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
 
     def worker_init_fn(self, worker_id: int) -> None:
-        """Initialize worker by splitting dataset across workers.
+        """Initialize a worker by slicing the dataset across the time dimension.
 
         Called after the dataset is pickled to the worker process. The dataset
         (self.ds) is already preprocessed; we just split it across workers.
 
         This allows lazy loading (preload_data=False) to work with multiple workers
-        by having each worker load only its portion of the data.
+        by having each worker load only its portion of the time axis.
 
         Args:
             worker_id: Worker ID assigned by DataLoader
@@ -447,22 +451,23 @@ class SimpleWWMDataset(Dataset):
         self.num_workers = worker_info.num_workers
 
         # Split the already-preprocessed dataset across workers
-        total_samples = len(self.ds.time)
-        samples_per_worker = total_samples // self.num_workers
-        start_sample = self.worker_id * samples_per_worker
+        total_times = len(self.ds.time)
+        times_per_worker = total_times // self.num_workers
+        start_time = self.worker_id * times_per_worker
 
         if self.worker_id == self.num_workers - 1:
             # Last worker takes remaining samples
-            end_sample = total_samples
+            end_time = total_times
         else:
-            end_sample = start_sample + samples_per_worker
+            end_time = start_time + times_per_worker
 
         # Filter dataset to this worker's samples
-        self.ds = self.ds.isel(time=slice(start_sample, end_sample))
+        self.ds = self.ds.isel(time=slice(start_time, end_time))
+        self.worker_time_len = end_time - start_time
 
         log.info(
-            f"Worker {self.worker_id}/{self.num_workers}: Handling times [{start_sample}:{end_sample}] "
-            f"({end_sample - start_sample}/{total_samples})"
+            f"Worker {self.worker_id}/{self.num_workers}: Handling times [{start_time}:{end_time}] "
+            f"({end_time - start_time}/{total_times})"
         )
 
     def __getitem__(self, idx: int) -> Tuple:
@@ -473,7 +478,8 @@ class SimpleWWMDataset(Dataset):
 
         Returns:
             Tuple of (features, targets, weights) as PyTorch tensors if weights are computed,
-            otherwise (features, targets).
+            otherwise (features, targets). In lazy mode with multiple workers, the index
+            is wrapped to the worker-local time slice.
         """
         if self.preload_data:
             if self.weights is not None:
@@ -481,18 +487,19 @@ class SimpleWWMDataset(Dataset):
             return self.X[idx], self.y[idx]
 
         # Lazy loading mode: load both features and targets from dataset
-        # When using workers, map global index to worker-local index
-        if self.num_workers is not None and self.num_workers > 1:
-            # Calculate which samples this worker handles
-            total_samples = len(self.ds.sample)
-            samples_per_worker = total_samples // self.num_workers
-            start_sample = self.worker_id * samples_per_worker
-            local_idx = idx - start_sample
-        else:
-            local_idx = idx
+        # Indexing follows the stacked order: time is the slow axis, node is the fast axis.
+        local_idx = idx
+
+        n_nodes = self.n_nodes
+        if self.worker_time_len is not None:
+            local_total = self.worker_time_len * n_nodes
+            local_idx = local_idx % local_total
+
+        local_t_idx = local_idx // n_nodes
+        local_x_idx = local_idx % n_nodes
 
         # Load features and targets from dataset
-        sample_data = self.ds.isel(sample=local_idx)
+        sample_data = self.ds.isel(time=local_t_idx, nSCHISM_hgrid_node=local_x_idx)
 
         xa = sample_data[self.features].to_dataarray()
         x = torch.from_numpy(xa.values)
@@ -510,7 +517,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
     """Dataset to be used for predictions.
 
     Args:
-        SimpleWWMDataset (torch.Dataset): Dataset class handling grid-point-wise WWM data.
+        SimpleWWMDataset (torch.Dataset): Base dataset class handling grid-point-wise WWM data.
     """
 
     def __init__(
@@ -525,19 +532,18 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
         subsample_prob: Optional[float] = None,
         preload_data: bool = True,
     ) -> None:
-        """Initialize the SimpleWWMPredictDataset.
+        """Initialize the prediction dataset.
 
         Args:
-            data_dir: Root directory containing netCDF data files.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [0, 10]).
+            data_dir: Directory of the preprocessed Zarr dataset.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
             sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
             sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
             subsample_prob: Optional probability threshold for subsampling (inherited from parent).
-            preload_data: If True, preload X in memory. If False, load X lazily in __getitem__.
-                Targets y are always preloaded.
+            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
         """
         super().__init__(
             data_dir=data_dir,
@@ -552,7 +558,7 @@ class SimpleWWMPredictDataset(SimpleWWMDataset):
         )
 
     def __getitem__(self, idx: int) -> Tuple:
-        """Overwritten __getitem__. Returns features, targets, and optionally weights.
+        """Return features, targets, and optionally weights.
 
         Args:
             idx: Index of the sample to retrieve.
