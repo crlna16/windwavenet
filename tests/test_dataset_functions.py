@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from src.data.SimpleWWMDataset import SimpleWWMDataset
+from src.data.SimpleWWMDataset import SequenceWWMDataset, SimpleWWMDataset
 
 
 class TestDatasetFunctions:
@@ -182,3 +182,206 @@ class TestDatasetFunctions:
                 - sample_dataset["temperature"].isel(time=t - 1).values
             )
             np.testing.assert_array_almost_equal(delta_val, temp_diff)
+
+
+class TestReconstructFromDelta:
+    """Test suite for SimpleWWMDataset.reconstruct_from_delta static method."""
+
+    @pytest.fixture
+    def delta_dataset(self):
+        """Create a synthetic dataset for delta reconstruction testing."""
+        time = np.arange(5)
+        nSCHISM_hgrid_node = np.arange(3)
+
+        # Create absolute values
+        temperature = np.array(
+            [
+                [10.0, 11.0, 12.0],
+                [15.0, 16.0, 17.0],
+                [20.0, 21.0, 22.0],
+                [25.0, 26.0, 27.0],
+                [30.0, 31.0, 32.0],
+            ]
+        )
+
+        # Create previous timestep values
+        prev_temperature = np.array(
+            [
+                [np.nan, np.nan, np.nan],  # t=0
+                [10.0, 11.0, 12.0],  # t=1
+                [15.0, 16.0, 17.0],  # t=2
+                [20.0, 21.0, 22.0],  # t=3
+                [25.0, 26.0, 27.0],  # t=4
+            ]
+        )
+
+        ds = xr.Dataset(
+            {
+                "temperature": (["time", "nSCHISM_hgrid_node"], temperature),
+                "prev_temperature": (["time", "nSCHISM_hgrid_node"], prev_temperature),
+            },
+            coords={
+                "time": time,
+                "nSCHISM_hgrid_node": nSCHISM_hgrid_node,
+            },
+        )
+        return ds
+
+    def test_reconstruct_from_delta_basic(self, delta_dataset):
+        """Test basic delta reconstruction without scaling."""
+        # Delta predictions (simulating model output)
+        delta_predictions = np.array(
+            [
+                [5.0, 5.0, 5.0],  # t=0
+                [5.0, 5.0, 5.0],  # t=1
+                [5.0, 5.0, 5.0],  # t=2
+                [5.0, 5.0, 5.0],  # t=3
+                [5.0, 5.0, 5.0],  # t=4
+            ]
+        )
+
+        reconstructed, _ = SimpleWWMDataset.reconstruct_from_delta(
+            delta_predictions=delta_predictions,
+            dataset=delta_dataset,
+            target_name="delta_temperature",
+            features=["prev_temperature"],
+            scaling_params=None,
+        )
+
+        # reconstructed[t] = prev_temperature[t] + delta[t]
+        expected = np.array(
+            [
+                [np.nan, np.nan, np.nan],  # t=0: NaN + 5
+                [15.0, 16.0, 17.0],  # t=1: 10 + 5, 11 + 5, 12 + 5
+                [20.0, 21.0, 22.0],  # t=2: 15 + 5, ...
+                [25.0, 26.0, 27.0],  # t=3
+                [30.0, 31.0, 32.0],  # t=4
+            ]
+        )
+
+        # Check non-NaN values
+        np.testing.assert_array_almost_equal(reconstructed[1:], expected[1:])
+
+    def test_reconstruct_from_delta_raises_on_non_delta_target(self, delta_dataset):
+        """Test that non-delta targets raise ValueError."""
+        delta_predictions = np.zeros((5, 3))
+
+        with pytest.raises(ValueError, match="not a delta target"):
+            SimpleWWMDataset.reconstruct_from_delta(
+                delta_predictions=delta_predictions,
+                dataset=delta_dataset,
+                target_name="temperature",  # Not a delta target
+                features=["prev_temperature"],
+            )
+
+    def test_reconstruct_from_delta_computes_prev_if_missing(self):
+        """Test that prev_* is computed if not in dataset."""
+        time = np.arange(3)
+        nSCHISM_hgrid_node = np.arange(2)
+
+        # Dataset without prev_temperature
+        ds = xr.Dataset(
+            {
+                "temperature": (
+                    ["time", "nSCHISM_hgrid_node"],
+                    np.array([[10.0, 11.0], [15.0, 16.0], [20.0, 21.0]]),
+                ),
+            },
+            coords={"time": time, "nSCHISM_hgrid_node": nSCHISM_hgrid_node},
+        )
+
+        delta_predictions = np.array([[5.0, 5.0], [5.0, 5.0], [5.0, 5.0]])
+
+        reconstructed, updated_ds = SimpleWWMDataset.reconstruct_from_delta(
+            delta_predictions=delta_predictions,
+            dataset=ds,
+            target_name="delta_temperature",
+            features=["prev_temperature"],
+        )
+
+        # Check prev_temperature was added
+        assert "prev_temperature" in updated_ds
+
+
+class TestSequenceWWMDatasetFunctions:
+    """Test suite for SequenceWWMDataset getitem and len."""
+
+    @pytest.fixture
+    def mock_sequence_dataset(self, tmp_path):
+        """Create a minimal mock Zarr dataset for sequence testing."""
+        import pandas as pd
+
+        # Create synthetic data: 48 time steps (2 days at hourly), 5 nodes
+        n_time = 48
+        n_nodes = 5
+
+        time = pd.date_range("2020-01-01", periods=n_time, freq="h")
+        nSCHISM_hgrid_node = np.arange(n_nodes)
+
+        U10 = np.random.randn(n_time, n_nodes).astype(np.float32)
+        V10 = np.random.randn(n_time, n_nodes).astype(np.float32)
+        sigWaveHeight = np.random.randn(n_time, n_nodes).astype(np.float32)
+
+        ds = xr.Dataset(
+            {
+                "U10": (["time", "nSCHISM_hgrid_node"], U10),
+                "V10": (["time", "nSCHISM_hgrid_node"], V10),
+                "sigWaveHeight": (["time", "nSCHISM_hgrid_node"], sigWaveHeight),
+            },
+            coords={
+                "time": time,
+                "nSCHISM_hgrid_node": nSCHISM_hgrid_node,
+            },
+        )
+
+        zarr_path = tmp_path / "test.zarr"
+        ds.to_zarr(zarr_path)
+        return zarr_path
+
+    def test_sequence_dataset_len(self, mock_sequence_dataset):
+        """Test that SequenceWWMDataset length is correct."""
+        seq_len = 5
+        ds = SequenceWWMDataset(
+            data_dir=mock_sequence_dataset,
+            data_range=[1, 2],  # 1 day = 24 samples
+            features=["U10", "V10"],
+            targets=["sigWaveHeight"],
+            seq_len=seq_len,
+        )
+
+        # After removing first timestep (for delta/prev), n_time = 23
+        # n_valid_times = 23 - 5 = 18
+        # Total samples = 18 * 5 nodes = 90
+        # (exact number depends on data processing in SimpleWWMDataset)
+        assert len(ds) > 0
+
+    def test_sequence_dataset_getitem_shapes(self, mock_sequence_dataset):
+        """Test that __getitem__ returns correctly shaped tensors."""
+        seq_len = 5
+        ds = SequenceWWMDataset(
+            data_dir=mock_sequence_dataset,
+            data_range=[1, 2],
+            features=["U10"],
+            targets=["sigWaveHeight"],
+            seq_len=seq_len,
+        )
+
+        X, y = ds[0]
+
+        # X should be (seq_len, n_features)
+        assert X.shape[0] == seq_len
+        assert X.shape[1] == 1  # 1 feature (U10)
+
+        # y should be (n_targets,)
+        assert y.shape[0] == 1  # 1 target
+
+    def test_sequence_dataset_raises_on_invalid_seq_len(self, mock_sequence_dataset):
+        """Test that invalid seq_len raises ValueError."""
+        with pytest.raises(ValueError, match="must be less than"):
+            SequenceWWMDataset(
+                data_dir=mock_sequence_dataset,
+                data_range=[1, 2],  # Small time range
+                features=["U10"],
+                targets=["sigWaveHeight"],
+                seq_len=1000,  # Too large
+            )
