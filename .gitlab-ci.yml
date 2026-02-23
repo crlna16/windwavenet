@@ -65,9 +65,11 @@ unit-tests:   # This job runs in the test stage.
     - pip install uv
     # install the development environment
     - uv sync --group dev --active --frozen
-    - export RUN_DEMO_DATA=1 # use demo data
-    # automatically looks in ./tests for tests to run
-    # with coverage report
+    # download dummy data
+    - wget -O data.zip "https://share.hereon.de/index.php/s/z8WsL3B7Qc2YMP8/download"
+    - mkdir -p DATA
+    - unzip data.zip -d DATA
+    - pwd -P
     - uv run pytest --cov-report term --cov=src tests/
   only:
     - merge_requests

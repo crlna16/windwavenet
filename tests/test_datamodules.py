@@ -32,13 +32,13 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             batch_size=32,
             num_workers=0,
         )
         assert dm.batch_size == 32
-        assert dm.features == ["U10", "V10"]
+        assert dm.features == ["windSpeedX", "windSpeedY"]
         assert dm.targets == ["sigWaveHeight"]
 
     def test_prepare_data_raises_on_missing_dir(self, tmp_path):
@@ -48,7 +48,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10"],
+            features=["windSpeedX"],
             targets=["sigWaveHeight"],
         )
         with pytest.raises(FileNotFoundError):
@@ -61,7 +61,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             node_idx_csv=str(node_idx_csv_path),
             batch_size=32,
@@ -80,7 +80,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             batch_size=32,
             num_workers=0,
@@ -98,7 +98,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             batch_size=32,
             num_workers=0,
@@ -114,7 +114,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
         )
         with pytest.raises(ValueError):
@@ -127,7 +127,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
         )
         with pytest.raises(NotImplementedError):
@@ -140,7 +140,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             node_idx_csv=str(node_idx_csv_path),
             batch_size=32,
@@ -168,7 +168,7 @@ class TestWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             batch_size=32,
             num_workers=0,
@@ -200,7 +200,7 @@ class TestSequenceWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             seq_len=5,
             batch_size=32,
@@ -216,7 +216,7 @@ class TestSequenceWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             seq_len=3,
             node_idx_csv=str(node_idx_csv_path),
@@ -240,7 +240,7 @@ class TestSequenceWWMDataModule:
             train_days=[1, 2],
             val_days=[2, 3],
             test_days=[3, 4],
-            features=["U10", "V10"],
+            features=["windSpeedX", "windSpeedY"],
             targets=["sigWaveHeight"],
             seq_len=3,
             node_idx_csv=str(node_idx_csv_path),
@@ -271,6 +271,6 @@ class TestAbstractBaseClass:
                 train_days=[1, 2],
                 val_days=[2, 3],
                 test_days=[3, 4],
-                features=["U10"],
+                features=["windSpeedX"],
                 targets=["sigWaveHeight"],
             )
