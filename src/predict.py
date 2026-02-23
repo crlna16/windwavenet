@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -64,18 +64,14 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         log_hyperparameters(object_dict)
 
     log.info("Starting predictions")
-    predictions = trainer.predict(
-        model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path
-    )
+    predictions = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
     predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
     log.info("Retrieving metadata from source dataset")
     ds = datamodule.ds_pred.ds
 
     ds_dims = ds.sizes
-    log.info(
-        f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}"
-    )
+    log.info(f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}")
 
     # Get target names from config and verify they match the model checkpoint
     config_targets = cfg.data.targets
@@ -100,9 +96,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         target_predictions = predictions[:, i]
 
         # Reshape to match spatial and temporal dimensions
-        predictions_reshaped = target_predictions.reshape(
-            ds_dims["time"], ds_dims["nSCHISM_hgrid_node"]
-        )
+        predictions_reshaped = target_predictions.reshape(ds_dims["time"], ds_dims["nSCHISM_hgrid_node"])
 
         # If this is a delta prediction, reconstruct the full values
         if target_name.startswith("delta_"):
@@ -120,9 +114,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             # if prev_value was used as an input feature, it has been scaled
             # un-scale before using it to reconstruct predictions
             if prev_var in datamodule.ds_pred.features:
-                ds = SimpleWWMDataset._revert_scaling(
-                    ds, [prev_var], datamodule.ds_pred.scaling_params
-                )
+                ds = SimpleWWMDataset._revert_scaling(ds, [prev_var], datamodule.ds_pred.scaling_params)
 
             prev_values = ds[prev_var].values
             # Cumulative sum: value[t] = prev_value[t] + delta[t]

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -75,9 +75,7 @@ def minimal_predict_config():
     """Create a minimal test configuration for prediction."""
     config_dir = Path(__file__).parent.parent / "configs"
 
-    with initialize_config_dir(
-        version_base="1.3", config_dir=str(config_dir.absolute())
-    ):
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
         cfg = compose(
             config_name="predict.yaml",
             overrides=[
@@ -222,9 +220,7 @@ def test_predict_with_delta_target(
     # Create a fresh config with delta targets
     config_dir = Path(__file__).parent.parent / "configs"
 
-    with initialize_config_dir(
-        version_base="1.3", config_dir=str(config_dir.absolute())
-    ):
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
         cfg = compose(
             config_name="predict.yaml",
             overrides=[
@@ -247,9 +243,7 @@ def test_predict_with_delta_target(
     result = predict(cfg)
 
     # Check that the reconstructed variable is in the output (not delta)
-    assert (
-        "sigWaveHeight" in result.data_vars or "delta_sigWaveHeight" in result.data_vars
-    )
+    assert "sigWaveHeight" in result.data_vars or "delta_sigWaveHeight" in result.data_vars
 
 
 @patch("src.predict.print_config_tree")
@@ -324,9 +318,7 @@ def test_predict_with_multiple_targets(
     # Create a fresh config with multiple targets
     config_dir = Path(__file__).parent.parent / "configs"
 
-    with initialize_config_dir(
-        version_base="1.3", config_dir=str(config_dir.absolute())
-    ):
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
         cfg = compose(
             config_name="predict.yaml",
             overrides=[

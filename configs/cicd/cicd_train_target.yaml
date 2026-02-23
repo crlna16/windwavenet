@@ -56,6 +56,7 @@ data:
   targets:
     - delta_sigWaveHeight
   scaling_config: src/data/scaling/scale_2020-01-31_2020-02-02.yaml
+  node_idx_csv: null
   batch_size: 32
   num_workers: 0
   pin_memory: false

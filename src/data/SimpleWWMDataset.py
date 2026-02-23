@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -32,6 +32,7 @@ class SimpleWWMDataset(Dataset):
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
+        node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
@@ -45,6 +46,8 @@ class SimpleWWMDataset(Dataset):
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
+            node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
+                containing node indices to keep. If None, keep all nodes.
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
@@ -64,8 +67,9 @@ class SimpleWWMDataset(Dataset):
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
         self.preload_data = preload_data
+        self.node_idx_csv = node_idx_csv
 
-        # account for omegaconf list
+        # list comprehension covers omegaconf list
         self.features = [str(var) for var in list(self.features)]
         self.targets = [str(var) for var in list(self.targets)]
 
@@ -85,28 +89,41 @@ class SimpleWWMDataset(Dataset):
         start_idx = (self.data_range[0] - 1) * self.samples_per_day
         end_idx = (self.data_range[1] - 1) * self.samples_per_day
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
-        log.info(
-            f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}."
-        )
+        log.info(f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}.")
 
-        # now this is the same dataset
+        # Select samples based on node idx
+        if self.node_idx_csv:
+            node_idx_path = Path(self.node_idx_csv)
+            if not node_idx_path.exists():
+                raise FileNotFoundError(f"Node index CSV not found: {node_idx_path}")
+            node_idx_df = pd.read_csv(node_idx_path)
+            if "nSCHISM_hgrid_node" not in node_idx_df.columns:
+                raise ValueError("Node index CSV must have a 'nSCHISM_hgrid_node' column")
+            node_idx = node_idx_df["nSCHISM_hgrid_node"].to_numpy(dtype=int)
+            self.ds = self.ds.sel(nSCHISM_hgrid_node=node_idx)
+            log.info(f"Selected {len(node_idx)} nodes from {node_idx_path}.")
+
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
+
         # keep original variables always for reconstruction
-        selected_targets = self.targets + [
-            tt.replace("delta_", "") for tt in self.targets
-        ]
-        self.ds = self._select_variables(self.ds, self.features + selected_targets)
+        selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
+        self.ds = self.ds[[v for v in self.features + selected_targets]]
 
         # clear nans from computing difference with respect to time
-        self.ds = self._remove_first_timestep_if_nan(self.ds)
+        if np.any([tt.startswith("delta_") for tt in self.targets]) or np.any(
+            [ff.startswith("prev_") for ff in self.features]
+        ):
+            self.ds = self.ds.isel(time=slice(1, None))
 
         self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
 
-        # scale all variables
-        self.scaling_params = (
-            self._load_scaling_config(scaling_config) if scaling_config else None
-        )
+        # scaling based on precomputed values
+        if scaling_config:
+            with open(scaling_config, "r") as f:
+                self.scaling_params = yaml.safe_load(f)
+        else:
+            self.scaling_params = None
 
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
@@ -118,35 +135,27 @@ class SimpleWWMDataset(Dataset):
         else:
             self.X = None
             self.y = None
-            log.info(
-                "Lazy loading enabled: features and targets will be loaded on-demand"
-            )
+            log.info("Lazy loading enabled: features and targets will be loaded on-demand")
 
         # Apply subsampling if requested (only works with preloaded data)
         if self.subsample_prob is not None:
             if self.preload_data:
                 self._subsample_by_zscore()
             else:
-                log.warning(
-                    "Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling."
-                )
+                log.warning("Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling.")
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None:
             if self.preload_data:
                 self.compute_weights()
             else:
-                log.warning(
-                    "Sample weighting requires preload_data=True. Skipping weight computation."
-                )
+                log.warning("Sample weighting requires preload_data=True. Skipping weight computation.")
                 self.weights = None
         else:
             self.compute_weights()
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
-        log.info(
-            f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}."
-        )
+        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
 
     @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
@@ -209,25 +218,6 @@ class SimpleWWMDataset(Dataset):
         return dataset[[v for v in variables]]
 
     @staticmethod
-    def _remove_first_timestep_if_nan(dataset: xr.Dataset) -> xr.Dataset:
-        """Remove first time step if it contains NaN values.
-
-        When computing shifted variables (prev_* or delta_*), the first time step
-        will contain NaN values. This method removes it unconditionally to avoid
-        triggering computation with .any() check.
-
-        Args:
-            dataset: xarray Dataset containing the data.
-
-        Returns:
-            Dataset with first time step removed.
-        """
-        # Unconditionally remove first timestep to avoid triggering .any() computation
-        # We know it will have NaN values from shift/diff operations
-        log.info("Removing first time step (NaN from shift/diff operations)")
-        return dataset.isel(time=slice(1, None))
-
-    @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
         """Extract variable data from an xarray Dataset and convert to a PyTorch tensor.
 
@@ -248,24 +238,8 @@ class SimpleWWMDataset(Dataset):
         # convert to torch
         tensor = torch.from_numpy(np.asarray(da.data))
 
-        log.info(
-            f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds."
-        )
+        log.info(f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds.")
         return tensor
-
-    @staticmethod
-    def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
-        """Load scaling parameters from YAML file.
-
-        Args:
-            config_path: Path to a YAML file containing mean and std for each variable.
-
-        Returns:
-            Dictionary mapping variable names to their mean and std values.
-        """
-        with open(config_path, "r") as f:
-            scaling_params = yaml.safe_load(f)
-        return scaling_params
 
     @staticmethod
     def _apply_scaling(
@@ -290,9 +264,7 @@ class SimpleWWMDataset(Dataset):
                 dataset[var] = (dataset[var] - mean) / std
                 log.info(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
             else:
-                log.warning(
-                    f"No scaling parameters found for variable '{var}', leaving unscaled"
-                )
+                log.warning(f"No scaling parameters found for variable '{var}', leaving unscaled")
         return dataset
 
     @staticmethod
@@ -334,9 +306,7 @@ class SimpleWWMDataset(Dataset):
             log.info("No sample weight strategy specified, skipping weight computation")
             return
 
-        log.info(
-            f"Computing sample weights with strategy '{self.sample_weight_strategy}'..."
-        )
+        log.info(f"Computing sample weights with strategy '{self.sample_weight_strategy}'...")
 
         n_samples = len(self.y)
         n_targets = len(self.targets)
@@ -344,14 +314,11 @@ class SimpleWWMDataset(Dataset):
 
         if self.sample_weight_strategy == "z_score":
             z_scores = (self.y - torch.mean(self.y)) / torch.std(self.y)
-            weights = 1.0 - torch.exp(
-                -(z_scores**2) / torch.tensor(self.sample_weight_power)
-            )
+            weights = 1.0 - torch.exp(-(z_scores**2) / torch.tensor(self.sample_weight_power))
 
         else:
             raise ValueError(
-                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. "
-                f"Supported: None, 'z_score'"
+                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. Supported: None, 'z_score'"
             )
 
         # Normalize weights per target so that mean = 1.0
@@ -379,9 +346,7 @@ class SimpleWWMDataset(Dataset):
         The actual retention is determined by comparing these probabilities against
         a uniform random draw. Only supported when data is preloaded.
         """
-        log.info(
-            f"Subsampling dataset based on z-score with target rate {self.subsample_prob}..."
-        )
+        log.info(f"Subsampling dataset based on z-score with target rate {self.subsample_prob}...")
 
         n_samples_before = len(self.y)
 
@@ -396,9 +361,7 @@ class SimpleWWMDataset(Dataset):
         # Scale probabilities so that the expected (mean) retention rate equals subsample_prob
         # This ensures that approximately subsample_prob fraction of samples are retained
         if retention_probs.mean() > 0:
-            retention_probs = retention_probs * (
-                self.subsample_prob / retention_probs.mean()
-            )
+            retention_probs = retention_probs * (self.subsample_prob / retention_probs.mean())
             # Clip to [0, 1] range in case scaling pushes values above 1
             retention_probs = torch.clamp(retention_probs, 0.0, 1.0)
 
@@ -418,10 +381,7 @@ class SimpleWWMDataset(Dataset):
         n_samples_after = len(self.y)
         retention_rate = n_samples_after / n_samples_before * 100
 
-        log.info(
-            f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples "
-            f"({retention_rate:.2f}%)"
-        )
+        log.info(f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples ({retention_rate:.2f}%)")
 
     def __len__(self) -> int:
         """Return the number of samples in the (possibly worker-sliced) dataset.
@@ -513,61 +473,3 @@ class SimpleWWMDataset(Dataset):
         if self.weights is not None:
             return x, y, self.weights[idx]
         return x, y
-
-
-class SimpleWWMPredictDataset(SimpleWWMDataset):
-    """Dataset to be used for predictions.
-
-    Args:
-        SimpleWWMDataset (torch.Dataset): Base dataset class handling grid-point-wise WWM data.
-    """
-
-    def __init__(
-        self,
-        data_dir: Path,
-        data_range: List[int],
-        features: List[str],
-        targets: List[str],
-        scaling_config: Optional[str] = None,
-        sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = True,
-    ) -> None:
-        """Initialize the prediction dataset.
-
-        Args:
-            data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
-            features: List of variable names to use as features.
-            targets: List of variable names to use as targets.
-            scaling_config: Path to YAML file containing mean and std for each variable.
-            sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
-            sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
-            subsample_prob: Optional probability threshold for subsampling (inherited from parent).
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
-        """
-        super().__init__(
-            data_dir=data_dir,
-            data_range=data_range,
-            features=features,
-            targets=targets,
-            scaling_config=scaling_config,
-            sample_weight_strategy=sample_weight_strategy,
-            sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
-        )
-
-    def __getitem__(self, idx: int) -> Tuple:
-        """Return features, targets, and optionally weights.
-
-        Args:
-            idx: Index of the sample to retrieve.
-
-        Returns:
-            Tuple of (features, targets, weights) if weights are computed,
-            otherwise (features, targets).
-        """
-        # Use parent's __getitem__ implementation
-        return super().__getitem__(idx)

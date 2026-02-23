@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -46,9 +46,7 @@ def minimal_config():
     """Create a minimal test configuration."""
     config_dir = Path(__file__).parent.parent / "configs"
 
-    with initialize_config_dir(
-        version_base="1.3", config_dir=str(config_dir.absolute())
-    ):
+    with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
         cfg = compose(
             config_name="train.yaml",
             overrides=[

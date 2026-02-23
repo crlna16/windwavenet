@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 #
 # SPDX-License-Identifier: MIT
 
@@ -89,6 +89,7 @@ deep-learning-pipeline: # runs in test
     - pwd -P
     - echo "This runs the deep learning pipeline for various experiments."
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.preload_data=false data.batch_size=4
     - echo "Finished deep learning tests without errors."
   only:
@@ -109,6 +110,7 @@ machine-learning-pipeline: # runs in test
     - pwd -P
     - echo "This runs the machine learning pipeline for various experiments."
     - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
     - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["sigWaveHeight"]'
     # this should exit gracefully
     - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_dominantDirection"]'

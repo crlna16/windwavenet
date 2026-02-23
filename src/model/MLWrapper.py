@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -113,9 +113,7 @@ class MLModelWrapper:
         """
         return self.model.predict(X)
 
-    def evaluate(
-        self, X: np.ndarray, y: np.ndarray, prefix: str = "test"
-    ) -> Dict[str, float]:
+    def evaluate(self, X: np.ndarray, y: np.ndarray, prefix: str = "test") -> Dict[str, float]:
         """Evaluate the model.
 
         Args:
@@ -129,9 +127,7 @@ class MLModelWrapper:
         preds = self.predict(X)
         return self._compute_metrics(y, preds, prefix=prefix)
 
-    def _compute_metrics(
-        self, y_true: np.ndarray, y_pred: np.ndarray, prefix: str = "train"
-    ) -> Dict[str, float]:
+    def _compute_metrics(self, y_true: np.ndarray, y_pred: np.ndarray, prefix: str = "train") -> Dict[str, float]:
         """Compute evaluation metrics.
 
         Args:
@@ -170,9 +166,7 @@ class MLModelWrapper:
                     mask = get_bin_mask(y_true[:, i], bins, bin_idx)
 
                     if mask.sum() > 0:
-                        rmse_bin = np.sqrt(
-                            mean_squared_error(y_true[mask, i], y_pred[mask, i])
-                        )
+                        rmse_bin = np.sqrt(mean_squared_error(y_true[mask, i], y_pred[mask, i]))
 
                         # Create bin label
                         if bin_idx == 0:
@@ -212,9 +206,7 @@ class MLModelWrapper:
             feature_names: List of feature names corresponding to model inputs
         """
         if not hasattr(self.model, "feature_importances_"):
-            log.warning(
-                f"Model {type(self.model).__name__} does not have feature_importances_ attribute"
-            )
+            log.warning(f"Model {type(self.model).__name__} does not have feature_importances_ attribute")
             return
 
         importances = self.model.feature_importances_

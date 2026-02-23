@@ -4,8 +4,8 @@ entity: wwm-emulator
 method: bayes
 metric:
   goal: minimize
-  #name: val/rmse_delta_sigWaveHeight #_>=0.1
-  name: val/rmse_sigWaveHeight #_>=0.1
+  name: val/rmse_delta_sigWaveHeight #_>=0.1
+  #name: val/rmse_sigWaveHeight #_>=0.1
 command:
   - ${env}
   - python
