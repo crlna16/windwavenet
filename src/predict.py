@@ -70,8 +70,23 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     log.info("Retrieving metadata from source dataset")
     ds = datamodule.ds_pred.ds
 
-    ds_dims = ds.sizes
-    log.info(f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}")
+    # Check if using sequence dataset (LSTM) - predictions start at seq_len timestep
+    is_sequence_dataset = hasattr(datamodule.ds_pred, "seq_len")
+    if is_sequence_dataset:
+        seq_len = datamodule.ds_pred.seq_len
+        n_valid_times = datamodule.ds_pred.n_valid_times
+        log.info(f"Sequence dataset detected: seq_len={seq_len}, n_valid_times={n_valid_times}")
+        # Predictions are for timesteps [seq_len:] only
+        pred_time_slice = slice(seq_len, None)
+        pred_n_time = n_valid_times
+    else:
+        seq_len = 0
+        pred_time_slice = slice(None)
+        pred_n_time = ds.sizes["time"]
+
+    n_nodes = ds.sizes["nSCHISM_hgrid_node"]
+    log.info(f"Dataset dimensions: time={ds.sizes['time']}, nSCHISM_hgrid_node={n_nodes}")
+    log.info(f"Prediction dimensions: pred_n_time={pred_n_time}, n_nodes={n_nodes}")
 
     # Get target names from config and verify they match the model checkpoint
     config_targets = cfg.data.targets
@@ -96,17 +111,21 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         target_predictions = predictions[:, i]
 
         # Reshape to match spatial and temporal dimensions
-        predictions_reshaped = target_predictions.reshape(ds_dims["time"], ds_dims["nSCHISM_hgrid_node"])
+        # For sequence datasets, pred_n_time < ds.sizes["time"]
+        predictions_reshaped = target_predictions.reshape(pred_n_time, n_nodes)
 
         # If this is a delta prediction, reconstruct the full values
         if target_name.startswith("delta_"):
             original_var = target_name.replace("delta_", "")
             log.info(f"Reconstructing {original_var} from delta predictions")
 
+            # For sequence datasets, slice the source dataset to matching time range
+            ds_for_reconstruction = ds.isel(time=pred_time_slice) if is_sequence_dataset else ds
+
             delta_predictions = predictions_reshaped.cpu().numpy()
-            reconstructed, ds = SimpleWWMDataset.reconstruct_from_delta(
+            reconstructed, ds_for_reconstruction = SimpleWWMDataset.reconstruct_from_delta(
                 delta_predictions=delta_predictions,
-                dataset=ds,
+                dataset=ds_for_reconstruction,
                 target_name=target_name,
                 features=datamodule.ds_pred.features,
                 scaling_params=datamodule.ds_pred.scaling_params,
@@ -130,10 +149,13 @@ def predict(cfg: DictConfig) -> xr.Dataset:
 
     otn = [tn.replace("delta_", "") for tn in target_names]
 
+    # For sequence datasets, use sliced time coordinates
+    pred_time_coords = ds.time.isel(time=pred_time_slice)
+
     ds_pred = xr.Dataset(
         data_vars,
         coords={
-            "time": ds.time,
+            "time": pred_time_coords,
             "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
             "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
             "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
@@ -142,6 +164,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             "description": f"Predictions for {', '.join(otn)}",
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
+            "seq_len": seq_len,
         },
     )
 
