@@ -150,26 +150,27 @@ class WWMEmulator(L.LightningModule):
 
         return total_loss, per_variable_losses, preds, y
 
-    def _shared_step(
+    def log_step_metrics(
         self,
-        batch: Tuple[torch.Tensor, ...],
+        total_loss: torch.Tensor,
+        per_var_losses: Dict[str, torch.Tensor],
+        preds: torch.Tensor,
+        targets: torch.Tensor,
         prefix: str,
         rmse_metrics: nn.ModuleDict,
         log_on_step: bool = False,
-    ) -> torch.Tensor:
-        """Shared logic for training, validation, and test steps.
+    ) -> None:
+        """Log loss and RMSE metrics for a step.
 
         Args:
-            batch: A batch of data containing input, target tensors, and optionally sample weights.
+            total_loss: Total weighted loss.
+            per_var_losses: Dict of per-variable losses.
+            preds: Model predictions.
+            targets: Ground truth targets.
             prefix: Logging prefix ('train', 'val', or 'test').
             rmse_metrics: ModuleDict containing RMSE metrics for each target.
             log_on_step: Whether to log on step (True for training).
-
-        Returns:
-            Total loss tensor.
         """
-        total_loss, per_var_losses, preds, targets = self.model_step(batch)
-
         # Log total loss
         self.log(f"{prefix}/loss", total_loss, on_step=log_on_step, on_epoch=True, prog_bar=True)
 
@@ -178,8 +179,6 @@ class WWMEmulator(L.LightningModule):
             self.log(f"{prefix}/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
             rmse_metrics[name](preds[:, i], targets[:, i])
             self.log(f"{prefix}/rmse_{name}", rmse_metrics[name], on_step=False, on_epoch=True)
-
-        return total_loss, preds, targets
 
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data.
@@ -191,7 +190,8 @@ class WWMEmulator(L.LightningModule):
         Returns:
             A tensor of losses between model predictions and targets.
         """
-        total_loss, _, _ = self._shared_step(batch, "train", self.train_rmse, log_on_step=True)
+        total_loss, per_var_losses, preds, targets = self.model_step(batch)
+        self.log_step_metrics(total_loss, per_var_losses, preds, targets, "train", self.train_rmse, log_on_step=True)
         return total_loss
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -201,7 +201,8 @@ class WWMEmulator(L.LightningModule):
             batch: A batch of data (a tuple) containing input and target tensors.
             batch_idx: The index of the current batch.
         """
-        _, preds, targets = self._shared_step(batch, "val", self.val_rmse, log_on_step=False)
+        total_loss, per_var_losses, preds, targets = self.model_step(batch)
+        self.log_step_metrics(total_loss, per_var_losses, preds, targets, "val", self.val_rmse, log_on_step=False)
 
         # Compute binned RMSE (validation only)
         for i, name in enumerate(self.target_names):
@@ -253,7 +254,8 @@ class WWMEmulator(L.LightningModule):
             batch: A batch of data (a tuple) containing input and target tensors.
             batch_idx: The index of the current batch.
         """
-        self._shared_step(batch, "test", self.test_rmse, log_on_step=False)
+        total_loss, per_var_losses, preds, targets = self.model_step(batch)
+        self.log_step_metrics(total_loss, per_var_losses, preds, targets, "test", self.test_rmse, log_on_step=False)
 
     def predict_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single predict step on a batch of data.
