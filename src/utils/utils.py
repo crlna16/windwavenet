@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2021 ashleve
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -81,9 +81,7 @@ def task_wrapper(task_func: Callable) -> Callable:
     return wrap
 
 
-def get_metric_value(
-    metric_dict: Dict[str, Any], metric_name: Optional[str]
-) -> Optional[float]:
+def get_metric_value(metric_dict: Dict[str, Any], metric_name: Optional[str]) -> Optional[float]:
     """Safely retrieves value of the metric logged in LightningModule.
 
     Args:
@@ -94,9 +92,7 @@ def get_metric_value(
         float: Value of the requested metric.
     """
     if not metric_name:
-        log.info(
-            "Metric name (`optimized_metric`) is None! Skipping metric value retrieval..."
-        )
+        log.info("Metric name (`optimized_metric`) is None! Skipping metric value retrieval...")
         return None
 
     if metric_name not in metric_dict:
@@ -139,12 +135,8 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
     # save number of model parameters
     hparams["model/params/total"] = sum(p.numel() for p in model.parameters())
-    hparams["model/params/trainable"] = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
-    hparams["model/params/non_trainable"] = sum(
-        p.numel() for p in model.parameters() if not p.requires_grad
-    )
+    hparams["model/params/trainable"] = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    hparams["model/params/non_trainable"] = sum(p.numel() for p in model.parameters() if not p.requires_grad)
 
     hparams["data"] = cfg["data"]
     hparams["trainer"] = cfg["trainer"]
@@ -262,31 +254,21 @@ def extract_data_from_datamodule(datamodule, stage: str = "fit"):
     train_dataset = datamodule.ds_train
     X_train = train_dataset.X.cpu().numpy()
     y_train = train_dataset.y.cpu().numpy()
-    weights_train = (
-        train_dataset.weights.cpu().numpy()
-        if train_dataset.weights is not None
-        else None
-    )
+    weights_train = train_dataset.weights.cpu().numpy() if train_dataset.weights is not None else None
 
     # Extract validation data
     val_dataset = datamodule.ds_val
     X_val = val_dataset.X.cpu().numpy()
     y_val = val_dataset.y.cpu().numpy()
-    weights_val = (
-        val_dataset.weights.cpu().numpy() if val_dataset.weights is not None else None
-    )
+    weights_val = val_dataset.weights.cpu().numpy() if val_dataset.weights is not None else None
 
     # Extract test data
     test_dataset = datamodule.ds_test
     X_test = test_dataset.X.cpu().numpy()
     y_test = test_dataset.y.cpu().numpy()
-    weights_test = (
-        test_dataset.weights.cpu().numpy() if test_dataset.weights is not None else None
-    )
+    weights_test = test_dataset.weights.cpu().numpy() if test_dataset.weights is not None else None
 
-    log.info(
-        f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}"
-    )
+    log.info(f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
 
     return (
         X_train,
@@ -334,9 +316,7 @@ def generate_predictions_ml(
     ds = datamodule.ds_test.ds
 
     ds_dims = ds.sizes
-    log.info(
-        f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}"
-    )
+    log.info(f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}")
 
     log.info(f"Target names: {target_names}")
 
@@ -348,9 +328,7 @@ def generate_predictions_ml(
         target_predictions = predictions[:, i]
 
         # Reshape to match spatial and temporal dimensions
-        predictions_reshaped = target_predictions.reshape(
-            ds_dims["time"], ds_dims["nSCHISM_hgrid_node"]
-        )
+        predictions_reshaped = target_predictions.reshape(ds_dims["time"], ds_dims["nSCHISM_hgrid_node"])
 
         # If this is a delta prediction, reconstruct the full values
         if target_name.startswith("delta_"):

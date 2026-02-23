@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -65,7 +65,7 @@ class SimpleWWMDataset(Dataset):
         self.subsample_prob = subsample_prob
         self.preload_data = preload_data
 
-        # account for omegaconf list
+        # list comprehension covers omegaconf list
         self.features = [str(var) for var in list(self.features)]
         self.targets = [str(var) for var in list(self.targets)]
 
@@ -85,28 +85,25 @@ class SimpleWWMDataset(Dataset):
         start_idx = (self.data_range[0] - 1) * self.samples_per_day
         end_idx = (self.data_range[1] - 1) * self.samples_per_day
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
-        log.info(
-            f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}."
-        )
+        log.info(f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}.")
 
-        # now this is the same dataset
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
+
         # keep original variables always for reconstruction
-        selected_targets = self.targets + [
-            tt.replace("delta_", "") for tt in self.targets
-        ]
+        selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
         self.ds = self._select_variables(self.ds, self.features + selected_targets)
 
         # clear nans from computing difference with respect to time
-        self.ds = self._remove_first_timestep_if_nan(self.ds)
+        if np.any([tt.startswith("delta_") for tt in self.targets]) or np.any(
+            [ff.startswith("prev_") for ff in self.features]
+        ):
+            self.ds = self.ds.isel(time=slice(1, None))
 
         self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
 
-        # scale all variables
-        self.scaling_params = (
-            self._load_scaling_config(scaling_config) if scaling_config else None
-        )
+        # scaling based on precomputed values
+        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
 
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
@@ -118,35 +115,27 @@ class SimpleWWMDataset(Dataset):
         else:
             self.X = None
             self.y = None
-            log.info(
-                "Lazy loading enabled: features and targets will be loaded on-demand"
-            )
+            log.info("Lazy loading enabled: features and targets will be loaded on-demand")
 
         # Apply subsampling if requested (only works with preloaded data)
         if self.subsample_prob is not None:
             if self.preload_data:
                 self._subsample_by_zscore()
             else:
-                log.warning(
-                    "Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling."
-                )
+                log.warning("Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling.")
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None:
             if self.preload_data:
                 self.compute_weights()
             else:
-                log.warning(
-                    "Sample weighting requires preload_data=True. Skipping weight computation."
-                )
+                log.warning("Sample weighting requires preload_data=True. Skipping weight computation.")
                 self.weights = None
         else:
             self.compute_weights()
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
-        log.info(
-            f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}."
-        )
+        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
 
     @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
@@ -209,25 +198,6 @@ class SimpleWWMDataset(Dataset):
         return dataset[[v for v in variables]]
 
     @staticmethod
-    def _remove_first_timestep_if_nan(dataset: xr.Dataset) -> xr.Dataset:
-        """Remove first time step if it contains NaN values.
-
-        When computing shifted variables (prev_* or delta_*), the first time step
-        will contain NaN values. This method removes it unconditionally to avoid
-        triggering computation with .any() check.
-
-        Args:
-            dataset: xarray Dataset containing the data.
-
-        Returns:
-            Dataset with first time step removed.
-        """
-        # Unconditionally remove first timestep to avoid triggering .any() computation
-        # We know it will have NaN values from shift/diff operations
-        log.info("Removing first time step (NaN from shift/diff operations)")
-        return dataset.isel(time=slice(1, None))
-
-    @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
         """Extract variable data from an xarray Dataset and convert to a PyTorch tensor.
 
@@ -248,9 +218,7 @@ class SimpleWWMDataset(Dataset):
         # convert to torch
         tensor = torch.from_numpy(np.asarray(da.data))
 
-        log.info(
-            f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds."
-        )
+        log.info(f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds.")
         return tensor
 
     @staticmethod
@@ -290,9 +258,7 @@ class SimpleWWMDataset(Dataset):
                 dataset[var] = (dataset[var] - mean) / std
                 log.info(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
             else:
-                log.warning(
-                    f"No scaling parameters found for variable '{var}', leaving unscaled"
-                )
+                log.warning(f"No scaling parameters found for variable '{var}', leaving unscaled")
         return dataset
 
     @staticmethod
@@ -334,9 +300,7 @@ class SimpleWWMDataset(Dataset):
             log.info("No sample weight strategy specified, skipping weight computation")
             return
 
-        log.info(
-            f"Computing sample weights with strategy '{self.sample_weight_strategy}'..."
-        )
+        log.info(f"Computing sample weights with strategy '{self.sample_weight_strategy}'...")
 
         n_samples = len(self.y)
         n_targets = len(self.targets)
@@ -344,14 +308,11 @@ class SimpleWWMDataset(Dataset):
 
         if self.sample_weight_strategy == "z_score":
             z_scores = (self.y - torch.mean(self.y)) / torch.std(self.y)
-            weights = 1.0 - torch.exp(
-                -(z_scores**2) / torch.tensor(self.sample_weight_power)
-            )
+            weights = 1.0 - torch.exp(-(z_scores**2) / torch.tensor(self.sample_weight_power))
 
         else:
             raise ValueError(
-                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. "
-                f"Supported: None, 'z_score'"
+                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. Supported: None, 'z_score'"
             )
 
         # Normalize weights per target so that mean = 1.0
@@ -379,9 +340,7 @@ class SimpleWWMDataset(Dataset):
         The actual retention is determined by comparing these probabilities against
         a uniform random draw. Only supported when data is preloaded.
         """
-        log.info(
-            f"Subsampling dataset based on z-score with target rate {self.subsample_prob}..."
-        )
+        log.info(f"Subsampling dataset based on z-score with target rate {self.subsample_prob}...")
 
         n_samples_before = len(self.y)
 
@@ -396,9 +355,7 @@ class SimpleWWMDataset(Dataset):
         # Scale probabilities so that the expected (mean) retention rate equals subsample_prob
         # This ensures that approximately subsample_prob fraction of samples are retained
         if retention_probs.mean() > 0:
-            retention_probs = retention_probs * (
-                self.subsample_prob / retention_probs.mean()
-            )
+            retention_probs = retention_probs * (self.subsample_prob / retention_probs.mean())
             # Clip to [0, 1] range in case scaling pushes values above 1
             retention_probs = torch.clamp(retention_probs, 0.0, 1.0)
 
@@ -418,10 +375,7 @@ class SimpleWWMDataset(Dataset):
         n_samples_after = len(self.y)
         retention_rate = n_samples_after / n_samples_before * 100
 
-        log.info(
-            f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples "
-            f"({retention_rate:.2f}%)"
-        )
+        log.info(f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples ({retention_rate:.2f}%)")
 
     def __len__(self) -> int:
         """Return the number of samples in the (possibly worker-sliced) dataset.

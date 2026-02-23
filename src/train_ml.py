@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -50,9 +50,7 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     if len(cfg.data.targets) > 1:
-        log.info(
-            f"ML pipeline works only with single target. Received {cfg.data.targets}."
-        )
+        log.info(f"ML pipeline works only with single target. Received {cfg.data.targets}.")
         return ({}, {})
     datamodule = hydra.utils.instantiate(cfg.data)
 
@@ -83,9 +81,7 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     ml_model = hydra.utils.instantiate(cfg.model, callbacks=callbacks)
 
     log.info("Starting training...")
-    train_metrics = ml_model.fit(
-        X_train, y_train, X_val=X_val, y_val=y_val, sample_weight=weights_train
-    )
+    train_metrics = ml_model.fit(X_train, y_train, X_val=X_val, y_val=y_val, sample_weight=weights_train)
 
     log.info("Training metrics:")
     for key, value in train_metrics.items():

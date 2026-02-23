@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -59,9 +59,7 @@ class WWMEmulator(L.LightningModule):
         self.num_targets = len(target_names)
 
         # Store which targets are delta predictions (for reconstruction during inference)
-        self.is_delta_target = {
-            name: name.startswith("delta_") for name in target_names
-        }
+        self.is_delta_target = {name: name.startswith("delta_") for name in target_names}
 
         # Initialize loss weights (default to 1.0 for all targets)
         if loss_weights is None:
@@ -71,9 +69,7 @@ class WWMEmulator(L.LightningModule):
             # Validate that all targets have weights
             for name in target_names:
                 if name not in self.loss_weights:
-                    log.warning(
-                        f"No loss weight specified for '{name}', defaulting to 1.0"
-                    )
+                    log.warning(f"No loss weight specified for '{name}', defaulting to 1.0")
                     self.loss_weights[name] = 1.0
 
         log.info(f"Loss weights: {self.loss_weights}")
@@ -90,15 +86,9 @@ class WWMEmulator(L.LightningModule):
         self.best_val_loss = float("inf")
 
         # Per-variable RMSE metrics
-        self.train_rmse = nn.ModuleDict(
-            {name: MeanSquaredError(squared=False) for name in target_names}
-        )
-        self.val_rmse = nn.ModuleDict(
-            {name: MeanSquaredError(squared=False) for name in target_names}
-        )
-        self.test_rmse = nn.ModuleDict(
-            {name: MeanSquaredError(squared=False) for name in target_names}
-        )
+        self.train_rmse = nn.ModuleDict({name: MeanSquaredError(squared=False) for name in target_names})
+        self.val_rmse = nn.ModuleDict({name: MeanSquaredError(squared=False) for name in target_names})
+        self.test_rmse = nn.ModuleDict({name: MeanSquaredError(squared=False) for name in target_names})
 
         # Binned RMSE metrics for validation (only create if bins are specified)
         self.val_rmse_binned = nn.ModuleDict()
@@ -156,16 +146,11 @@ class WWMEmulator(L.LightningModule):
             per_variable_losses[name] = weighted_loss[:, i].mean()
 
         # Total loss is weighted sum of per-variable losses
-        total_loss = sum(
-            per_variable_losses[name] * self.loss_weights[name]
-            for name in self.target_names
-        )
+        total_loss = sum(per_variable_losses[name] * self.loss_weights[name] for name in self.target_names)
 
         return total_loss, per_variable_losses, preds, y
 
-    def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data.
 
         Args:
@@ -182,9 +167,7 @@ class WWMEmulator(L.LightningModule):
 
         # Log per-variable losses and RMSE
         for i, name in enumerate(self.target_names):
-            self.log(
-                f"train/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True
-            )
+            self.log(f"train/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
             self.train_rmse[name](preds[:, i], targets[:, i])
             self.log(
                 f"train/rmse_{name}",
@@ -195,9 +178,7 @@ class WWMEmulator(L.LightningModule):
 
         return total_loss
 
-    def validation_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> None:
+    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data.
 
         Args:
@@ -211,13 +192,9 @@ class WWMEmulator(L.LightningModule):
 
         # Log per-variable losses and RMSE
         for i, name in enumerate(self.target_names):
-            self.log(
-                f"val/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True
-            )
+            self.log(f"val/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
             self.val_rmse[name](preds[:, i], targets[:, i])
-            self.log(
-                f"val/rmse_{name}", self.val_rmse[name], on_step=False, on_epoch=True
-            )
+            self.log(f"val/rmse_{name}", self.val_rmse[name], on_step=False, on_epoch=True)
 
             # Compute binned RMSE if bins are specified for this target
             if name in self.target_bins:
@@ -231,9 +208,7 @@ class WWMEmulator(L.LightningModule):
                     # Only update metric if there are samples in this bin
                     if mask.sum() > 0:
                         bin_key = f"{name}_bin{bin_idx}"
-                        self.val_rmse_binned[bin_key](
-                            pred_vals[mask], target_vals[mask]
-                        )
+                        self.val_rmse_binned[bin_key](pred_vals[mask], target_vals[mask])
 
                         # Create descriptive bin label for logging
                         if bin_idx == 0:
@@ -263,9 +238,7 @@ class WWMEmulator(L.LightningModule):
             # Log the best validation loss
             self.log("val/best_loss", self.best_val_loss, on_epoch=True, prog_bar=True)
 
-    def test_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> None:
+    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data.
 
         Args:
@@ -279,17 +252,11 @@ class WWMEmulator(L.LightningModule):
 
         # Log per-variable losses and RMSE
         for i, name in enumerate(self.target_names):
-            self.log(
-                f"test/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True
-            )
+            self.log(f"test/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
             self.test_rmse[name](preds[:, i], targets[:, i])
-            self.log(
-                f"test/rmse_{name}", self.test_rmse[name], on_step=False, on_epoch=True
-            )
+            self.log(f"test/rmse_{name}", self.test_rmse[name], on_step=False, on_epoch=True)
 
-    def predict_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> None:
+    def predict_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single predict step on a batch of data.
 
         TODO: Refactor for use with dataset that does not return target.

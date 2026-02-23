@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -202,9 +202,7 @@ class WWMDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-            if self.num_workers > 0
-            else False,
+            persistent_workers=self.persistent_workers if self.num_workers > 0 else False,
             shuffle=True,
             worker_init_fn=worker_init_fn,
             prefetch_factor=self.prefetch_factor,
