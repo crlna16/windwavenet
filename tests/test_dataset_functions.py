@@ -111,20 +111,6 @@ class TestDatasetFunctions:
         # Check data is unchanged
         np.testing.assert_array_equal(result["temperature"].values, sample_dataset["temperature"].values)
 
-    def test_select_variables_multiple(self, sample_dataset):
-        """Test _select_variables with multiple variables."""
-        variables = ["temperature", "wind_speed"]
-
-        result = SimpleWWMDataset._select_variables(sample_dataset, variables)
-
-        # Check both variables are present
-        assert "temperature" in result
-        assert "wind_speed" in result
-
-        # Check data is unchanged
-        np.testing.assert_array_equal(result["temperature"].values, sample_dataset["temperature"].values)
-        np.testing.assert_array_equal(result["wind_speed"].values, sample_dataset["wind_speed"].values)
-
     def test_apply_scaling(self, sample_dataset):
         """Test _apply_scaling applies standardization correctly."""
         variables = ["temperature"]

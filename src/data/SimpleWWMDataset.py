@@ -92,7 +92,7 @@ class SimpleWWMDataset(Dataset):
 
         # keep original variables always for reconstruction
         selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
-        self.ds = self._select_variables(self.ds, self.features + selected_targets)
+        self.ds = self.ds[[v for v in self.features + selected_targets]]
 
         # clear nans from computing difference with respect to time
         if np.any([tt.startswith("delta_") for tt in self.targets]) or np.any(
@@ -103,7 +103,11 @@ class SimpleWWMDataset(Dataset):
         self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
 
         # scaling based on precomputed values
-        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
+        if scaling_config:
+            with open(scaling_config, "r") as f:
+                self.scaling_params = yaml.safe_load(f)
+        else:
+            self.scaling_params = None
 
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
@@ -220,20 +224,6 @@ class SimpleWWMDataset(Dataset):
 
         log.info(f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds.")
         return tensor
-
-    @staticmethod
-    def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
-        """Load scaling parameters from YAML file.
-
-        Args:
-            config_path: Path to a YAML file containing mean and std for each variable.
-
-        Returns:
-            Dictionary mapping variable names to their mean and std values.
-        """
-        with open(config_path, "r") as f:
-            scaling_params = yaml.safe_load(f)
-        return scaling_params
 
     @staticmethod
     def _apply_scaling(
@@ -467,61 +457,3 @@ class SimpleWWMDataset(Dataset):
         if self.weights is not None:
             return x, y, self.weights[idx]
         return x, y
-
-
-class SimpleWWMPredictDataset(SimpleWWMDataset):
-    """Dataset to be used for predictions.
-
-    Args:
-        SimpleWWMDataset (torch.Dataset): Base dataset class handling grid-point-wise WWM data.
-    """
-
-    def __init__(
-        self,
-        data_dir: Path,
-        data_range: List[int],
-        features: List[str],
-        targets: List[str],
-        scaling_config: Optional[str] = None,
-        sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = True,
-    ) -> None:
-        """Initialize the prediction dataset.
-
-        Args:
-            data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
-            features: List of variable names to use as features.
-            targets: List of variable names to use as targets.
-            scaling_config: Path to YAML file containing mean and std for each variable.
-            sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
-            sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
-            subsample_prob: Optional probability threshold for subsampling (inherited from parent).
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
-        """
-        super().__init__(
-            data_dir=data_dir,
-            data_range=data_range,
-            features=features,
-            targets=targets,
-            scaling_config=scaling_config,
-            sample_weight_strategy=sample_weight_strategy,
-            sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
-        )
-
-    def __getitem__(self, idx: int) -> Tuple:
-        """Return features, targets, and optionally weights.
-
-        Args:
-            idx: Index of the sample to retrieve.
-
-        Returns:
-            Tuple of (features, targets, weights) if weights are computed,
-            otherwise (features, targets).
-        """
-        # Use parent's __getitem__ implementation
-        return super().__getitem__(idx)
