@@ -32,6 +32,7 @@ class SimpleWWMDataset(Dataset):
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
+        node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
@@ -45,6 +46,8 @@ class SimpleWWMDataset(Dataset):
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
+            node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
+                containing node indices to keep. If None, keep all nodes.
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
@@ -64,6 +67,7 @@ class SimpleWWMDataset(Dataset):
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
         self.preload_data = preload_data
+        self.node_idx_csv = node_idx_csv
 
         # list comprehension covers omegaconf list
         self.features = [str(var) for var in list(self.features)]
@@ -86,6 +90,18 @@ class SimpleWWMDataset(Dataset):
         end_idx = (self.data_range[1] - 1) * self.samples_per_day
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
         log.info(f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}.")
+
+        # Select samples based on node idx
+        if self.node_idx_csv:
+            node_idx_path = Path(self.node_idx_csv)
+            if not node_idx_path.exists():
+                raise FileNotFoundError(f"Node index CSV not found: {node_idx_path}")
+            node_idx_df = pd.read_csv(node_idx_path)
+            if "nSCHISM_hgrid_node" not in node_idx_df.columns:
+                raise ValueError("Node index CSV must have a 'nSCHISM_hgrid_node' column")
+            node_idx = node_idx_df["nSCHISM_hgrid_node"].to_numpy(dtype=int)
+            self.ds = self.ds.sel(nSCHISM_hgrid_node=node_idx)
+            log.info(f"Selected {len(node_idx)} nodes from {node_idx_path}.")
 
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)

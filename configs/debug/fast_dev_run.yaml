@@ -32,6 +32,7 @@ data:
   pin_memory: False
   # Use smaller subset of days for quick testing
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/combined
+  node_idx_csv: null
   train_days: [31, 31]  # Just one day for debugging [start, end] inclusive
   val_days: [32, 32]  # Just one day for debugging [start, end] inclusive
   test_days: [33, 33]  # Just one day for debugging [start, end] inclusive

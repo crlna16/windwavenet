@@ -31,6 +31,7 @@ class WWMDataModule(L.LightningDataModule):
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
+        node_idx_csv: Optional[str] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -50,6 +51,8 @@ class WWMDataModule(L.LightningDataModule):
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
+            node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
+                containing node indices to keep. If None, keep all nodes.
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
@@ -74,6 +77,7 @@ class WWMDataModule(L.LightningDataModule):
         self.features = features
         self.targets = targets
         self.scaling_config = scaling_config
+        self.node_idx_csv = node_idx_csv
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -123,6 +127,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=self.sample_weight_strategy,
                 sample_weight_power=self.sample_weight_power,
                 subsample_prob=self.subsample_prob,
@@ -135,6 +140,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
@@ -147,6 +153,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
@@ -160,6 +167,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                node_idx_csv=None,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
@@ -174,6 +182,7 @@ class WWMDataModule(L.LightningDataModule):
                 features=self.features,
                 targets=self.targets,
                 scaling_config=self.scaling_config,
+                node_idx_csv=None,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
                 subsample_prob=None,
