@@ -16,6 +16,7 @@ data:
     - elevation
     - depthAverageVelX
     - depthAverageVelY
+    - peakPeriod
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
@@ -25,7 +26,7 @@ model:
   target_bins:
     delta_sigWaveHeight: [-0.1, 0.1]
   backbone:
-    input_dim: 6
+    input_dim: 7
     num_hidden_layers: 3
     first_layer_neurons: 512
     layer_scaling: halving

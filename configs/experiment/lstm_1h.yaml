@@ -1,0 +1,45 @@
+# @package _global_
+
+# LSTM with hourly output - modeled on densenet_1h
+
+predict: false
+
+experiment_name: "lstm_1h"
+
+data:
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
+  features:
+    - windSpeedX
+    - windSpeedY
+    - elevation
+    - depthAverageVelX
+    - depthAverageVelY
+    - peakPeriod
+    - sigWaveHeight  # no prev_ needed - sequence provides temporal context
+  targets:
+    - sigWaveHeight  # predict next time step directly
+  seq_len: 24  # 24 hours of history for hourly data
+  sample_weight_strategy: z_score
+
+model:
+  target_bins:
+    sigWaveHeight: [0.5, 1.0, 2.0]
+  backbone:
+    input_dim: 7
+    output_dim: 1
+    hidden_dim: 128
+    num_layers: 2
+    dropout: 0.1
+    bidirectional: false
+
+trainer:
+  devices: 1
+  val_check_interval: 20000
+
+logger:
+  wandb:
+    project: wwm-emulator-hourly
+
+tags: ["dev", "lstm"]
