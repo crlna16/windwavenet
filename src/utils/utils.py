@@ -335,17 +335,14 @@ def generate_predictions_ml(
             original_var = target_name.replace("delta_", "")
             log.info(f"Reconstructing {original_var} from delta predictions")
 
-            # Get initial values from dataset
-            prev_var = f"prev_{original_var}"
-            if prev_var not in ds:
-                log.info(f"Adding previous values for {original_var}")
-                ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
-                log.info(f"Finished adding previous values for {original_var}")
-
-            # Note: Since data is NOT scaled in ML training, no need to unscale
-            prev_values = ds[prev_var].values
-            # Cumulative sum: value[t] = prev_value[t] + delta[t]
-            reconstructed = prev_values + predictions_reshaped
+            # Note: ML models don't use scaling, so pass empty features and no scaling_params
+            reconstructed, ds = SimpleWWMDataset.reconstruct_from_delta(
+                delta_predictions=predictions_reshaped,
+                dataset=ds,
+                target_name=target_name,
+                features=[],  # No scaling in ML pipeline
+                scaling_params=None,
+            )
 
             # Store both the reconstructed values and the delta predictions
             data_vars[original_var] = (

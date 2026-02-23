@@ -103,23 +103,14 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             original_var = target_name.replace("delta_", "")
             log.info(f"Reconstructing {original_var} from delta predictions")
 
-            # Get initial values from dataset
-            # Note: prediction dataset should have the previous values available
-            prev_var = f"prev_{original_var}"
-            if prev_var not in ds:
-                log.info(f"Adding previous values for {original_var}")
-                ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
-                log.info(f"Finished adding previous values for {original_var}")
-
-            # if prev_value was used as an input feature, it has been scaled
-            # un-scale before using it to reconstruct predictions
-            if prev_var in datamodule.ds_pred.features:
-                ds = SimpleWWMDataset._revert_scaling(ds, [prev_var], datamodule.ds_pred.scaling_params)
-
-            prev_values = ds[prev_var].values
-            # Cumulative sum: value[t] = prev_value[t] + delta[t]
             delta_predictions = predictions_reshaped.cpu().numpy()
-            reconstructed = prev_values + delta_predictions
+            reconstructed, ds = SimpleWWMDataset.reconstruct_from_delta(
+                delta_predictions=delta_predictions,
+                dataset=ds,
+                target_name=target_name,
+                features=datamodule.ds_pred.features,
+                scaling_params=datamodule.ds_pred.scaling_params,
+            )
 
             # Store both the reconstructed values and the delta predictions
             data_vars[original_var] = (

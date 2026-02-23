@@ -321,6 +321,50 @@ class SimpleWWMDataset(Dataset):
 
         return dataset
 
+    @staticmethod
+    def reconstruct_from_delta(
+        delta_predictions: np.ndarray,
+        dataset: xr.Dataset,
+        target_name: str,
+        features: List[str],
+        scaling_params: Optional[Dict[str, Dict[str, float]]] = None,
+    ) -> Tuple[np.ndarray, xr.Dataset]:
+        """Reconstruct absolute values from delta predictions.
+
+        For targets like 'delta_sigWaveHeight', this computes:
+            reconstructed[t] = prev_value[t] + delta_prediction[t]
+
+        Args:
+            delta_predictions: Array of delta predictions, shape (n_time, n_nodes).
+            dataset: xarray Dataset containing the source data.
+            target_name: Name of the delta target (e.g., 'delta_sigWaveHeight').
+            features: List of feature names used by the model.
+            scaling_params: Optional scaling parameters for reverting scaling.
+
+        Returns:
+            Tuple of (reconstructed_values, updated_dataset).
+            The dataset is updated with prev_* variable if it wasn't present.
+        """
+        if not target_name.startswith("delta_"):
+            raise ValueError(f"Target '{target_name}' is not a delta target")
+
+        original_var = target_name.replace("delta_", "")
+        prev_var = f"prev_{original_var}"
+
+        # Compute prev_* variable if not present
+        if prev_var not in dataset:
+            log.info(f"Computing {prev_var} for reconstruction")
+            dataset = SimpleWWMDataset._compute_prevT(dataset, [prev_var])
+
+        # Revert scaling if prev_var was used as a scaled feature
+        if scaling_params and prev_var in features:
+            dataset = SimpleWWMDataset._revert_scaling(dataset, [prev_var], scaling_params)
+
+        prev_values = dataset[prev_var].values
+        reconstructed = prev_values + delta_predictions
+
+        return reconstructed, dataset
+
     def compute_weights(self) -> None:
         """Compute and normalize sample weights.
 
@@ -499,64 +543,6 @@ class SimpleWWMDataset(Dataset):
         if self.weights is not None:
             return x, y, self.weights[idx]
         return x, y
-
-
-class SimpleWWMPredictDataset(SimpleWWMDataset):
-    """Dataset to be used for predictions.
-
-    Args:
-        SimpleWWMDataset (torch.Dataset): Base dataset class handling grid-point-wise WWM data.
-    """
-
-    def __init__(
-        self,
-        data_dir: Path,
-        data_range: List[int],
-        features: List[str],
-        targets: List[str],
-        scaling_config: Optional[str] = None,
-        sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = True,
-    ) -> None:
-        """Initialize the prediction dataset.
-
-        Args:
-            data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
-            features: List of variable names to use as features.
-            targets: List of variable names to use as targets.
-            scaling_config: Path to YAML file containing mean and std for each variable.
-            sample_weight_strategy: Strategy for computing per-sample weights (inherited from parent).
-            sample_weight_power: Exponent to control the intensity of sample weighting (inherited from parent).
-            subsample_prob: Optional probability threshold for subsampling (inherited from parent).
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
-        """
-        super().__init__(
-            data_dir=data_dir,
-            data_range=data_range,
-            features=features,
-            targets=targets,
-            scaling_config=scaling_config,
-            sample_weight_strategy=sample_weight_strategy,
-            sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
-        )
-
-    def __getitem__(self, idx: int) -> Tuple:
-        """Return features, targets, and optionally weights.
-
-        Args:
-            idx: Index of the sample to retrieve.
-
-        Returns:
-            Tuple of (features, targets, weights) if weights are computed,
-            otherwise (features, targets).
-        """
-        # Use parent's __getitem__ implementation
-        return super().__getitem__(idx)
 
 
 class SequenceWWMDataset(SimpleWWMDataset):
