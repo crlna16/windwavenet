@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from src.data.SimpleWWMDataset import SequenceWWMDataset, SimpleWWMDataset
+from src.data.WWMDatasets import SequenceWWMDataset, SimpleWWMDataset
 
 
 class TestDatasetFunctions:

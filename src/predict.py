@@ -18,7 +18,7 @@ import xarray as xr
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import log_hyperparameters, print_config_tree
-from src.data.SimpleWWMDataset import SimpleWWMDataset
+from src.data.WWMDatasets import SimpleWWMDataset
 
 log = RankedLogger(__name__, rank_zero_only=True)
 

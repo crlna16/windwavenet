@@ -19,7 +19,7 @@ import torch
 import xarray as xr
 
 from src.utils import pylogger
-from src.data.SimpleWWMDataset import SimpleWWMDataset
+from src.data.WWMDatasets import SimpleWWMDataset
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 

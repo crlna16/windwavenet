@@ -8,7 +8,7 @@ from typing import List, Optional
 from torch.utils.data import Dataset
 
 from src.data.BaseWWMDataModule import BaseWWMDataModule
-from src.data.SimpleWWMDataset import SequenceWWMDataset
+from src.data.WWMDatasets import SequenceWWMDataset
 
 
 class SequenceWWMDataModule(BaseWWMDataModule):
