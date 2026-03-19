@@ -90,6 +90,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         seq_len = 0
         pred_time_slice = slice(None)
         pred_n_time = ds.sizes["time"]
+        log.info(f"Simple dataset detected: pred_n_time={pred_n_time}")
 
     n_nodes = ds.sizes["nSCHISM_hgrid_node"]
     log.info(f"Dataset dimensions: time={ds.sizes['time']}, nSCHISM_hgrid_node={n_nodes}")

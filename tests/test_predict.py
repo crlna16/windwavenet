@@ -5,6 +5,7 @@
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -44,8 +45,8 @@ def mock_dataset():
 def mock_datamodule(mock_dataset):
     """Create a mock datamodule with prediction dataset."""
     mock_dm = MagicMock()
-    mock_ds_pred = MagicMock()
-    mock_ds_pred.ds = mock_dataset
+    # Use a plain object so attribute checks in predict() are deterministic.
+    mock_ds_pred = SimpleNamespace(ds=mock_dataset)
     mock_dm.ds_pred = mock_ds_pred
     mock_dm.predict_dataloader.return_value = MagicMock()
     return mock_dm
