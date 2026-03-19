@@ -348,3 +348,27 @@ def test_predict_with_multiple_targets(
     assert isinstance(result, xr.Dataset)
     # At least one of the targets should be present
     assert len(result.data_vars) > 0
+
+
+@patch("src.predict.print_config_tree")
+@patch("src.predict.hydra.utils.instantiate")
+def test_predict_unscales_target_when_also_feature(
+    mock_instantiate,
+    mock_print_config,
+    minimal_predict_config,
+    mock_datamodule,
+    mock_model,
+    mock_trainer,
+):
+    """Test that direct targets are unscaled before saving when also used as features."""
+    mock_datamodule.ds_pred.features = ["sigWaveHeight", "windSpeed"]
+    mock_datamodule.ds_pred.scaling_params = {
+        "sigWaveHeight": {"mean": 2.0, "std": 4.0},
+    }
+    mock_trainer.predict.return_value = [torch.full((50, 1), 0.5)]
+    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+
+    result = predict(minimal_predict_config)
+
+    expected = np.full((10, 5), 4.0)
+    np.testing.assert_allclose(result["sigWaveHeight"].values, expected)

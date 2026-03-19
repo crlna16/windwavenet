@@ -21,4 +21,5 @@ source .venv/bin/activate
 #wandb agent wwm-emulator/simple-wwm-emulator/o2yosk20 # densenet
 #wandb agent wwm-emulator/simple-wwm-emulator/btsgf6ro # xgboost sigWaveHeight
 #wandb agent wwm-emulator/simple-wwm-emulator/ms3xo7a2 # xgboost subsample
-wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
+#wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
+wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0

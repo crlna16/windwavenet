@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import List
+from typing import Any, List, cast
 
 import hydra
 from lightning import LightningDataModule, LightningModule, Trainer
@@ -23,6 +23,22 @@ from src.data.WWMDatasets import SimpleWWMDataset
 log = RankedLogger(__name__, rank_zero_only=True)
 
 warnings.filterwarnings("ignore")
+
+
+def _unscale_target_predictions(
+    target_predictions: torch.Tensor,
+    target_name: str,
+    features: List[str],
+    scaling_params: dict | None,
+) -> torch.Tensor:
+    """Convert scaled target predictions back to physical units when needed."""
+    if not scaling_params or target_name not in features or target_name not in scaling_params:
+        return target_predictions
+
+    mean = scaling_params[target_name]["mean"]
+    std = scaling_params[target_name]["std"]
+    log.info(f"Reverting scaling for target '{target_name}' with mean={mean:.4f}, std={std:.4f}")
+    return target_predictions * std + mean
 
 
 def predict(cfg: DictConfig) -> xr.Dataset:
@@ -64,17 +80,24 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         log_hyperparameters(object_dict)
 
     log.info("Starting predictions")
-    predictions = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    predictions = cast(
+        list[torch.Tensor],
+        trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path),
+    )
     predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
     log.info("Retrieving metadata from source dataset")
-    ds = datamodule.ds_pred.ds
+    datamodule_data = cast(Any, datamodule)
+    ds_pred_data = datamodule_data.ds_pred
+    ds = ds_pred_data.ds
+    features = getattr(ds_pred_data, "features", [])
+    scaling_params = getattr(ds_pred_data, "scaling_params", None)
 
     # Check if using sequence dataset (LSTM) - predictions start at seq_len timestep
-    is_sequence_dataset = hasattr(datamodule.ds_pred, "seq_len")
+    is_sequence_dataset = hasattr(ds_pred_data, "seq_len")
     if is_sequence_dataset:
-        seq_len = datamodule.ds_pred.seq_len
-        n_valid_times = datamodule.ds_pred.n_valid_times
+        seq_len = ds_pred_data.seq_len
+        n_valid_times = ds_pred_data.n_valid_times
         log.info(f"Sequence dataset detected: seq_len={seq_len}, n_valid_times={n_valid_times}")
         # Predictions are for timesteps [seq_len:] only
         pred_time_slice = slice(seq_len, None)
@@ -127,8 +150,8 @@ def predict(cfg: DictConfig) -> xr.Dataset:
                 delta_predictions=delta_predictions,
                 dataset=ds_for_reconstruction,
                 target_name=target_name,
-                features=datamodule.ds_pred.features,
-                scaling_params=datamodule.ds_pred.scaling_params,
+                features=features,
+                scaling_params=scaling_params,
             )
 
             # Store both the reconstructed values and the delta predictions
@@ -142,6 +165,12 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             )
         else:
             # Direct prediction of the target variable
+            predictions_reshaped = _unscale_target_predictions(
+                predictions_reshaped,
+                target_name,
+                features,
+                scaling_params,
+            )
             data_vars[target_name] = (
                 ["time", "nSCHISM_hgrid_node"],
                 predictions_reshaped.cpu().numpy(),
