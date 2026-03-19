@@ -24,6 +24,22 @@ from src.data.WWMDatasets import SimpleWWMDataset
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
+def unscale_target_predictions(
+    target_predictions: torch.Tensor,
+    target_name: str,
+    features: List[str],
+    scaling_params: dict | None,
+) -> torch.Tensor:
+    """Convert scaled target predictions back to physical units when needed."""
+    if not scaling_params or target_name not in features or target_name not in scaling_params:
+        return target_predictions
+
+    mean = scaling_params[target_name]["mean"]
+    std = scaling_params[target_name]["std"]
+    log.info(f"Reverting scaling for target '{target_name}' with mean={mean:.4f}, std={std:.4f}")
+    return target_predictions * std + mean
+
+
 def task_wrapper(task_func: Callable) -> Callable:
     """Optional decorator that controls the failure behavior when executing the task function.
 

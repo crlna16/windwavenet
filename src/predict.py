@@ -17,28 +17,12 @@ import xarray as xr
 
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
-from src.utils.utils import log_hyperparameters, print_config_tree
+from src.utils.utils import log_hyperparameters, print_config_tree, unscale_target_predictions
 from src.data.WWMDatasets import SimpleWWMDataset
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 warnings.filterwarnings("ignore")
-
-
-def _unscale_target_predictions(
-    target_predictions: torch.Tensor,
-    target_name: str,
-    features: List[str],
-    scaling_params: dict | None,
-) -> torch.Tensor:
-    """Convert scaled target predictions back to physical units when needed."""
-    if not scaling_params or target_name not in features or target_name not in scaling_params:
-        return target_predictions
-
-    mean = scaling_params[target_name]["mean"]
-    std = scaling_params[target_name]["std"]
-    log.info(f"Reverting scaling for target '{target_name}' with mean={mean:.4f}, std={std:.4f}")
-    return target_predictions * std + mean
 
 
 def predict(cfg: DictConfig) -> xr.Dataset:
@@ -165,7 +149,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             )
         else:
             # Direct prediction of the target variable
-            predictions_reshaped = _unscale_target_predictions(
+            predictions_reshaped = unscale_target_predictions(
                 predictions_reshaped,
                 target_name,
                 features,
