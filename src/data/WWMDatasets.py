@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025-2026 Hereon
+# SPDX-FileCopyrightText: 2025 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -63,13 +63,13 @@ class SimpleWWMDataset(Dataset):
         self.data_range = data_range
         self.features = features
         self.targets = targets
+        self.node_idx_csv = node_idx_csv
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
         self.preload_data = preload_data
-        self.node_idx_csv = node_idx_csv
 
-        # list comprehension covers omegaconf list
+        # account for omegaconf list
         self.features = [str(var) for var in list(self.features)]
         self.targets = [str(var) for var in list(self.targets)]
 
@@ -91,7 +91,7 @@ class SimpleWWMDataset(Dataset):
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
         log.info(f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}.")
 
-        # Select samples based on node idx
+        # Select nodes based on node_idx_csv
         if self.node_idx_csv:
             node_idx_path = Path(self.node_idx_csv)
             if not node_idx_path.exists():
@@ -103,27 +103,20 @@ class SimpleWWMDataset(Dataset):
             self.ds = self.ds.sel(nSCHISM_hgrid_node=node_idx)
             log.info(f"Selected {len(node_idx)} nodes from {node_idx_path}.")
 
+        # now this is the same dataset
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
-
         # keep original variables always for reconstruction
         selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
-        self.ds = self.ds[[v for v in self.features + selected_targets]]
+        self.ds = self._select_variables(self.ds, self.features + selected_targets)
 
         # clear nans from computing difference with respect to time
-        if np.any([tt.startswith("delta_") for tt in self.targets]) or np.any(
-            [ff.startswith("prev_") for ff in self.features]
-        ):
-            self.ds = self.ds.isel(time=slice(1, None))
+        self.ds = self._remove_first_timestep_if_nan(self.ds)
 
         self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
 
-        # scaling based on precomputed values
-        if scaling_config:
-            with open(scaling_config, "r") as f:
-                self.scaling_params = yaml.safe_load(f)
-        else:
-            self.scaling_params = None
+        # scale all variables
+        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
 
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
@@ -218,6 +211,25 @@ class SimpleWWMDataset(Dataset):
         return dataset[[v for v in variables]]
 
     @staticmethod
+    def _remove_first_timestep_if_nan(dataset: xr.Dataset) -> xr.Dataset:
+        """Remove first time step if it contains NaN values.
+
+        When computing shifted variables (prev_* or delta_*), the first time step
+        will contain NaN values. This method removes it unconditionally to avoid
+        triggering computation with .any() check.
+
+        Args:
+            dataset: xarray Dataset containing the data.
+
+        Returns:
+            Dataset with first time step removed.
+        """
+        # Unconditionally remove first timestep to avoid triggering .any() computation
+        # We know it will have NaN values from shift/diff operations
+        log.info("Removing first time step (NaN from shift/diff operations)")
+        return dataset.isel(time=slice(1, None))
+
+    @staticmethod
     def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
         """Extract variable data from an xarray Dataset and convert to a PyTorch tensor.
 
@@ -240,6 +252,20 @@ class SimpleWWMDataset(Dataset):
 
         log.info(f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds.")
         return tensor
+
+    @staticmethod
+    def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
+        """Load scaling parameters from YAML file.
+
+        Args:
+            config_path: Path to a YAML file containing mean and std for each variable.
+
+        Returns:
+            Dictionary mapping variable names to their mean and std values.
+        """
+        with open(config_path, "r") as f:
+            scaling_params = yaml.safe_load(f)
+        return scaling_params
 
     @staticmethod
     def _apply_scaling(
@@ -294,6 +320,50 @@ class SimpleWWMDataset(Dataset):
                 raise ValueError(f"No parameters found to revert scaling for {var}.")
 
         return dataset
+
+    @staticmethod
+    def reconstruct_from_delta(
+        delta_predictions: np.ndarray,
+        dataset: xr.Dataset,
+        target_name: str,
+        features: List[str],
+        scaling_params: Optional[Dict[str, Dict[str, float]]] = None,
+    ) -> Tuple[np.ndarray, xr.Dataset]:
+        """Reconstruct absolute values from delta predictions.
+
+        For targets like 'delta_sigWaveHeight', this computes:
+            reconstructed[t] = prev_value[t] + delta_prediction[t]
+
+        Args:
+            delta_predictions: Array of delta predictions, shape (n_time, n_nodes).
+            dataset: xarray Dataset containing the source data.
+            target_name: Name of the delta target (e.g., 'delta_sigWaveHeight').
+            features: List of feature names used by the model.
+            scaling_params: Optional scaling parameters for reverting scaling.
+
+        Returns:
+            Tuple of (reconstructed_values, updated_dataset).
+            The dataset is updated with prev_* variable if it wasn't present.
+        """
+        if not target_name.startswith("delta_"):
+            raise ValueError(f"Target '{target_name}' is not a delta target")
+
+        original_var = target_name.replace("delta_", "")
+        prev_var = f"prev_{original_var}"
+
+        # Compute prev_* variable if not present
+        if prev_var not in dataset:
+            log.info(f"Computing {prev_var} for reconstruction")
+            dataset = SimpleWWMDataset._compute_prevT(dataset, [prev_var])
+
+        # Revert scaling if prev_var was used as a scaled feature
+        if scaling_params and prev_var in features:
+            dataset = SimpleWWMDataset._revert_scaling(dataset, [prev_var], scaling_params)
+
+        prev_values = dataset[prev_var].values
+        reconstructed = prev_values + delta_predictions
+
+        return reconstructed, dataset
 
     def compute_weights(self) -> None:
         """Compute and normalize sample weights.
@@ -473,3 +543,125 @@ class SimpleWWMDataset(Dataset):
         if self.weights is not None:
             return x, y, self.weights[idx]
         return x, y
+
+
+class SequenceWWMDataset(SimpleWWMDataset):
+    """Dataset that returns time sequences for LSTM/RNN models.
+
+    Returns sequences of length `seq_len` as input features, with the next time step as target.
+    Inherits data loading, scaling, and preprocessing from SimpleWWMDataset.
+    """
+
+    def __init__(
+        self,
+        data_dir: Path,
+        data_range: List[int],
+        features: List[str],
+        targets: List[str],
+        seq_len: int,
+        scaling_config: Optional[str] = None,
+        node_idx_csv: Optional[str] = None,
+        sample_weight_strategy: Optional[str] = None,
+        sample_weight_power: Optional[float] = 1.0,
+        subsample_prob: Optional[float] = None,
+        preload_data: bool = True,
+    ) -> None:
+        """Initialize the sequence dataset.
+
+        Args:
+            data_dir: Directory of the preprocessed Zarr dataset.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            features: List of variable names to use as features.
+            targets: List of variable names to use as targets.
+            seq_len: Length of input sequences (number of time steps).
+            scaling_config: Path to YAML file containing mean and std for each variable.
+            node_idx_csv: Optional CSV file with node indices to keep.
+            sample_weight_strategy: Strategy for computing per-sample weights.
+            sample_weight_power: Exponent to control the intensity of sample weighting.
+            subsample_prob: Optional probability threshold for subsampling.
+            preload_data: If True, preload data in memory for fast access.
+        """
+        self.seq_len = seq_len
+
+        # Initialize parent class (loads and preprocesses data)
+        super().__init__(
+            data_dir=data_dir,
+            data_range=data_range,
+            features=features,
+            targets=targets,
+            scaling_config=scaling_config,
+            node_idx_csv=node_idx_csv,
+            sample_weight_strategy=sample_weight_strategy,
+            sample_weight_power=sample_weight_power,
+            subsample_prob=subsample_prob,
+            preload_data=preload_data,
+        )
+
+        # Store time and node dimensions for sequence indexing
+        self.n_time = len(self.ds.time)
+        # Number of valid sequence start positions
+        self.n_valid_times = self.n_time - self.seq_len
+
+        if self.n_valid_times <= 0:
+            raise ValueError(f"seq_len ({seq_len}) must be less than number of time steps ({self.n_time})")
+
+        # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
+        if self.preload_data and self.X is not None:
+            n_features = self.X.shape[1]
+            n_targets = self.y.shape[1]
+            self.X = self.X.view(self.n_time, self.n_nodes, n_features)
+            self.y = self.y.view(self.n_time, self.n_nodes, n_targets)
+            log.info(f"Reshaped data for sequence access: X={tuple(self.X.shape)}, y={tuple(self.y.shape)}")
+
+        log.info(
+            f"SequenceWWMDataset initialized with seq_len={seq_len}, "
+            f"n_valid_times={self.n_valid_times}, n_nodes={self.n_nodes}"
+        )
+
+    def __len__(self) -> int:
+        """Return the number of valid sequences.
+
+        Returns:
+            Number of samples: (n_time - seq_len) * n_nodes
+        """
+        return self.n_valid_times * self.n_nodes
+
+    def __getitem__(self, idx: int) -> Tuple:
+        """Get a sequence sample.
+
+        Args:
+            idx: Index of the sample to retrieve.
+
+        Returns:
+            Tuple of (X_seq, y_target) where:
+                - X_seq: (seq_len, n_features) tensor of input features
+                - y_target: (n_targets,) tensor of target at t+seq_len
+        """
+        # Map flat index to (time_start, node)
+        time_start = idx // self.n_nodes
+        node_idx = idx % self.n_nodes
+
+        if self.preload_data:
+            # X: sequence from time_start to time_start + seq_len
+            X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
+
+            # y: target at next time step after sequence
+            y_target = self.y[time_start + self.seq_len, node_idx, :]
+
+            return X_seq, y_target
+
+        # Lazy loading mode
+        time_indices = list(range(time_start, time_start + self.seq_len + 1))
+        node = self.ds.nSCHISM_hgrid_node.values[node_idx]
+
+        sample_data = self.ds.isel(time=time_indices).sel(nSCHISM_hgrid_node=node)
+
+        # Features for sequence
+        xa = sample_data[self.features].to_dataarray()
+        X_seq = torch.from_numpy(xa.values[:, :-1].T)  # (seq_len, n_features)
+
+        # Target at next time step
+        ya = sample_data[self.targets].to_dataarray()
+        y_target = torch.from_numpy(ya.values[:, -1])  # (n_targets,)
+
+        return X_seq, y_target

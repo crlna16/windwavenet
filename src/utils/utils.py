@@ -19,9 +19,25 @@ import torch
 import xarray as xr
 
 from src.utils import pylogger
-from src.data.SimpleWWMDataset import SimpleWWMDataset
+from src.data.WWMDatasets import SimpleWWMDataset
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
+
+def unscale_target_predictions(
+    target_predictions: torch.Tensor,
+    target_name: str,
+    features: List[str],
+    scaling_params: dict | None,
+) -> torch.Tensor:
+    """Convert scaled target predictions back to physical units when needed."""
+    if not scaling_params or target_name not in features or target_name not in scaling_params:
+        return target_predictions
+
+    mean = scaling_params[target_name]["mean"]
+    std = scaling_params[target_name]["std"]
+    log.info(f"Reverting scaling for target '{target_name}' with mean={mean:.4f}, std={std:.4f}")
+    return target_predictions * std + mean
 
 
 def task_wrapper(task_func: Callable) -> Callable:
@@ -335,17 +351,14 @@ def generate_predictions_ml(
             original_var = target_name.replace("delta_", "")
             log.info(f"Reconstructing {original_var} from delta predictions")
 
-            # Get initial values from dataset
-            prev_var = f"prev_{original_var}"
-            if prev_var not in ds:
-                log.info(f"Adding previous values for {original_var}")
-                ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
-                log.info(f"Finished adding previous values for {original_var}")
-
-            # Note: Since data is NOT scaled in ML training, no need to unscale
-            prev_values = ds[prev_var].values
-            # Cumulative sum: value[t] = prev_value[t] + delta[t]
-            reconstructed = prev_values + predictions_reshaped
+            # Note: ML models don't use scaling, so pass empty features and no scaling_params
+            reconstructed, ds = SimpleWWMDataset.reconstruct_from_delta(
+                delta_predictions=predictions_reshaped,
+                dataset=ds,
+                target_name=target_name,
+                features=[],  # No scaling in ML pipeline
+                scaling_params=None,
+            )
 
             # Store both the reconstructed values and the delta predictions
             data_vars[original_var] = (

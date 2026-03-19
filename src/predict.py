@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import List
+from typing import Any, List, cast
 
 import hydra
 from lightning import LightningDataModule, LightningModule, Trainer
@@ -17,8 +17,8 @@ import xarray as xr
 
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
-from src.utils.utils import log_hyperparameters, print_config_tree
-from src.data.SimpleWWMDataset import SimpleWWMDataset
+from src.utils.utils import log_hyperparameters, print_config_tree, unscale_target_predictions
+from src.data.WWMDatasets import SimpleWWMDataset
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -64,14 +64,37 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         log_hyperparameters(object_dict)
 
     log.info("Starting predictions")
-    predictions = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    predictions = cast(
+        list[torch.Tensor],
+        trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path),
+    )
     predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
     log.info("Retrieving metadata from source dataset")
-    ds = datamodule.ds_pred.ds
+    datamodule_data = cast(Any, datamodule)
+    ds_pred_data = datamodule_data.ds_pred
+    ds = ds_pred_data.ds
+    features = getattr(ds_pred_data, "features", [])
+    scaling_params = getattr(ds_pred_data, "scaling_params", None)
 
-    ds_dims = ds.sizes
-    log.info(f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}")
+    # Check if using sequence dataset (LSTM) - predictions start at seq_len timestep
+    is_sequence_dataset = hasattr(ds_pred_data, "seq_len")
+    if is_sequence_dataset:
+        seq_len = ds_pred_data.seq_len
+        n_valid_times = ds_pred_data.n_valid_times
+        log.info(f"Sequence dataset detected: seq_len={seq_len}, n_valid_times={n_valid_times}")
+        # Predictions are for timesteps [seq_len:] only
+        pred_time_slice = slice(seq_len, None)
+        pred_n_time = n_valid_times
+    else:
+        seq_len = 0
+        pred_time_slice = slice(None)
+        pred_n_time = ds.sizes["time"]
+        log.info(f"Simple dataset detected: pred_n_time={pred_n_time}")
+
+    n_nodes = ds.sizes["nSCHISM_hgrid_node"]
+    log.info(f"Dataset dimensions: time={ds.sizes['time']}, nSCHISM_hgrid_node={n_nodes}")
+    log.info(f"Prediction dimensions: pred_n_time={pred_n_time}, n_nodes={n_nodes}")
 
     # Get target names from config and verify they match the model checkpoint
     config_targets = cfg.data.targets
@@ -96,30 +119,25 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         target_predictions = predictions[:, i]
 
         # Reshape to match spatial and temporal dimensions
-        predictions_reshaped = target_predictions.reshape(ds_dims["time"], ds_dims["nSCHISM_hgrid_node"])
+        # For sequence datasets, pred_n_time < ds.sizes["time"]
+        predictions_reshaped = target_predictions.reshape(pred_n_time, n_nodes)
 
         # If this is a delta prediction, reconstruct the full values
         if target_name.startswith("delta_"):
             original_var = target_name.replace("delta_", "")
             log.info(f"Reconstructing {original_var} from delta predictions")
 
-            # Get initial values from dataset
-            # Note: prediction dataset should have the previous values available
-            prev_var = f"prev_{original_var}"
-            if prev_var not in ds:
-                log.info(f"Adding previous values for {original_var}")
-                ds = SimpleWWMDataset._compute_prevT(ds, [prev_var])
-                log.info(f"Finished adding previous values for {original_var}")
+            # For sequence datasets, slice the source dataset to matching time range
+            ds_for_reconstruction = ds.isel(time=pred_time_slice) if is_sequence_dataset else ds
 
-            # if prev_value was used as an input feature, it has been scaled
-            # un-scale before using it to reconstruct predictions
-            if prev_var in datamodule.ds_pred.features:
-                ds = SimpleWWMDataset._revert_scaling(ds, [prev_var], datamodule.ds_pred.scaling_params)
-
-            prev_values = ds[prev_var].values
-            # Cumulative sum: value[t] = prev_value[t] + delta[t]
             delta_predictions = predictions_reshaped.cpu().numpy()
-            reconstructed = prev_values + delta_predictions
+            reconstructed, ds_for_reconstruction = SimpleWWMDataset.reconstruct_from_delta(
+                delta_predictions=delta_predictions,
+                dataset=ds_for_reconstruction,
+                target_name=target_name,
+                features=features,
+                scaling_params=scaling_params,
+            )
 
             # Store both the reconstructed values and the delta predictions
             data_vars[original_var] = (
@@ -132,6 +150,12 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             )
         else:
             # Direct prediction of the target variable
+            predictions_reshaped = unscale_target_predictions(
+                predictions_reshaped,
+                target_name,
+                features,
+                scaling_params,
+            )
             data_vars[target_name] = (
                 ["time", "nSCHISM_hgrid_node"],
                 predictions_reshaped.cpu().numpy(),
@@ -139,10 +163,13 @@ def predict(cfg: DictConfig) -> xr.Dataset:
 
     otn = [tn.replace("delta_", "") for tn in target_names]
 
+    # For sequence datasets, use sliced time coordinates
+    pred_time_coords = ds.time.isel(time=pred_time_slice)
+
     ds_pred = xr.Dataset(
         data_vars,
         coords={
-            "time": ds.time,
+            "time": pred_time_coords,
             "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
             "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
             "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
@@ -151,6 +178,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             "description": f"Predictions for {', '.join(otn)}",
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
+            "seq_len": seq_len,
         },
     )
 

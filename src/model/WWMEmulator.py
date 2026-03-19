@@ -150,6 +150,36 @@ class WWMEmulator(L.LightningModule):
 
         return total_loss, per_variable_losses, preds, y
 
+    def log_step_metrics(
+        self,
+        total_loss: torch.Tensor,
+        per_var_losses: Dict[str, torch.Tensor],
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        prefix: str,
+        rmse_metrics: nn.ModuleDict,
+        log_on_step: bool = False,
+    ) -> None:
+        """Log loss and RMSE metrics for a step.
+
+        Args:
+            total_loss: Total weighted loss.
+            per_var_losses: Dict of per-variable losses.
+            preds: Model predictions.
+            targets: Ground truth targets.
+            prefix: Logging prefix ('train', 'val', or 'test').
+            rmse_metrics: ModuleDict containing RMSE metrics for each target.
+            log_on_step: Whether to log on step (True for training).
+        """
+        # Log total loss
+        self.log(f"{prefix}/loss", total_loss, on_step=log_on_step, on_epoch=True, prog_bar=True)
+
+        # Log per-variable losses and RMSE
+        for i, name in enumerate(self.target_names):
+            self.log(f"{prefix}/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
+            rmse_metrics[name](preds[:, i], targets[:, i])
+            self.log(f"{prefix}/rmse_{name}", rmse_metrics[name], on_step=False, on_epoch=True)
+
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data.
 
@@ -161,21 +191,7 @@ class WWMEmulator(L.LightningModule):
             A tensor of losses between model predictions and targets.
         """
         total_loss, per_var_losses, preds, targets = self.model_step(batch)
-
-        # Log total loss
-        self.log("train/loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
-
-        # Log per-variable losses and RMSE
-        for i, name in enumerate(self.target_names):
-            self.log(f"train/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
-            self.train_rmse[name](preds[:, i], targets[:, i])
-            self.log(
-                f"train/rmse_{name}",
-                self.train_rmse[name],
-                on_step=False,
-                on_epoch=True,
-            )
-
+        self.log_step_metrics(total_loss, per_var_losses, preds, targets, "train", self.train_rmse, log_on_step=True)
         return total_loss
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -186,17 +202,10 @@ class WWMEmulator(L.LightningModule):
             batch_idx: The index of the current batch.
         """
         total_loss, per_var_losses, preds, targets = self.model_step(batch)
+        self.log_step_metrics(total_loss, per_var_losses, preds, targets, "val", self.val_rmse, log_on_step=False)
 
-        # Log total loss
-        self.log("val/loss", total_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        # Log per-variable losses and RMSE
+        # Compute binned RMSE (validation only)
         for i, name in enumerate(self.target_names):
-            self.log(f"val/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
-            self.val_rmse[name](preds[:, i], targets[:, i])
-            self.log(f"val/rmse_{name}", self.val_rmse[name], on_step=False, on_epoch=True)
-
-            # Compute binned RMSE if bins are specified for this target
             if name in self.target_bins:
                 bins = self.target_bins[name]
                 target_vals = targets[:, i]
@@ -246,15 +255,7 @@ class WWMEmulator(L.LightningModule):
             batch_idx: The index of the current batch.
         """
         total_loss, per_var_losses, preds, targets = self.model_step(batch)
-
-        # Log total loss
-        self.log("test/loss", total_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        # Log per-variable losses and RMSE
-        for i, name in enumerate(self.target_names):
-            self.log(f"test/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
-            self.test_rmse[name](preds[:, i], targets[:, i])
-            self.log(f"test/rmse_{name}", self.test_rmse[name], on_step=False, on_epoch=True)
+        self.log_step_metrics(total_loss, per_var_losses, preds, targets, "test", self.test_rmse, log_on_step=False)
 
     def predict_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single predict step on a batch of data.
