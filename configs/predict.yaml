@@ -35,6 +35,8 @@ ckpt_path: /work/ka1176/caroline/gitlab/wave-wind-model-emulator/checkpoints/epo
 # seed for random number generators in pytorch, numpy and python.random
 seed: null
 
+test_metrics: false # run additional test pass
+
 ## ------------------------------------
 ## Default configuration for evaluating
 ## ------------------------------------

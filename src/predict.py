@@ -70,6 +70,10 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     )
     predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
+    # run test metrics that are synced to wandb
+    if cfg.test_metrics:
+        trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+
     log.info("Retrieving metadata from source dataset")
     datamodule_data = cast(Any, datamodule)
     ds_pred_data = datamodule_data.ds_pred

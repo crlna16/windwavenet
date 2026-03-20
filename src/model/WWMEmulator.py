@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import lightning as L
 import torch
@@ -92,6 +92,7 @@ class WWMEmulator(L.LightningModule):
 
         # Binned RMSE metrics for validation (only create if bins are specified)
         self.val_rmse_binned = nn.ModuleDict()
+        self.test_rmse_binned = nn.ModuleDict()
         for name in target_names:
             log.info(f"Checking if {name} has target bins ...")
             if name in self.target_bins:
@@ -100,7 +101,8 @@ class WWMEmulator(L.LightningModule):
                 for i in range(len(bins) + 1):
                     bin_key = f"{name}_bin{i}"
                     self.val_rmse_binned[bin_key] = MeanSquaredError(squared=False)
-                    log.info(f"Added validation metric {bin_key} for {name}")
+                    self.test_rmse_binned[bin_key] = MeanSquaredError(squared=False)
+                    log.info(f"Added validation and test metric {bin_key} for {name}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
@@ -180,6 +182,54 @@ class WWMEmulator(L.LightningModule):
             rmse_metrics[name](preds[:, i], targets[:, i])
             self.log(f"{prefix}/rmse_{name}", rmse_metrics[name], on_step=False, on_epoch=True)
 
+    def log_binned_rmse_metrics(
+        self,
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        prefix: str,
+        binned_rmse_metrics: nn.ModuleDict,
+    ) -> None:
+        """Log per-bin RMSE metrics for configured targets.
+
+        Args:
+            preds: Model predictions.
+            targets: Ground truth targets.
+            prefix: Logging prefix ('val' or 'test').
+            binned_rmse_metrics: ModuleDict containing one RMSE metric per target bin.
+        """
+        for i, name in enumerate(self.target_names):
+            if name not in self.target_bins:
+                continue
+
+            bins = self.target_bins[name]
+            target_vals = targets[:, i]
+            pred_vals = preds[:, i]
+
+            for bin_idx in range(len(bins) + 1):
+                mask = get_bin_mask(target_vals, bins, bin_idx)
+
+                # Only update metric if there are samples in this bin
+                if mask.sum() == 0:
+                    continue
+
+                bin_key = f"{name}_bin{bin_idx}"
+                binned_rmse_metrics[bin_key](pred_vals[mask], target_vals[mask])
+
+                # Create descriptive bin label for logging
+                if bin_idx == 0:
+                    bin_label = f"<{bins[0]}"
+                elif bin_idx == len(bins):
+                    bin_label = f">={bins[-1]}"
+                else:
+                    bin_label = f"[{bins[bin_idx - 1]},{bins[bin_idx]})"
+
+                self.log(
+                    f"{prefix}/rmse_{name}_{bin_label}",
+                    cast(Any, binned_rmse_metrics[bin_key]),
+                    on_step=False,
+                    on_epoch=True,
+                )
+
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data.
 
@@ -203,36 +253,7 @@ class WWMEmulator(L.LightningModule):
         """
         total_loss, per_var_losses, preds, targets = self.model_step(batch)
         self.log_step_metrics(total_loss, per_var_losses, preds, targets, "val", self.val_rmse, log_on_step=False)
-
-        # Compute binned RMSE (validation only)
-        for i, name in enumerate(self.target_names):
-            if name in self.target_bins:
-                bins = self.target_bins[name]
-                target_vals = targets[:, i]
-                pred_vals = preds[:, i]
-
-                for bin_idx in range(len(bins) + 1):
-                    mask = get_bin_mask(target_vals, bins, bin_idx)
-
-                    # Only update metric if there are samples in this bin
-                    if mask.sum() > 0:
-                        bin_key = f"{name}_bin{bin_idx}"
-                        self.val_rmse_binned[bin_key](pred_vals[mask], target_vals[mask])
-
-                        # Create descriptive bin label for logging
-                        if bin_idx == 0:
-                            bin_label = f"<{bins[0]}"
-                        elif bin_idx == len(bins):
-                            bin_label = f">={bins[-1]}"
-                        else:
-                            bin_label = f"[{bins[bin_idx - 1]},{bins[bin_idx]})"
-
-                        self.log(
-                            f"val/rmse_{name}_{bin_label}",
-                            self.val_rmse_binned[bin_key],
-                            on_step=False,
-                            on_epoch=True,
-                        )
+        self.log_binned_rmse_metrics(preds, targets, "val", self.val_rmse_binned)
 
     def on_validation_epoch_end(self) -> None:
         """Called at the end of the validation epoch to track best validation loss."""
@@ -256,6 +277,7 @@ class WWMEmulator(L.LightningModule):
         """
         total_loss, per_var_losses, preds, targets = self.model_step(batch)
         self.log_step_metrics(total_loss, per_var_losses, preds, targets, "test", self.test_rmse, log_on_step=False)
+        self.log_binned_rmse_metrics(preds, targets, "test", self.test_rmse_binned)
 
     def predict_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single predict step on a batch of data.
