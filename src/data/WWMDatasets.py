@@ -814,16 +814,9 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
         start_time = time.time()
 
         raw_edges = self.ds.isel(time=0)["SCHISM_hgrid_edge_nodes"].values.astype(int)
-        print(f"[DEBUG _build_adjacency] raw_edges shape: {raw_edges.shape}")
-        print(f"[DEBUG _build_adjacency] raw_edges first 5 rows:\n{raw_edges[:5]}")
-        print(f"[DEBUG _build_adjacency] raw_edges min: {raw_edges.min()}, max: {raw_edges.max()}")
 
         # Map 1-indexed node IDs to 0-indexed positions
         ds_node_ids = self.ds.nSCHISM_hgrid_node.values
-        print(f"[DEBUG _build_adjacency] ds_node_ids[:10]: {ds_node_ids[:10]}")
-        print(
-            f"[DEBUG _build_adjacency] ds_node_ids range: {ds_node_ids.min()} to {ds_node_ids.max()}, count: {len(ds_node_ids)}"
-        )
         id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
 
         self.adjacency: Dict[int, List[int]] = defaultdict(list)
@@ -840,18 +833,7 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
             else:
                 skipped_count += 1
 
-        # Check a sample node's neighbors
-        sample_pos = next(iter(self.adjacency)) if self.adjacency else None
-        if sample_pos is not None:
-            print(
-                f"[DEBUG _build_adjacency] Sample: node pos {sample_pos} (id={ds_node_ids[sample_pos]}) has {len(self.adjacency[sample_pos])} neighbors"
-            )
-            print(f"[DEBUG _build_adjacency]   neighbor positions: {self.adjacency[sample_pos][:5]}")
-
         elapsed = time.time() - start_time
-        print(
-            f"[DEBUG _build_adjacency] valid: {valid_count}, skipped: {skipped_count}, nodes with neighbors: {len(self.adjacency)}"
-        )
         log.info(
             f"Built adjacency list in {elapsed:.1f}s: "
             f"{valid_count} valid edges, {len(self.adjacency)} nodes with neighbors."
@@ -875,11 +857,6 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
                 - center_local_idx: local index of the center node in subgraph_nodes
         """
         cx, cy = self.node_x[center_pos], self.node_y[center_pos]
-        n_neighbors = len(self.adjacency.get(center_pos, []))
-        print(f"[DEBUG _build_subgraph] center_pos={center_pos}, coords=({cx:.1f}, {cy:.1f}), neighbors={n_neighbors}")
-        print(
-            f"[DEBUG _build_subgraph] limits: max_nodes={self.max_nodes}, max_links={self.max_links}, max_radius={self.max_radius}"
-        )
 
         visited = {center_pos}
         queue = deque([(center_pos, 0)])
@@ -911,10 +888,6 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
                 if len(visited) >= self.max_nodes:
                     break
 
-        print(
-            f"[DEBUG _build_subgraph] BFS result: {len(visited)} nodes visited, {radius_rejected} rejected by radius, {depth_rejected} rejected by depth"
-        )
-
         # Build local node mapping
         subgraph_nodes = np.sort(np.array(list(visited)))
         global_to_local = {g: l for l, g in enumerate(subgraph_nodes)}  # noqa: E741
@@ -938,13 +911,6 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
 
         edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
 
-        n_self_loops = len(subgraph_nodes)
-        n_neighbor_edges = len(src_list) - n_self_loops
-        print(
-            f"[DEBUG _build_subgraph] edge_index shape: {edge_index.shape}, self-loops: {n_self_loops}, neighbor edges: {n_neighbor_edges}"
-        )
-        print(f"[DEBUG _build_subgraph] center_local_idx: {center_local_idx}, subgraph_nodes[:5]: {subgraph_nodes[:5]}")
-
         return subgraph_nodes, edge_index, center_local_idx
 
     def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
@@ -965,27 +931,19 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
                 - center_idx: local index of center node in x
         """
         subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
-        print(f"[DEBUG construct_graph] time_idx={time_idx}, center_node_pos={center_node_pos}")
-        print(f"[DEBUG construct_graph] subgraph has {len(subgraph_nodes)} nodes, edge_index shape: {edge_index.shape}")
-        print(f"[DEBUG construct_graph] features: {self.features}, targets: {self.targets}")
 
         # Extract node features for subgraph at this time step
         sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=subgraph_nodes)
         x_da = sample[self.features].to_dataarray(dim="variable")
-        print(f"[DEBUG construct_graph] x_da dims: {x_da.dims}, shape: {x_da.shape}")
         # x_da shape: (variable, nSCHISM_hgrid_node) → transpose to (n_nodes, n_features)
         x = torch.from_numpy(x_da.values.T.copy()).float()
-        print(f"[DEBUG construct_graph] x tensor shape: {x.shape}, first row: {x[0]}")
 
         # Extract target for center node only
         center_sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=center_node_pos)
         y_da = center_sample[self.targets].to_dataarray(dim="variable")
-        print(f"[DEBUG construct_graph] y_da dims: {y_da.dims}, shape: {y_da.shape}")
         y = torch.from_numpy(y_da.values.copy()).float()
-        print(f"[DEBUG construct_graph] y tensor: {y}")
 
         graph = GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
-        print(f"[DEBUG construct_graph] Returned graph: {graph}")
         return graph
 
     def __len__(self) -> int:
