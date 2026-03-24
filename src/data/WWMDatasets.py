@@ -14,6 +14,9 @@ import time
 import pandas as pd
 from torch.utils.data import Dataset
 
+from torch_geometric.data import Dataset as GDataset
+from torch_geometric.data import Data as GData
+
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -665,3 +668,172 @@ class SequenceWWMDataset(SimpleWWMDataset):
         y_target = torch.from_numpy(ya.values[:, -1])  # (n_targets,)
 
         return X_seq, y_target
+
+
+class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
+    """Dataset that returns graphs that represent a subregion around a center node."""
+
+    def __init__(
+        self,
+        data_dir: Path,
+        data_range: List[int],
+        features: List[str],
+        targets: List[str],
+        graph_features: List[str],  # TODO default values
+        scaling_config: Optional[str] = None,
+        node_idx_csv: Optional[str] = None,
+        sample_weight_strategy: Optional[str] = None,
+        sample_weight_power: Optional[float] = 1.0,
+        subsample_prob: Optional[float] = None,
+        preload_data: bool = False,
+        max_radius: float = 10000.0,
+        max_nodes: int = 1000,
+        max_links: int = 1000,
+    ) -> None:
+        """Initialize the dataset.
+
+        Args:
+            data_dir: Directory of the preprocessed Zarr dataset. Must contain graph definition.
+            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            features: List of variable names to use as features.
+            targets: List of variable names to use as targets.
+            graph_features: List of variable names to use for constructing the graph. TODO
+            scaling_config: Path to YAML file containing mean and std for each variable.
+            node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
+                containing node indices to keep. If None, keep all nodes.
+            sample_weight_strategy: Strategy for computing per-sample weights.
+                Options: None (no weighting), 'z_score' (weight by z-score of targets).
+            sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
+            subsample_prob: Optional probability threshold for subsampling based on z_score.
+                Must be None for SmallGraphWWMDataset.
+            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
+                With multiple workers, each worker slices the time axis to avoid shared Zarr chunks.
+                Must be False for SmallGraphWWMDataset.
+            max_radius: Maximum radius in grid units that a node can have from the
+                graph center node (default: 10000.)
+            max_nodes: Maximum number of nodes in a graph (defaut: 1000).
+            max_links: Maximum number of edges between the center node and a node in the graph (default: 1000)
+        """
+        SimpleWWMDataset.__init__(
+            self,
+            data_dir,
+            data_range,
+            features + graph_features,
+            targets,
+            scaling_config,
+            node_idx_csv,
+            sample_weight_strategy,
+            sample_weight_power,
+            subsample_prob,
+            preload_data,
+        )
+        GDataset.__init__(self)
+
+        if self.subsample_prob is not None:
+            raise ValueError("Subsample probability must be None for GraphWWMDataset. Found", self.subsample_prob)
+
+        self.max_radius = max_radius
+        self.max_nodes = max_nodes
+        self.max_links = max_links
+
+        # reset features (for embeddings) and graph_features (for graph geometry)
+        self.features = features
+        self.graph_features = graph_features
+
+        # graph connections
+        self.ds = self.ds.assign(node_idx=self.ds[features[0]].isel(time=0))
+        self.ds.node_idx.values = np.arange(1, self.ds.sizes["nSCHISM_hgrid_node"] + 1)
+
+        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
+        self.possible_graphs = self.n_nodes * len(self.ds.time)
+
+    def construct_graph(self, time_idx=0, node_idx=0) -> GData:
+        """
+        Construct a graph around the center node at node_idx, with node features from time time_idx.
+
+        The graph encompasses all nodes that are within the distance of the center node
+        - max_radius defines the maximum distance (dimensionless units)
+        - max_nodes defines the maximum number of nodes the graph may hold
+        - max_links defines the maximum number of edges between a node and the center node
+
+        Args:
+            time_idx (int): Time index in dataset. Used to select values for node features.
+            node_idx (int): Node index (nSCHISM_hgrid_node).
+
+        Returns:
+            torch_geometric.data.Data: Graph instance centered around the center node with associated
+              node features.
+
+        """
+
+        # Select the correct center node based on node_idx
+        center_node = self.ds.isel(nSCHISM_hgrid_node=node_idx).node_idx.values  # starts from 1 (like edges)
+        # Select the correct embeddings based on time_idx
+        embeddings = self.ds.isel(time=time_idx)
+
+        edges = self.ds.isel(time=time_idx).SCHISM_hgrid_edge_nodes.values.astype(int)
+
+        constructing = True
+
+        nodes_in_graph = []
+        nodes_to_check = [center_node]
+
+        while constructing and len(nodes_to_check) > 0:
+            center_node = self.ds.isel(nSCHISM_hgrid_node=nodes_to_check[0] - 1).node_idx.values
+
+            cx = embeddings.isel(nSCHISM_hgrid_node=center_node - 1)["SCHISM_hgrid_node_x"]
+            cy = embeddings.isel(nSCHISM_hgrid_node=center_node - 1)["SCHISM_hgrid_node_y"]
+
+            # get all the node_idx that share an edge with center_node
+            candidates = np.unique(edges[(edges == center_node).sum(axis=1).astype(bool), :].flatten())
+            # restrict to new candidates
+            candidates = np.array([c for c in candidates if c not in nodes_in_graph])
+
+            subset = embeddings.isel(nSCHISM_hgrid_node=candidates - 1)  # starts from 0
+            distances = np.sqrt(
+                (subset["SCHISM_hgrid_node_x"] - cx) ** 2 + (subset["SCHISM_hgrid_node_y"] - cy) ** 2
+            ).values
+
+            for distance, candidate in zip(distances, candidates):
+                # within radius
+                if distance < self.max_radius and distance > 0:
+                    nodes_to_check.append(candidate)
+
+            # append current node to graph
+            nodes_in_graph.append(center_node)
+
+            if len(nodes_in_graph) >= self.max_nodes:
+                constructing = False
+
+            # we are done with this one
+            nodes_to_check.pop(0)
+
+            print(nodes_to_check)
+
+        edge_index = torch.tensor([[3, 1, 1, 2], [2, 1, 2, 1]], dtype=torch.long)
+        x = torch.tensor([[np.random.rand()], [0], [1]], dtype=torch.float)
+
+        graph = GData(x=x, edge_index=edge_index)
+
+        return graph
+
+    def len(self) -> int:
+        return self.possible_graphs
+
+    def get(self, idx) -> GData:
+        """
+        Construct the graph at idx with corresponding embeddings. idx wraps along the nodes
+         => time_idx for the feature values
+         => node_idx for the center node selection
+
+        Args:
+            idx: Index in dataset.
+
+        Returns:
+            Data: Graph centered on the center node with features from given time.
+        """
+        time_idx = idx // self.n_nodes
+        node_idx = idx % self.n_nodes
+
+        graph = self.construct_graph(time_idx=time_idx, node_idx=node_idx)
+        return graph
