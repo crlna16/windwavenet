@@ -736,7 +736,6 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
             subsample_prob,
             preload_data,
         )
-        GDataset.__init__(self)
 
         if self.subsample_prob is not None:
             raise ValueError(
@@ -791,9 +790,19 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
             errors="ignore",
         )
 
+        # Precompute total samples as a plain int.
+        # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
+        # must not traverse attribute chains like self.ds.time at call time.
+        self._n_time = len(self.ds.time)
+        self._total_samples = self.n_center_nodes * self._n_time
+
+        # Initialize GDataset last, after all attributes are set,
+        # because PyG's Dataset.__init__ may trigger len() or other methods.
+        GDataset.__init__(self)
+
         log.info(
             f"SmallGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
-            f"{len(self.ds.time)} time steps, {self.n_center_nodes * len(self.ds.time)} total samples."
+            f"{self._n_time} time steps, {self._total_samples} total samples."
         )
 
     def _build_adjacency(self) -> None:
@@ -802,6 +811,8 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
         Edge node IDs are 1-indexed in the dataset; they are converted to
         0-indexed positional indices into ``self.ds.nSCHISM_hgrid_node``.
         """
+        start_time = time.time()
+
         raw_edges = self.ds.isel(time=0)["SCHISM_hgrid_edge_nodes"].values.astype(int)
 
         # Map 1-indexed node IDs to 0-indexed positions
@@ -818,7 +829,11 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
                 self.adjacency[b_pos].append(a_pos)
                 valid_count += 1
 
-        log.info(f"Built adjacency list: {valid_count} valid edges, {len(self.adjacency)} nodes with neighbors.")
+        elapsed = time.time() - start_time
+        log.info(
+            f"Built adjacency list in {elapsed:.1f}s: "
+            f"{valid_count} valid edges, {len(self.adjacency)} nodes with neighbors."
+        )
 
     def _build_subgraph(self, center_pos: int) -> Tuple[np.ndarray, torch.Tensor, int]:
         """Build subgraph topology around a center node using BFS.
@@ -871,13 +886,19 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
         center_local_idx = global_to_local[center_pos]
 
         # Build edge_index: include all edges where both endpoints are in subgraph
+        # plus self-loops on the diagonal (required by many PyG message-passing layers)
         subgraph_set = set(subgraph_nodes)
         src_list = []
         dst_list = []
         for u in subgraph_nodes:
+            local_u = global_to_local[u]
+            # Self-loop
+            src_list.append(local_u)
+            dst_list.append(local_u)
+            # Neighbor edges
             for v in self.adjacency.get(u, []):
                 if v in subgraph_set:
-                    src_list.append(global_to_local[u])
+                    src_list.append(local_u)
                     dst_list.append(global_to_local[v])
 
         edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
@@ -916,9 +937,13 @@ class SmallGraphWWMDataset(SimpleWWMDataset, GDataset):
 
         return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
 
+    def __len__(self) -> int:
+        """Return the total number of samples (center_nodes * time_steps)."""
+        return self._total_samples
+
     def len(self) -> int:
         """Return the total number of samples (center_nodes * time_steps)."""
-        return self.n_center_nodes * len(self.ds.time)
+        return self._total_samples
 
     def get(self, idx: int) -> GData:
         """Get a graph sample by flat index.
