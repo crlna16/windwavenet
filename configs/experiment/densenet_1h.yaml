@@ -19,12 +19,12 @@ data:
     - peakPeriod
     - prev_sigWaveHeight
   targets:
-    - delta_sigWaveHeight
+    - sigWaveHeight
   sample_weight_strategy: z_score
 
 model:
   target_bins:
-    delta_sigWaveHeight: [-0.1, 0.1]
+    sigWaveHeight: [0.5, 1.0, 2.0]
   backbone:
     input_dim: 7
     num_hidden_layers: 3

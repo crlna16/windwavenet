@@ -20,4 +20,4 @@
 #wandb agent wwm-emulator/simple-wwm-emulator/ms3xo7a2 # xgboost subsample
 #wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
 #wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0
-uv run wandb agent wwm-emulator/wwm-emulator-hourly/7lyrjwwo
+uv run wandb agent wwm-emulator/wwm-emulator-hourly/pi41o5kn
