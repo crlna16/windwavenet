@@ -553,8 +553,8 @@ class SimpleWWMDataset(Dataset):
 class SequenceWWMDataset(SimpleWWMDataset):
     """Dataset that returns time sequences for LSTM/RNN models.
 
-    Returns sequences of length `seq_len` as input features, with the next time step as target.
-    Inherits data loading, scaling, and preprocessing from SimpleWWMDataset.
+    Returns sequences of length `seq_len` as input features, with the last time step in the
+    sequence as target. Inherits data loading, scaling, and preprocessing from SimpleWWMDataset.
     """
 
     def __init__(
@@ -605,10 +605,10 @@ class SequenceWWMDataset(SimpleWWMDataset):
         # Store time and node dimensions for sequence indexing
         self.n_time = len(self.ds.time)
         # Number of valid sequence start positions
-        self.n_valid_times = self.n_time - self.seq_len
+        self.n_valid_times = self.n_time - self.seq_len + 1
 
         if self.n_valid_times <= 0:
-            raise ValueError(f"seq_len ({seq_len}) must be less than number of time steps ({self.n_time})")
+            raise ValueError(f"seq_len ({seq_len}) must be less than or equal to number of time steps ({self.n_time})")
 
         # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
         if self.preload_data and self.X is not None:
@@ -627,7 +627,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         """Return the number of valid sequences.
 
         Returns:
-            Number of samples: (n_time - seq_len) * n_nodes
+            Number of samples: (n_time - seq_len + 1) * n_nodes
         """
         return self.n_valid_times * self.n_nodes
 
@@ -640,7 +640,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         Returns:
             Tuple of (X_seq, y_target) where:
                 - X_seq: (seq_len, n_features) tensor of input features
-                - y_target: (n_targets,) tensor of target at t+seq_len
+                - y_target: (n_targets,) tensor of target at last step in sequence
         """
         # Map flat index to (time_start, node)
         time_start = idx // self.n_nodes
@@ -650,22 +650,22 @@ class SequenceWWMDataset(SimpleWWMDataset):
             # X: sequence from time_start to time_start + seq_len
             X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
 
-            # y: target at next time step after sequence
-            y_target = self.y[time_start + self.seq_len, node_idx, :]
+            # y: target at last step in the sequence
+            y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
 
             return X_seq, y_target
 
         # Lazy loading mode
-        time_indices = list(range(time_start, time_start + self.seq_len + 1))
+        time_indices = list(range(time_start, time_start + self.seq_len))
         node = self.ds.nSCHISM_hgrid_node.values[node_idx]
 
         sample_data = self.ds.isel(time=time_indices).sel(nSCHISM_hgrid_node=node)
 
         # Features for sequence
         xa = sample_data[self.features].to_dataarray()
-        X_seq = torch.from_numpy(xa.values[:, :-1].T)  # (seq_len, n_features)
+        X_seq = torch.from_numpy(xa.values.T)  # (seq_len, n_features)
 
-        # Target at next time step
+        # Target at last step in sequence
         ya = sample_data[self.targets].to_dataarray()
         y_target = torch.from_numpy(ya.values[:, -1])  # (n_targets,)
 
@@ -1129,9 +1129,9 @@ class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
             max_links=max_links,
         )
 
-        self._n_valid_times = self._n_time - self.seq_len
+        self._n_valid_times = self._n_time - self.seq_len + 1
         if self._n_valid_times <= 0:
-            raise ValueError(f"seq_len ({seq_len}) must be less than number of time steps ({self._n_time})")
+            raise ValueError(f"seq_len ({seq_len}) must be less than or equal to number of time steps ({self._n_time})")
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
 

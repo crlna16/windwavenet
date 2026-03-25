@@ -378,7 +378,7 @@ class TestSequenceWWMDatasetFunctions:
 
     def test_sequence_dataset_raises_on_invalid_seq_len(self, mock_sequence_dataset):
         """Test that invalid seq_len raises ValueError."""
-        with pytest.raises(ValueError, match="must be less than"):
+        with pytest.raises(ValueError, match="must be less than or equal to"):
             SequenceWWMDataset(
                 data_dir=mock_sequence_dataset,
                 data_range=[1, 2],  # Small time range
@@ -434,8 +434,8 @@ class TestSequenceWWMDatasetFunctions:
 
         # data_range=[1,2] keeps first day (24 samples); dataset drops first timestep -> 23
         assert ds.n_time == 23
-        assert ds.n_valid_times == 20
-        assert len(ds) == 80  # 20 valid starts * 4 nodes
+        assert ds.n_valid_times == 21
+        assert len(ds) == 84  # 21 valid starts * 4 nodes
 
     def test_sequence_dataset_preload_item_values(self, deterministic_sequence_dataset):
         """Test preloaded sequence indexing returns the expected timesteps and target."""
@@ -458,8 +458,8 @@ class TestSequenceWWMDatasetFunctions:
         assert tuple(X_seq.shape) == (3, 2)
         np.testing.assert_allclose(X_seq[:, 0].numpy(), expected_u10)
         np.testing.assert_allclose(X_seq[:, 1].numpy(), expected_v10)
-        # Target is next step after sequence: original t=4 at node 0
-        np.testing.assert_allclose(y_target.numpy(), np.array([40.0], dtype=np.float32))
+        # Target is last step in the sequence: original t=3 at node 0
+        np.testing.assert_allclose(y_target.numpy(), np.array([30.0], dtype=np.float32))
 
     def test_sequence_dataset_lazy_matches_preload(self, deterministic_sequence_dataset):
         """Test lazy-loading sequence access matches preloaded access for the same index."""

@@ -17,7 +17,7 @@ data:
     - depthAverageVelX
     - depthAverageVelY
     - peakPeriod
-    - sigWaveHeight  # no prev_ needed - sequence provides temporal context
+    - prev_sigWaveHeight
   targets:
     - sigWaveHeight  # predict next time step directly
   seq_len: 24  # 24 hours of history for hourly data

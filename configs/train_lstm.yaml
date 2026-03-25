@@ -33,7 +33,7 @@ data:
   features:
     - windSpeedX
     - windSpeedY
-    - sigWaveHeight  # current wave height as input (no prev_ needed for sequence)
+    - prev_sigWaveHeight
   targets:
     - sigWaveHeight  # predict next time step directly
   seq_len: 24  # number of time steps in input sequence (e.g., 24 hours for hourly data)
