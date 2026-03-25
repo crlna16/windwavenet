@@ -44,6 +44,16 @@ class SimpleWWMDataset(Dataset):
     ) -> None:
         """Initialize the dataset.
 
+        The init is split into overridable pipeline steps so subclasses can
+        customize individual phases without duplicating the full init logic.
+
+        Pipeline:
+            1. ``_open_and_slice_dataset`` — open Zarr, slice by day range
+            2. ``_filter_nodes``           — apply node_idx_csv filtering
+            3. ``_preprocess_variables``   — compute prev_*/delta_*, select vars, drop NaN timestep
+            4. ``_scale_variables``        — load and apply feature scaling
+            5. ``_load_and_weight_data``   — preload X/y, subsample, compute weights
+
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
             data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
@@ -68,6 +78,7 @@ class SimpleWWMDataset(Dataset):
         self.features = features
         self.targets = targets
         self.node_idx_csv = node_idx_csv
+        self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.subsample_prob = subsample_prob
@@ -82,11 +93,22 @@ class SimpleWWMDataset(Dataset):
         self.num_workers = None
         self.worker_time_len = None
 
-        self.ds = xr.open_dataset(
-            self.data_dir,
-            engine="zarr",
-        )
-        # get samples per day for indexing
+        self._open_and_slice_dataset()
+        self._filter_nodes()
+        self._preprocess_variables()
+        self._scale_variables()
+        self._load_and_weight_data()
+
+        num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
+        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
+
+    # ------------------------------------------------------------------
+    # Init pipeline steps (override in subclasses to customize behavior)
+    # ------------------------------------------------------------------
+
+    def _open_and_slice_dataset(self) -> None:
+        """Open the Zarr dataset and slice to the requested day range."""
+        self.ds = xr.open_dataset(self.data_dir, engine="zarr")
         time_delta = self.ds.time.values[1] - self.ds.time.values[0]
         self.samples_per_day = int(pd.Timedelta(days=1) / time_delta)
         log.info(f"Dataset has {self.samples_per_day} samples per day.")
@@ -95,31 +117,30 @@ class SimpleWWMDataset(Dataset):
         self.ds = self.ds.isel(time=slice(start_idx, end_idx))
         log.info(f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}.")
 
-        # Select nodes based on node_idx_csv
+    def _filter_nodes(self) -> None:
+        """Filter nodes based on ``node_idx_csv``, if provided."""
         if self.node_idx_csv:
             node_idx = self._load_node_indices(self.node_idx_csv)
             self.ds = self.ds.sel(nSCHISM_hgrid_node=node_idx)
             log.info(f"Selected {len(node_idx)} nodes from {self.node_idx_csv}.")
 
-        # now this is the same dataset
+    def _preprocess_variables(self) -> None:
+        """Compute derived variables, select relevant ones, and drop NaN timestep."""
         self.ds = self._compute_prevT(self.ds, self.features)
         self.ds = self._compute_deltaT(self.ds, self.targets)
-        # keep original variables always for reconstruction
         selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
         self.ds = self._select_variables(self.ds, self.features + selected_targets)
-
-        # clear nans from computing difference with respect to time
         self.ds = self._remove_first_timestep_if_nan(self.ds)
-
         self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
 
-        # scale all variables
-        self.scaling_params = self._load_scaling_config(scaling_config) if scaling_config else None
-
+    def _scale_variables(self) -> None:
+        """Load scaling config and apply feature scaling."""
+        self.scaling_params = self._load_scaling_config(self.scaling_config) if self.scaling_config else None
         if self.scaling_params:
             self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
 
-        # Preload data based on preload_data flag
+    def _load_and_weight_data(self) -> None:
+        """Preload X/y tensors, subsample, and compute sample weights."""
         if self.preload_data:
             self.X = self._retrieve_data(self.ds, self.features)
             self.y = self._retrieve_data(self.ds, self.targets)
@@ -136,17 +157,10 @@ class SimpleWWMDataset(Dataset):
                 log.warning("Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling.")
 
         # Compute weights (only works with preloaded data)
-        if self.sample_weight_strategy is not None:
-            if self.preload_data:
-                self.compute_weights()
-            else:
-                log.warning("Sample weighting requires preload_data=True. Skipping weight computation.")
-                self.weights = None
-        else:
+        if self.sample_weight_strategy is not None and self.preload_data:
             self.compute_weights()
-
-        num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
-        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
+        else:
+            self.weights = None
 
     @staticmethod
     def _load_node_indices(csv_path: str) -> np.ndarray:
@@ -618,9 +632,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
         # Number of valid sequence start positions
         self.n_valid_times = self.n_time - self.seq_len + 1
 
-        if self.n_valid_times <= 0:
-            raise ValueError(f"seq_len ({seq_len}) must be less than or equal to number of time steps ({self.n_time})")
-
         # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
         if self.preload_data and self.X is not None:
             n_features = self.X.shape[1]
@@ -633,6 +644,13 @@ class SequenceWWMDataset(SimpleWWMDataset):
             f"SequenceWWMDataset initialized with seq_len={seq_len}, "
             f"n_valid_times={self.n_valid_times}, n_nodes={self.n_nodes}"
         )
+
+    def _open_and_slice_dataset(self) -> None:
+        """Open dataset and validate seq_len before any expensive processing."""
+        super()._open_and_slice_dataset()
+        n_time = len(self.ds.time)
+        if n_time < self.seq_len:
+            raise ValueError(f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({n_time})")
 
     def __len__(self) -> int:
         """Return the number of valid sequences.
@@ -735,44 +753,40 @@ class GraphWWMDataset(SimpleWWMDataset, GDataset):
             full_graph_target: If True, target covers all subgraph nodes.
                 If False (default), target is center node only.
         """
+        # Store graph-specific params before parent init (pipeline methods use them)
         self.full_graph_target = full_graph_target
-        # Pass node_idx_csv=None to parent so the full mesh is retained.
-        # We handle center node selection separately below.
+        self.graph_features = [str(f) for f in graph_features]
+        self.max_radius = max_radius
+        self.max_nodes = max_nodes
+        self.max_links = max_links
+        self._graph_node_idx_csv = node_idx_csv
+
+        if subsample_prob is not None:
+            raise ValueError(f"Subsample probability must be None for graph datasets. Found {subsample_prob}")
+
+        # Parent pipeline runs with overridden _filter_nodes (no-op),
+        # _preprocess_variables (graph-aware), and _load_and_weight_data (no-op).
         SimpleWWMDataset.__init__(
             self,
             data_dir,
             data_range,
-            features + graph_features,
+            features,
             targets,
             scaling_config,
-            None,  # keep full mesh
+            None,  # node filtering handled in graph-specific code below
             sample_weight_strategy,
             sample_weight_power,
             subsample_prob,
             preload_data,
         )
 
-        if self.subsample_prob is not None:
-            raise ValueError(f"Subsample probability must be None for graph datasets. Found {self.subsample_prob}")
-
-        self.max_radius = max_radius
-        self.max_nodes = max_nodes
-        self.max_links = max_links
-
-        # Reset features (for node embeddings) vs graph_features (for mesh geometry)
-        self.features = [str(f) for f in features]
-        self.graph_features = [str(f) for f in graph_features]
-
-        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
-
         # --- Determine center nodes from node_idx_csv ---
-        if node_idx_csv is not None:
-            center_node_ids = self._load_node_indices(node_idx_csv)
-            # Map node IDs to positional indices in self.ds.nSCHISM_hgrid_node
+        if self._graph_node_idx_csv is not None:
+            center_node_ids = self._load_node_indices(self._graph_node_idx_csv)
             ds_node_ids = self.ds.nSCHISM_hgrid_node.values
             id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
             self.center_nodes = np.array([id_to_pos[int(nid)] for nid in center_node_ids if int(nid) in id_to_pos])
-            log.info(f"Selected {len(self.center_nodes)} center nodes from {node_idx_csv}.")
+            log.info(f"Selected {len(self.center_nodes)} center nodes from {self._graph_node_idx_csv}.")
         else:
             self.center_nodes = np.arange(self.n_nodes)
         self.n_center_nodes = len(self.center_nodes)
@@ -797,6 +811,17 @@ class GraphWWMDataset(SimpleWWMDataset, GDataset):
             errors="ignore",
         )
 
+        # Now that graph_features are gone, preload node features if requested
+        if self.preload_data:
+            self.X = self._retrieve_data(self.ds, self.features)
+            self.y = self._retrieve_data(self.ds, self.targets)
+
+        # Compute weights (only works with preloaded data)
+        if self.sample_weight_strategy is not None and self.preload_data:
+            self.compute_weights()
+        else:
+            self.weights = None
+
         # Precompute number of time steps as a plain int.
         # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
         # must not traverse attribute chains like self.ds.time at call time.
@@ -814,6 +839,38 @@ class GraphWWMDataset(SimpleWWMDataset, GDataset):
             f"{self._n_time} time steps, {self._total_samples} total samples, "
             f"target: {target_mode}."
         )
+
+    # ------------------------------------------------------------------
+    # Pipeline overrides
+    # ------------------------------------------------------------------
+
+    def _filter_nodes(self) -> None:
+        """No-op: the full mesh is always retained for graph construction.
+
+        Center node selection is handled separately after graph topology is built.
+        """
+        pass
+
+    def _preprocess_variables(self) -> None:
+        """Compute derived variables while keeping graph_features intact.
+
+        Graph features (e.g. SCHISM_hgrid_edge_nodes) have different dimensions
+        than node features and must not be passed to ``_select_variables`` or
+        ``_retrieve_data``.
+        """
+        self.ds = self._compute_prevT(self.ds, self.features)
+        self.ds = self._compute_deltaT(self.ds, self.targets)
+        selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
+        # Keep graph_features in the dataset for topology construction later
+        self.ds = self._select_variables(self.ds, self.features + selected_targets + self.graph_features)
+        self.ds = self._remove_first_timestep_if_nan(self.ds)
+        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
+
+    def _load_and_weight_data(self) -> None:
+        """No-op: data loading is deferred until after graph_features are dropped."""
+        self.X = None
+        self.y = None
+        self.weights = None
 
     def _build_adjacency(self) -> None:
         """Load edges from timestep 0 and build an adjacency list.
@@ -1065,8 +1122,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         )
 
         self._n_valid_times = self._n_time - self.seq_len + 1
-        if self._n_valid_times <= 0:
-            raise ValueError(f"seq_len ({seq_len}) must be less than or equal to number of time steps ({self._n_time})")
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
 
@@ -1076,6 +1131,13 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             f"seq_len={self.seq_len}, {self._n_valid_times} valid times, "
             f"{self._total_samples} total samples, target: {target_mode}."
         )
+
+    def _open_and_slice_dataset(self) -> None:
+        """Open dataset and validate seq_len before expensive graph construction."""
+        super()._open_and_slice_dataset()
+        n_time = len(self.ds.time)
+        if n_time < self.seq_len:
+            raise ValueError(f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({n_time})")
 
     def _extract_sequence_node_features(self, time_start: int, subgraph_nodes: np.ndarray) -> torch.Tensor:
         """Extract node features for a subgraph over a sequence of time steps.
