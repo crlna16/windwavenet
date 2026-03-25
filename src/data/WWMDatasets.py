@@ -3,7 +3,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -98,15 +97,9 @@ class SimpleWWMDataset(Dataset):
 
         # Select nodes based on node_idx_csv
         if self.node_idx_csv:
-            node_idx_path = Path(self.node_idx_csv)
-            if not node_idx_path.exists():
-                raise FileNotFoundError(f"Node index CSV not found: {node_idx_path}")
-            node_idx_df = pd.read_csv(node_idx_path)
-            if "nSCHISM_hgrid_node" not in node_idx_df.columns:
-                raise ValueError("Node index CSV must have a 'nSCHISM_hgrid_node' column")
-            node_idx = node_idx_df["nSCHISM_hgrid_node"].to_numpy(dtype=int)
+            node_idx = self._load_node_indices(self.node_idx_csv)
             self.ds = self.ds.sel(nSCHISM_hgrid_node=node_idx)
-            log.info(f"Selected {len(node_idx)} nodes from {node_idx_path}.")
+            log.info(f"Selected {len(node_idx)} nodes from {self.node_idx_csv}.")
 
         # now this is the same dataset
         self.ds = self._compute_prevT(self.ds, self.features)
@@ -154,6 +147,24 @@ class SimpleWWMDataset(Dataset):
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
         log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
+
+    @staticmethod
+    def _load_node_indices(csv_path: str) -> np.ndarray:
+        """Load node indices from a CSV file.
+
+        Args:
+            csv_path: Path to CSV file with a 'nSCHISM_hgrid_node' column.
+
+        Returns:
+            Array of node indices.
+        """
+        node_idx_path = Path(csv_path)
+        if not node_idx_path.exists():
+            raise FileNotFoundError(f"Node index CSV not found: {node_idx_path}")
+        node_idx_df = pd.read_csv(node_idx_path)
+        if "nSCHISM_hgrid_node" not in node_idx_df.columns:
+            raise ValueError("Node index CSV must have a 'nSCHISM_hgrid_node' column")
+        return node_idx_df["nSCHISM_hgrid_node"].to_numpy(dtype=int)
 
     @staticmethod
     def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
@@ -672,12 +683,12 @@ class SequenceWWMDataset(SimpleWWMDataset):
         return X_seq, y_target
 
 
-class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
-    """Abstract base for graph datasets built from the SCHISM mesh.
+class GraphWWMDataset(SimpleWWMDataset, GDataset):
+    """Graph dataset built from the SCHISM mesh.
 
     Handles graph construction (adjacency, BFS subgraphs, caching) and provides
-    shared initialisation logic. Subclasses implement ``construct_graph`` to
-    control how features and targets are extracted for each sample.
+    sample access. Set ``full_graph_target=True`` for targets at all subgraph
+    nodes; default targets the center node only.
     """
 
     def __init__(
@@ -696,8 +707,9 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
+        full_graph_target: bool = False,
     ) -> None:
-        """Initialize the graph dataset base.
+        """Initialize the graph dataset.
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset. Must contain graph definition.
@@ -720,7 +732,10 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
             max_links: Maximum number of BFS hops from center node (default: 10).
+            full_graph_target: If True, target covers all subgraph nodes.
+                If False (default), target is center node only.
         """
+        self.full_graph_target = full_graph_target
         # Pass node_idx_csv=None to parent so the full mesh is retained.
         # We handle center node selection separately below.
         SimpleWWMDataset.__init__(
@@ -752,18 +767,12 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
 
         # --- Determine center nodes from node_idx_csv ---
         if node_idx_csv is not None:
-            node_idx_path = Path(node_idx_csv)
-            if not node_idx_path.exists():
-                raise FileNotFoundError(f"Node index CSV not found: {node_idx_path}")
-            node_idx_df = pd.read_csv(node_idx_path)
-            if "nSCHISM_hgrid_node" not in node_idx_df.columns:
-                raise ValueError("Node index CSV must have a 'nSCHISM_hgrid_node' column")
-            center_node_ids = node_idx_df["nSCHISM_hgrid_node"].to_numpy(dtype=int)
+            center_node_ids = self._load_node_indices(node_idx_csv)
             # Map node IDs to positional indices in self.ds.nSCHISM_hgrid_node
             ds_node_ids = self.ds.nSCHISM_hgrid_node.values
             id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
             self.center_nodes = np.array([id_to_pos[int(nid)] for nid in center_node_ids if int(nid) in id_to_pos])
-            log.info(f"Selected {len(self.center_nodes)} center nodes from {node_idx_path}.")
+            log.info(f"Selected {len(self.center_nodes)} center nodes from {node_idx_csv}.")
         else:
             self.center_nodes = np.arange(self.n_nodes)
         self.n_center_nodes = len(self.center_nodes)
@@ -793,9 +802,18 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
         # must not traverse attribute chains like self.ds.time at call time.
         self._n_time = len(self.ds.time)
 
+        self._total_samples = self.n_center_nodes * self._n_time
+
         # Initialize GDataset last, after all attributes are set,
         # because PyG's Dataset.__init__ may trigger len() or other methods.
         GDataset.__init__(self)
+
+        target_mode = "all subgraph nodes" if self.full_graph_target else "center node only"
+        log.info(
+            f"GraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
+            f"{self._n_time} time steps, {self._total_samples} total samples, "
+            f"target: {target_mode}."
+        )
 
     def _build_adjacency(self) -> None:
         """Load edges from timestep 0 and build an adjacency list.
@@ -849,14 +867,11 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
 
         visited = {center_pos}
         queue = deque([(center_pos, 0)])
-        radius_rejected = 0
-        depth_rejected = 0
 
         while queue and len(visited) < self.max_nodes:
             current, depth = queue.popleft()
 
             if depth >= self.max_links:
-                depth_rejected += 1
                 continue
 
             for neighbor in self.adjacency.get(current, []):
@@ -868,7 +883,6 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
                 dy = self.node_y[neighbor] - cy
                 dist = np.sqrt(dx * dx + dy * dy)
                 if dist >= self.max_radius:
-                    radius_rejected += 1
                     continue
 
                 visited.add(neighbor)
@@ -935,29 +949,8 @@ class BaseGraphWWMDataset(SimpleWWMDataset, GDataset, ABC):
             return torch.from_numpy(values).float()
         return torch.from_numpy(values.T).float()
 
-    @abstractmethod
     def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
-        """Construct a graph sample. Subclasses implement target extraction logic."""
-        ...
-
-
-class CenterGraphWWMDataset(BaseGraphWWMDataset):
-    """Graph dataset where the target is the value at the center node only.
-
-    Each sample is a subgraph built via BFS from a center node on the SCHISM mesh.
-    The target ``y`` has shape ``(n_targets,)`` and corresponds to the center node.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._total_samples = self.n_center_nodes * self._n_time
-        log.info(
-            f"CenterGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
-            f"{self._n_time} time steps, {self._total_samples} total samples."
-        )
-
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
-        """Construct a graph with target for the center node only.
+        """Construct a graph sample.
 
         Args:
             time_idx: Time index in dataset (0-indexed).
@@ -967,12 +960,13 @@ class CenterGraphWWMDataset(BaseGraphWWMDataset):
             torch_geometric.data.Data with attributes:
                 - x: (n_subgraph_nodes, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
-                - y: (n_targets,) target tensor for center node
+                - y: target tensor (shape depends on full_graph_target)
                 - center_idx: local index of center node in x
         """
         subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
-        y = self._extract_targets(time_idx, center_node_pos)
+        target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
+        y = self._extract_targets(time_idx, target_nodes)
         return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
 
     def __len__(self) -> int:
@@ -1001,76 +995,13 @@ class CenterGraphWWMDataset(BaseGraphWWMDataset):
         return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
 
 
-# Backward compatibility alias
-SmallGraphWWMDataset = CenterGraphWWMDataset
-
-
-class FullGraphWWMDataset(BaseGraphWWMDataset):
-    """Graph dataset where the target is the value at all nodes in the subgraph.
-
-    Each sample is a subgraph built via BFS from a center node on the SCHISM mesh.
-    The target ``y`` has shape ``(n_subgraph_nodes, n_targets)`` and covers every
-    node in the subgraph.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._total_samples = self.n_center_nodes * self._n_time
-        log.info(
-            f"FullGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
-            f"{self._n_time} time steps, {self._total_samples} total samples."
-        )
-
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
-        """Construct a graph with targets for all subgraph nodes.
-
-        Args:
-            time_idx: Time index in dataset (0-indexed).
-            center_node_pos: 0-indexed positional index of the center node.
-
-        Returns:
-            torch_geometric.data.Data with attributes:
-                - x: (n_subgraph_nodes, n_features) node feature tensor
-                - edge_index: (2, n_edges) edge index tensor
-                - y: (n_subgraph_nodes, n_targets) target tensor for all subgraph nodes
-                - center_idx: local index of center node in x
-        """
-        subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
-        x = self._extract_node_features(time_idx, subgraph_nodes)
-        y = self._extract_targets(time_idx, subgraph_nodes)
-        return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
-
-    def __len__(self) -> int:
-        """Return the total number of samples (center_nodes * time_steps)."""
-        return self._total_samples
-
-    def len(self) -> int:
-        """Return the total number of samples (center_nodes * time_steps)."""
-        return self._total_samples
-
-    def get(self, idx: int) -> GData:
-        """Get a graph sample by flat index.
-
-        The index maps to (time_idx, center_node_pos):
-            time_idx = idx // n_center_nodes
-            center_pos = center_nodes[idx % n_center_nodes]
-
-        Args:
-            idx: Flat index into the dataset.
-
-        Returns:
-            GData: Graph centered on the selected node with features from the time step.
-        """
-        time_idx = idx // self.n_center_nodes
-        center_pos = self.center_nodes[idx % self.n_center_nodes]
-        return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
-
-
-class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
-    """Abstract base for graph datasets with temporal sequences as node features.
+class SequenceGraphWWMDataset(GraphWWMDataset):
+    """Graph dataset with temporal sequences as node features.
 
     Each node's features span ``seq_len`` consecutive time steps instead of a
     single time step, giving the model temporal context on every graph node.
+    Set ``full_graph_target=True`` for targets at all subgraph nodes;
+    default targets the center node only.
     """
 
     def __init__(
@@ -1090,6 +1021,7 @@ class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
+        full_graph_target: bool = False,
     ) -> None:
         """Initialize the sequence graph dataset.
 
@@ -1109,6 +1041,8 @@ class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
             max_links: Maximum number of BFS hops from center node.
+            full_graph_target: If True, target covers all subgraph nodes.
+                If False (default), target is center node only.
         """
         self.seq_len = seq_len
 
@@ -1127,6 +1061,7 @@ class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
             max_radius=max_radius,
             max_nodes=max_nodes,
             max_links=max_links,
+            full_graph_target=full_graph_target,
         )
 
         self._n_valid_times = self._n_time - self.seq_len + 1
@@ -1135,20 +1070,24 @@ class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
 
-    def _extract_sequence_node_features(
-        self, time_start: int, seq_len: int, subgraph_nodes: np.ndarray
-    ) -> torch.Tensor:
+        target_mode = "all subgraph nodes" if self.full_graph_target else "center node only"
+        log.info(
+            f"SequenceGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
+            f"seq_len={self.seq_len}, {self._n_valid_times} valid times, "
+            f"{self._total_samples} total samples, target: {target_mode}."
+        )
+
+    def _extract_sequence_node_features(self, time_start: int, subgraph_nodes: np.ndarray) -> torch.Tensor:
         """Extract node features for a subgraph over a sequence of time steps.
 
         Args:
             time_start: First time index of the sequence (0-indexed).
-            seq_len: Number of consecutive time steps.
             subgraph_nodes: Array of 0-indexed positional node indices.
 
         Returns:
             Tensor of shape (n_subgraph_nodes, seq_len, n_features).
         """
-        time_indices = list(range(time_start, time_start + seq_len))
+        time_indices = list(range(time_start, time_start + self.seq_len))
         sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=subgraph_nodes)
         x_da = sample[self.features].to_dataarray(dim="variable")
         # x_da shape: (variable, time, nSCHISM_hgrid_node)
@@ -1181,25 +1120,8 @@ class BaseSequenceGraphWWMDataset(BaseGraphWWMDataset, ABC):
         center_pos = self.center_nodes[idx % self.n_center_nodes]
         return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
 
-
-class SequenceCenterGraphWWMDataset(BaseSequenceGraphWWMDataset):
-    """Sequence graph dataset where the target is the center node only.
-
-    Node features ``x`` have shape ``(n_subgraph_nodes, seq_len, n_features)``.
-    Target ``y`` has shape ``(n_targets,)`` at the last time step of the sequence,
-    for the center node only.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        log.info(
-            f"SequenceCenterGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
-            f"seq_len={self.seq_len}, {self._n_valid_times} valid times, "
-            f"{self._total_samples} total samples."
-        )
-
     def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
-        """Construct a sequence graph with target for the center node.
+        """Construct a sequence graph sample.
 
         Args:
             time_idx: First time index of the feature sequence (0-indexed).
@@ -1209,48 +1131,12 @@ class SequenceCenterGraphWWMDataset(BaseSequenceGraphWWMDataset):
             torch_geometric.data.Data with attributes:
                 - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
-                - y: (n_targets,) target tensor for center node at last timestep
+                - y: target tensor (shape depends on full_graph_target)
                 - center_idx: local index of center node in x
         """
         subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
-        x = self._extract_sequence_node_features(time_idx, self.seq_len, subgraph_nodes)
+        x = self._extract_sequence_node_features(time_idx, subgraph_nodes)
         target_time = time_idx + self.seq_len - 1
-        y = self._extract_targets(target_time, center_node_pos)
-        return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
-
-
-class SequenceFullGraphWWMDataset(BaseSequenceGraphWWMDataset):
-    """Sequence graph dataset where the target covers all subgraph nodes.
-
-    Node features ``x`` have shape ``(n_subgraph_nodes, seq_len, n_features)``.
-    Target ``y`` has shape ``(n_subgraph_nodes, n_targets)`` at the last time step
-    of the sequence, for every node in the subgraph.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        log.info(
-            f"SequenceFullGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
-            f"seq_len={self.seq_len}, {self._n_valid_times} valid times, "
-            f"{self._total_samples} total samples."
-        )
-
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
-        """Construct a sequence graph with targets for all subgraph nodes.
-
-        Args:
-            time_idx: First time index of the feature sequence (0-indexed).
-            center_node_pos: 0-indexed positional index of the center node.
-
-        Returns:
-            torch_geometric.data.Data with attributes:
-                - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
-                - edge_index: (2, n_edges) edge index tensor
-                - y: (n_subgraph_nodes, n_targets) target tensor for all nodes
-                - center_idx: local index of center node in x
-        """
-        subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
-        x = self._extract_sequence_node_features(time_idx, self.seq_len, subgraph_nodes)
-        target_time = time_idx + self.seq_len - 1
-        y = self._extract_targets(target_time, subgraph_nodes)
+        target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
+        y = self._extract_targets(target_time, target_nodes)
         return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
