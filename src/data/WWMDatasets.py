@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Hereon
+# SPDX-FileCopyrightText: 2025-2026 Hereon
 # SPDX-FileContributor: Caroline Arnold
 #
 # SPDX-License-Identifier: MIT
@@ -8,16 +8,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import torch
-import xarray as xr
-import yaml
 import time
-import pandas as pd
+import torch
 from torch.utils.data import Dataset
 
 from torch_geometric.data import Dataset as GDataset
 from torch_geometric.data import Data as GData
 
+from src.data import dataset_utils as du
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -44,16 +42,6 @@ class SimpleWWMDataset(Dataset):
     ) -> None:
         """Initialize the dataset.
 
-        The init is split into overridable pipeline steps so subclasses can
-        customize individual phases without duplicating the full init logic.
-
-        Pipeline:
-            1. ``_open_and_slice_dataset`` — open Zarr, slice by day range
-            2. ``_filter_nodes``           — apply node_idx_csv filtering
-            3. ``_preprocess_variables``   — compute prev_*/delta_*, select vars, drop NaN timestep
-            4. ``_scale_variables``        — load and apply feature scaling
-            5. ``_load_and_weight_data``   — preload X/y, subsample, compute weights
-
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
             data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
@@ -75,8 +63,8 @@ class SimpleWWMDataset(Dataset):
 
         self.data_dir = Path(data_dir)
         self.data_range = data_range
-        self.features = features
-        self.targets = targets
+        self.features = [str(var) for var in list(features)]
+        self.targets = [str(var) for var in list(targets)]
         self.node_idx_csv = node_idx_csv
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
@@ -84,404 +72,35 @@ class SimpleWWMDataset(Dataset):
         self.subsample_prob = subsample_prob
         self.preload_data = preload_data
 
-        # account for omegaconf list
-        self.features = [str(var) for var in list(self.features)]
-        self.targets = [str(var) for var in list(self.targets)]
-
         # Store parameters for worker initialization
         self.worker_id = None
         self.num_workers = None
         self.worker_time_len = None
 
-        self._open_and_slice_dataset()
-        self._filter_nodes()
-        self._preprocess_variables()
-        self._scale_variables()
-        self._load_and_weight_data()
-
-        num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
-        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
-
-    # ------------------------------------------------------------------
-    # Init pipeline steps (override in subclasses to customize behavior)
-    # ------------------------------------------------------------------
-
-    def _open_and_slice_dataset(self) -> None:
-        """Open the Zarr dataset and slice to the requested day range."""
-        self.ds = xr.open_dataset(self.data_dir, engine="zarr")
-        time_delta = self.ds.time.values[1] - self.ds.time.values[0]
-        self.samples_per_day = int(pd.Timedelta(days=1) / time_delta)
-        log.info(f"Dataset has {self.samples_per_day} samples per day.")
-        start_idx = (self.data_range[0] - 1) * self.samples_per_day
-        end_idx = (self.data_range[1] - 1) * self.samples_per_day
-        self.ds = self.ds.isel(time=slice(start_idx, end_idx))
-        log.info(f"Loaded dataset with times ranging from {self.ds.time.values[0]} to {self.ds.time.values[-1]}.")
-
-    def _filter_nodes(self) -> None:
-        """Filter nodes based on ``node_idx_csv``, if provided."""
-        if self.node_idx_csv:
-            node_idx = self._load_node_indices(self.node_idx_csv)
-            self.ds = self.ds.sel(nSCHISM_hgrid_node=node_idx)
-            log.info(f"Selected {len(node_idx)} nodes from {self.node_idx_csv}.")
-
-    def _preprocess_variables(self) -> None:
-        """Compute derived variables, select relevant ones, and drop NaN timestep."""
-        self.ds = self._compute_prevT(self.ds, self.features)
-        self.ds = self._compute_deltaT(self.ds, self.targets)
-        selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
-        self.ds = self._select_variables(self.ds, self.features + selected_targets)
-        self.ds = self._remove_first_timestep_if_nan(self.ds)
-        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
-
-    def _scale_variables(self) -> None:
-        """Load scaling config and apply feature scaling."""
-        self.scaling_params = self._load_scaling_config(self.scaling_config) if self.scaling_config else None
-        if self.scaling_params:
-            self.ds = self._apply_scaling(self.ds, self.features, self.scaling_params)
-
-    def _load_and_weight_data(self) -> None:
-        """Preload X/y tensors, subsample, and compute sample weights."""
-        if self.preload_data:
-            self.X = self._retrieve_data(self.ds, self.features)
-            self.y = self._retrieve_data(self.ds, self.targets)
-        else:
-            self.X = None
-            self.y = None
-            log.info("Lazy loading enabled: features and targets will be loaded on-demand")
+        # --- Pipeline: open, filter, preprocess, scale, load ---
+        self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
+        self.ds = du.filter_nodes(self.ds, self.node_idx_csv)
+        self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
+        self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
+        self.X, self.y = du.load_and_preload_data(self.ds, self.features, self.targets, self.preload_data)
 
         # Apply subsampling if requested (only works with preloaded data)
         if self.subsample_prob is not None:
             if self.preload_data:
-                self._subsample_by_zscore()
+                self.X, self.y = du.subsample_by_zscore(self.X, self.y, self.subsample_prob)
             else:
                 log.warning("Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling.")
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None and self.preload_data:
-            self.compute_weights()
+            self.weights = du.compute_weights(
+                self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
+            )
         else:
             self.weights = None
 
-    @staticmethod
-    def _load_node_indices(csv_path: str) -> np.ndarray:
-        """Load node indices from a CSV file.
-
-        Args:
-            csv_path: Path to CSV file with a 'nSCHISM_hgrid_node' column.
-
-        Returns:
-            Array of node indices.
-        """
-        node_idx_path = Path(csv_path)
-        if not node_idx_path.exists():
-            raise FileNotFoundError(f"Node index CSV not found: {node_idx_path}")
-        node_idx_df = pd.read_csv(node_idx_path)
-        if "nSCHISM_hgrid_node" not in node_idx_df.columns:
-            raise ValueError("Node index CSV must have a 'nSCHISM_hgrid_node' column")
-        return node_idx_df["nSCHISM_hgrid_node"].to_numpy(dtype=int)
-
-    @staticmethod
-    def _compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
-        """Compute delta_target = target(t) - target(t-1).
-
-        For targets starting with 'delta_', computes the difference with respect to the
-        previous time step and stores that value in a new variable.
-
-                Example for sigWaveHeight and time=t:
-                    ds["delta_sigWaveHeight"][t] = ds["sigWaveHeight"][t] - ds["sigWaveHeight"][t-1]
-
-        Args:
-            dataset: xarray Dataset containing the data.
-            targets: List of target variable names.
-
-        Returns:
-            Dataset with per-target differences with respect to time added.
-        """
-        for target in targets:
-            if target.startswith("delta_"):
-                original_var = target.replace("delta_", "")
-                dataset[target] = dataset[original_var].diff("time")
-                log.info(f"Added variable {target}")
-
-        return dataset
-
-    @staticmethod
-    def _compute_prevT(dataset: xr.Dataset, features: List[str]) -> xr.Dataset:
-        """Compute prev_feature = feature(t-1).
-
-                Example for sigWaveHeight and time=t:
-                    ds["prev_sigWaveHeight"][t] = ds["sigWaveHeight"][t-1]
-
-        Args:
-            dataset (xr.Dataset): xarray Dataset containing the data.
-            features (List[str]): List of feature variable names.
-
-        Returns:
-            xr.Dataset: Dataset with variables added from previous time step.
-        """
-        for feature in features:
-            if feature.startswith("prev_"):
-                original_var = feature.replace("prev_", "")
-                dataset[feature] = dataset[original_var].shift(time=1)
-                log.info(f"Added variable {feature}")
-
-        return dataset
-
-    @staticmethod
-    def _select_variables(dataset: xr.Dataset, variables: List[str]) -> xr.Dataset:
-        """Select only specified variables from dataset.
-
-        Args:
-            dataset: xarray Dataset containing the data.
-            variables: List of variable names to select.
-
-        Returns:
-            xarray Dataset containing only specified variables.
-        """
-        return dataset[[v for v in variables]]
-
-    @staticmethod
-    def _remove_first_timestep_if_nan(dataset: xr.Dataset) -> xr.Dataset:
-        """Remove first time step if it contains NaN values.
-
-        When computing shifted variables (prev_* or delta_*), the first time step
-        will contain NaN values. This method removes it unconditionally to avoid
-        triggering computation with .any() check.
-
-        Args:
-            dataset: xarray Dataset containing the data.
-
-        Returns:
-            Dataset with first time step removed.
-        """
-        # Unconditionally remove first timestep to avoid triggering .any() computation
-        # We know it will have NaN values from shift/diff operations
-        log.info("Removing first time step (NaN from shift/diff operations)")
-        return dataset.isel(time=slice(1, None))
-
-    @staticmethod
-    def _retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
-        """Extract variable data from an xarray Dataset and convert to a PyTorch tensor.
-
-        Args:
-            dataset: xarray Dataset containing the data.
-            variables: List of variable names to extract.
-
-        Returns:
-            PyTorch tensor of shape (n_samples, n_variables) with time as the slow axis
-            and nSCHISM_hgrid_node as the fast axis.
-        """
-        start_time = time.time()
-        # stack in xarray
-        da = dataset[variables].to_array(dim="variable")
-        da = da.stack(sample=[d for d in da.dims if d != "variable"])
-        da = da.transpose("sample", "variable")
-
-        # convert to torch
-        tensor = torch.from_numpy(np.asarray(da.data))
-
-        log.info(f"Finished retrieving {len(variables)} variables in {time.time() - start_time:.0f} seconds.")
-        return tensor
-
-    @staticmethod
-    def _load_scaling_config(config_path: str) -> Dict[str, Dict[str, float]]:
-        """Load scaling parameters from YAML file.
-
-        Args:
-            config_path: Path to a YAML file containing mean and std for each variable.
-
-        Returns:
-            Dictionary mapping variable names to their mean and std values.
-        """
-        with open(config_path, "r") as f:
-            scaling_params = yaml.safe_load(f)
-        return scaling_params
-
-    @staticmethod
-    def _apply_scaling(
-        dataset: xr.Dataset,
-        variables: List[str],
-        scaling_params: Dict[str, Dict[str, float]],
-    ) -> xr.Dataset:
-        """Apply standardization scaling to variables in the dataset.
-
-        Args:
-            dataset: xarray Dataset containing the variables.
-            variables: List of variable names to scale.
-            scaling_params: Dictionary mapping variable names to their mean and std values.
-
-        Returns:
-            Dataset with scaled variables (modified in place).
-        """
-        for var in variables:
-            if var in scaling_params:
-                mean = scaling_params[var]["mean"]
-                std = scaling_params[var]["std"]
-                dataset[var] = (dataset[var] - mean) / std
-                log.info(f"Scaled variable '{var}' with mean={mean:.4f}, std={std:.4f}")
-            else:
-                log.warning(f"No scaling parameters found for variable '{var}', leaving unscaled")
-        return dataset
-
-    @staticmethod
-    def _revert_scaling(
-        dataset: xr.Dataset,
-        variables: List[str],
-        scaling_params: Dict[str, Dict[str, float]],
-    ) -> xr.Dataset:
-        """Revert standardization scaling of variables in the dataset.
-
-        Args:
-            dataset (xr.Dataset): xarray Dataset containing the variables.
-            variables (List[str]): List of variable names to un-scale.
-            scaling_params (Dict[str, Dict[str, float]]): Dictionary mapping variable names to
-              their mean and std values.
-
-        Returns:
-            xr.Dataset: Dataset with un-scaled variables (modified in place).
-        """
-        for var in variables:
-            if var in scaling_params:
-                mean = scaling_params[var]["mean"]
-                std = scaling_params[var]["std"]
-                dataset[var] = dataset[var] * std + mean
-                log.info(f"Reverted scaling for variable {var}.")
-            else:
-                raise ValueError(f"No parameters found to revert scaling for {var}.")
-
-        return dataset
-
-    @staticmethod
-    def reconstruct_from_delta(
-        delta_predictions: np.ndarray,
-        dataset: xr.Dataset,
-        target_name: str,
-        features: List[str],
-        scaling_params: Optional[Dict[str, Dict[str, float]]] = None,
-    ) -> Tuple[np.ndarray, xr.Dataset]:
-        """Reconstruct absolute values from delta predictions.
-
-        For targets like 'delta_sigWaveHeight', this computes:
-            reconstructed[t] = prev_value[t] + delta_prediction[t]
-
-        Args:
-            delta_predictions: Array of delta predictions, shape (n_time, n_nodes).
-            dataset: xarray Dataset containing the source data.
-            target_name: Name of the delta target (e.g., 'delta_sigWaveHeight').
-            features: List of feature names used by the model.
-            scaling_params: Optional scaling parameters for reverting scaling.
-
-        Returns:
-            Tuple of (reconstructed_values, updated_dataset).
-            The dataset is updated with prev_* variable if it wasn't present.
-        """
-        if not target_name.startswith("delta_"):
-            raise ValueError(f"Target '{target_name}' is not a delta target")
-
-        original_var = target_name.replace("delta_", "")
-        prev_var = f"prev_{original_var}"
-
-        # Compute prev_* variable if not present
-        if prev_var not in dataset:
-            log.info(f"Computing {prev_var} for reconstruction")
-            dataset = SimpleWWMDataset._compute_prevT(dataset, [prev_var])
-
-        # Revert scaling if prev_var was used as a scaled feature
-        if scaling_params and prev_var in features:
-            dataset = SimpleWWMDataset._revert_scaling(dataset, [prev_var], scaling_params)
-
-        prev_values = dataset[prev_var].values
-        reconstructed = prev_values + delta_predictions
-
-        return reconstructed, dataset
-
-    def compute_weights(self) -> None:
-        """Compute and normalize sample weights.
-
-        Weights are computed based on the sample_weight_strategy and normalized so that
-        their sum equals the number of samples (mean = 1.0).
-        """
-        if self.sample_weight_strategy is None:
-            self.weights = None
-            log.info("No sample weight strategy specified, skipping weight computation")
-            return
-
-        log.info(f"Computing sample weights with strategy '{self.sample_weight_strategy}'...")
-
-        n_samples = len(self.y)
-        n_targets = len(self.targets)
-        weights = np.ones((n_samples, n_targets), dtype=np.float32)
-
-        if self.sample_weight_strategy == "z_score":
-            z_scores = (self.y - torch.mean(self.y)) / torch.std(self.y)
-            weights = 1.0 - torch.exp(-(z_scores**2) / torch.tensor(self.sample_weight_power))
-
-        else:
-            raise ValueError(
-                f"Unknown sample_weight_strategy: '{self.sample_weight_strategy}'. Supported: None, 'z_score'"
-            )
-
-        # Normalize weights per target so that mean = 1.0
-        for i in range(n_targets):
-            weight_sum = weights[:, i].sum()
-            weights[:, i] = weights[:, i] * (n_samples / weight_sum)
-            log.info(
-                f"Target {self.targets[i]}: normalized weights, "
-                f"(mean={weights[:, i].mean():.4f}, std={weights[:, i].std():.4f}, "
-                f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
-            )
-
-        self.weights = weights.float()
-        log.info(f"Sample weights computed and normalized for {n_samples} samples")
-
-    def _subsample_by_zscore(self) -> None:
-        """Subsample the dataset based on z_score-derived probabilities.
-
-        Samples with higher z_scores (outliers) have higher retention probability.
-        The retention probability is computed as: p = 1 - exp(-z^2 / 2)
-        This ensures that:
-        - Samples near the mean (z=0) have low retention probability (~0)
-        - Samples far from mean (high |z|) have high retention probability (~1)
-
-        The actual retention is determined by comparing these probabilities against
-        a uniform random draw. Only supported when data is preloaded.
-        """
-        log.info(f"Subsampling dataset based on z-score with target rate {self.subsample_prob}...")
-
-        n_samples_before = len(self.y)
-
-        # Compute z-scores for all targets (average across targets)
-        z_scores = (self.y - torch.mean(self.y, dim=0)) / torch.std(self.y, dim=0)
-        # Take the maximum absolute z-score across all targets for each sample
-        max_abs_z = torch.abs(z_scores).max(dim=1)[0]
-
-        # Compute retention probability: p = 1 - exp(-z^2 / 2)
-        retention_probs = 1.0 - torch.exp(-(max_abs_z**2) / 2.0)
-
-        # Scale probabilities so that the expected (mean) retention rate equals subsample_prob
-        # This ensures that approximately subsample_prob fraction of samples are retained
-        if retention_probs.mean() > 0:
-            retention_probs = retention_probs * (self.subsample_prob / retention_probs.mean())
-            # Clip to [0, 1] range in case scaling pushes values above 1
-            retention_probs = torch.clamp(retention_probs, 0.0, 1.0)
-
-        # Generate random values and keep samples where random < retention_prob
-        random_vals = torch.rand(n_samples_before)
-        keep_mask = random_vals < retention_probs
-
-        # Apply mask to data
-        if self.X is not None:
-            self.X = self.X[keep_mask]
-            self.sample_index = None
-        else:
-            self.sample_index = torch.nonzero(keep_mask, as_tuple=False).squeeze(1)
-
-        self.y = self.y[keep_mask]
-
-        n_samples_after = len(self.y)
-        retention_rate = n_samples_after / n_samples_before * 100
-
-        log.info(f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples ({retention_rate:.2f}%)")
+        num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
+        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
 
     def __len__(self) -> int:
         """Return the number of samples in the (possibly worker-sliced) dataset.
@@ -629,6 +248,13 @@ class SequenceWWMDataset(SimpleWWMDataset):
 
         # Store time and node dimensions for sequence indexing
         self.n_time = len(self.ds.time)
+
+        # Validate seq_len
+        if self.n_time < self.seq_len:
+            raise ValueError(
+                f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({self.n_time})"
+            )
+
         # Number of valid sequence start positions
         self.n_valid_times = self.n_time - self.seq_len + 1
 
@@ -644,13 +270,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             f"SequenceWWMDataset initialized with seq_len={seq_len}, "
             f"n_valid_times={self.n_valid_times}, n_nodes={self.n_nodes}"
         )
-
-    def _open_and_slice_dataset(self) -> None:
-        """Open dataset and validate seq_len before any expensive processing."""
-        super()._open_and_slice_dataset()
-        n_time = len(self.ds.time)
-        if n_time < self.seq_len:
-            raise ValueError(f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({n_time})")
 
     def __len__(self) -> int:
         """Return the number of valid sequences.
@@ -701,7 +320,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         return X_seq, y_target
 
 
-class GraphWWMDataset(SimpleWWMDataset, GDataset):
+class GraphWWMDataset(GDataset):
     """Graph dataset built from the SCHISM mesh.
 
     Handles graph construction (adjacency, BFS subgraphs, caching) and provides
@@ -753,40 +372,38 @@ class GraphWWMDataset(SimpleWWMDataset, GDataset):
             full_graph_target: If True, target covers all subgraph nodes.
                 If False (default), target is center node only.
         """
-        # Store graph-specific params before parent init (pipeline methods use them)
+        self.data_dir = Path(data_dir)
+        self.data_range = data_range
+        self.features = [str(var) for var in list(features)]
+        self.targets = [str(var) for var in list(targets)]
+        self.scaling_config = scaling_config
+        self.sample_weight_strategy = sample_weight_strategy
+        self.sample_weight_power = sample_weight_power
+        self.preload_data = preload_data
         self.full_graph_target = full_graph_target
         self.graph_features = [str(f) for f in graph_features]
         self.max_radius = max_radius
         self.max_nodes = max_nodes
         self.max_links = max_links
-        self._graph_node_idx_csv = node_idx_csv
 
         if subsample_prob is not None:
             raise ValueError(f"Subsample probability must be None for graph datasets. Found {subsample_prob}")
 
-        # Parent pipeline runs with overridden _filter_nodes (no-op),
-        # _preprocess_variables (graph-aware), and _load_and_weight_data (no-op).
-        SimpleWWMDataset.__init__(
-            self,
-            data_dir,
-            data_range,
-            features,
-            targets,
-            scaling_config,
-            None,  # node filtering handled in graph-specific code below
-            sample_weight_strategy,
-            sample_weight_power,
-            subsample_prob,
-            preload_data,
+        # --- Pipeline: open, preprocess (keep graph vars), scale ---
+        self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
+        # No node filtering — full mesh retained for graph construction
+        self.ds, self.n_nodes = du.preprocess_variables(
+            self.ds, self.features, self.targets, extra_keep_vars=self.graph_features
         )
+        self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
         # --- Determine center nodes from node_idx_csv ---
-        if self._graph_node_idx_csv is not None:
-            center_node_ids = self._load_node_indices(self._graph_node_idx_csv)
+        if node_idx_csv is not None:
+            center_node_ids = du.load_node_indices(node_idx_csv)
             ds_node_ids = self.ds.nSCHISM_hgrid_node.values
             id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
             self.center_nodes = np.array([id_to_pos[int(nid)] for nid in center_node_ids if int(nid) in id_to_pos])
-            log.info(f"Selected {len(self.center_nodes)} center nodes from {self._graph_node_idx_csv}.")
+            log.info(f"Selected {len(self.center_nodes)} center nodes from {node_idx_csv}.")
         else:
             self.center_nodes = np.arange(self.n_nodes)
         self.n_center_nodes = len(self.center_nodes)
@@ -813,12 +430,17 @@ class GraphWWMDataset(SimpleWWMDataset, GDataset):
 
         # Now that graph_features are gone, preload node features if requested
         if self.preload_data:
-            self.X = self._retrieve_data(self.ds, self.features)
-            self.y = self._retrieve_data(self.ds, self.targets)
+            self.X = du.retrieve_data(self.ds, self.features)
+            self.y = du.retrieve_data(self.ds, self.targets)
+        else:
+            self.X = None
+            self.y = None
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None and self.preload_data:
-            self.compute_weights()
+            self.weights = du.compute_weights(
+                self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
+            )
         else:
             self.weights = None
 
@@ -839,38 +461,6 @@ class GraphWWMDataset(SimpleWWMDataset, GDataset):
             f"{self._n_time} time steps, {self._total_samples} total samples, "
             f"target: {target_mode}."
         )
-
-    # ------------------------------------------------------------------
-    # Pipeline overrides
-    # ------------------------------------------------------------------
-
-    def _filter_nodes(self) -> None:
-        """No-op: the full mesh is always retained for graph construction.
-
-        Center node selection is handled separately after graph topology is built.
-        """
-        pass
-
-    def _preprocess_variables(self) -> None:
-        """Compute derived variables while keeping graph_features intact.
-
-        Graph features (e.g. SCHISM_hgrid_edge_nodes) have different dimensions
-        than node features and must not be passed to ``_select_variables`` or
-        ``_retrieve_data``.
-        """
-        self.ds = self._compute_prevT(self.ds, self.features)
-        self.ds = self._compute_deltaT(self.ds, self.targets)
-        selected_targets = self.targets + [tt.replace("delta_", "") for tt in self.targets]
-        # Keep graph_features in the dataset for topology construction later
-        self.ds = self._select_variables(self.ds, self.features + selected_targets + self.graph_features)
-        self.ds = self._remove_first_timestep_if_nan(self.ds)
-        self.n_nodes = len(self.ds.nSCHISM_hgrid_node)
-
-    def _load_and_weight_data(self) -> None:
-        """No-op: data loading is deferred until after graph_features are dropped."""
-        self.X = None
-        self.y = None
-        self.weights = None
 
     def _build_adjacency(self) -> None:
         """Load edges from timestep 0 and build an adjacency list.
@@ -1121,6 +711,12 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             full_graph_target=full_graph_target,
         )
 
+        # Validate seq_len
+        if self._n_time < self.seq_len:
+            raise ValueError(
+                f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({self._n_time})"
+            )
+
         self._n_valid_times = self._n_time - self.seq_len + 1
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
@@ -1131,13 +727,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             f"seq_len={self.seq_len}, {self._n_valid_times} valid times, "
             f"{self._total_samples} total samples, target: {target_mode}."
         )
-
-    def _open_and_slice_dataset(self) -> None:
-        """Open dataset and validate seq_len before expensive graph construction."""
-        super()._open_and_slice_dataset()
-        n_time = len(self.ds.time)
-        if n_time < self.seq_len:
-            raise ValueError(f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({n_time})")
 
     def _extract_sequence_node_features(self, time_start: int, subgraph_nodes: np.ndarray) -> torch.Tensor:
         """Extract node features for a subgraph over a sequence of time steps.
