@@ -94,6 +94,8 @@ deep-learning-pipeline: # runs in test
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.preload_data=false data.batch_size=4
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_lstm_target.yaml"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_gcn.yaml"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_gcn.yaml data.full_graph_target=true"
     - echo "Finished deep learning tests without errors."
   only:
     - merge_requests
