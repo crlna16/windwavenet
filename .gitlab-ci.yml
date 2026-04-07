@@ -109,7 +109,7 @@ machine-learning-pipeline: # runs in test
     # install the project, without the development group, mimicking production environment
     - uv sync --no-group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/z8WsL3B7Qc2YMP8/download"
+    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p DATA
     - unzip data.zip -d DATA
     - pwd -P
