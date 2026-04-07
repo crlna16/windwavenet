@@ -87,8 +87,8 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         seq_len = ds_pred_data.seq_len
         n_valid_times = ds_pred_data.n_valid_times
         log.info(f"Sequence dataset detected: seq_len={seq_len}, n_valid_times={n_valid_times}")
-        # Predictions are for timesteps [seq_len:] only
-        pred_time_slice = slice(seq_len, None)
+        # Predictions are for the last step of each sequence: timesteps [seq_len-1:]
+        pred_time_slice = slice(seq_len - 1, None)
         pred_n_time = n_valid_times
     else:
         seq_len = 0

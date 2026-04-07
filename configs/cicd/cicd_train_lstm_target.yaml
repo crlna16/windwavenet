@@ -33,7 +33,7 @@ data:
   features:
     - windSpeedX
     - windSpeedY
-    - sigWaveHeight
+    - prev_sigWaveHeight
   targets:
     - sigWaveHeight
   seq_len: 4  # small sequence for fast CI/CD
