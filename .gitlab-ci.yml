@@ -66,7 +66,7 @@ unit-tests:   # This job runs in the test stage.
     # install the development environment
     - uv sync --group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/z8WsL3B7Qc2YMP8/download"
+    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p tests/cicd_data
     - unzip data.zip -d tests/cicd_data
     - pwd -P
@@ -85,7 +85,7 @@ deep-learning-pipeline: # runs in test
     # install the project, without the development group, mimicking production environment
     - uv sync --no-group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/z8WsL3B7Qc2YMP8/download"
+    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p DATA
     - unzip data.zip -d DATA
     - pwd -P
@@ -95,7 +95,7 @@ deep-learning-pipeline: # runs in test
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.preload_data=false data.batch_size=4
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_lstm_target.yaml"
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_gcn.yaml"
-    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_gcn.yaml data.full_graph_target=true"
+    - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_gcn.yaml data.full_graph_target=true model.backbone._target_=src.model.backbones.GCNFullNet.GCNFullNet"
     - echo "Finished deep learning tests without errors."
   only:
     - merge_requests
@@ -118,7 +118,7 @@ machine-learning-pipeline: # runs in test
     - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
     - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["sigWaveHeight"]'
     # this should exit gracefully
-    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_dominantDirection"]'
+    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_meanWavePeriod"]'
     - echo "Finished machine learning tests without errors."
   only:
     - merge_requests
