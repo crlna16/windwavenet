@@ -7,11 +7,11 @@ from typing import List, Optional
 
 from torch.utils.data import Dataset
 
-from src.data.BaseGraphWWMDataModule import BaseGraphWWMDataModule
+from src.data.BaseWWMDataModule import BaseWWMDataModule
 from src.data.WWMDatasets import SequenceGraphWWMDataset
 
 
-class SequenceGraphWWMDataModule(BaseGraphWWMDataModule):
+class SequenceGraphWWMDataModule(BaseWWMDataModule):
     """Lightning DataModule for sequence graph-based Wave Wind Model data.
 
     Each sample is a graph subgraph where every node carries a temporal
@@ -44,6 +44,11 @@ class SequenceGraphWWMDataModule(BaseGraphWWMDataModule):
         full_graph_target: bool = False,
     ) -> None:
         self.seq_len = seq_len
+        self.graph_features = graph_features
+        self.max_radius = max_radius
+        self.max_nodes = max_nodes
+        self.max_links = max_links
+        self.full_graph_target = full_graph_target
 
         super().__init__(
             data_dir=data_dir,
@@ -52,7 +57,6 @@ class SequenceGraphWWMDataModule(BaseGraphWWMDataModule):
             test_days=test_days,
             features=features,
             targets=targets,
-            graph_features=graph_features,
             scaling_config=scaling_config,
             node_idx_csv=node_idx_csv,
             batch_size=batch_size,
@@ -63,10 +67,6 @@ class SequenceGraphWWMDataModule(BaseGraphWWMDataModule):
             sample_weight_power=sample_weight_power,
             subsample_prob=subsample_prob,
             preload_data=preload_data,
-            max_radius=max_radius,
-            max_nodes=max_nodes,
-            max_links=max_links,
-            full_graph_target=full_graph_target,
         )
 
     def _create_dataset(
