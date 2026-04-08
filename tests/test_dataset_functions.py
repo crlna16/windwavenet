@@ -8,11 +8,12 @@ import pytest
 import torch
 import xarray as xr
 
+from src.data import dataset_utils as du
 from src.data.WWMDatasets import SequenceWWMDataset, SimpleWWMDataset
 
 
 class TestDatasetFunctions:
-    """Test suite for SimpleWWMDataset static methods using synthetic xarray datasets."""
+    """Test suite for dataset_utils functions using synthetic xarray datasets."""
 
     @pytest.fixture
     def sample_dataset(self):
@@ -57,7 +58,7 @@ class TestDatasetFunctions:
         """Test _compute_prevT creates shifted variables correctly."""
         features = ["prev_temperature", "wind_speed"]
 
-        result = SimpleWWMDataset._compute_prevT(sample_dataset, features)
+        result = du.compute_prevT(sample_dataset, features)
 
         # Check that prev_temperature was created
         assert "prev_temperature" in result
@@ -83,7 +84,7 @@ class TestDatasetFunctions:
         """Test _compute_deltaT creates difference variables correctly."""
         targets = ["delta_temperature", "wind_speed"]
 
-        result = SimpleWWMDataset._compute_deltaT(sample_dataset, targets)
+        result = du.compute_deltaT(sample_dataset, targets)
 
         # Check that delta_temperature was created
         assert "delta_temperature" in result
@@ -103,7 +104,7 @@ class TestDatasetFunctions:
         """Test _select_variables filters dataset correctly."""
         variables = ["temperature"]
 
-        result = SimpleWWMDataset._select_variables(sample_dataset, variables)
+        result = du.select_variables(sample_dataset, variables)
 
         # Check only selected variable is present
         assert "temperature" in result
@@ -117,7 +118,7 @@ class TestDatasetFunctions:
         variables = ["temperature"]
         scaling_params = {"temperature": {"mean": 20.0, "std": 5.0}}
 
-        result = SimpleWWMDataset._apply_scaling(sample_dataset.copy(), variables, scaling_params)
+        result = du.apply_scaling(sample_dataset.copy(), variables, scaling_params)
 
         # Check scaling was applied: (x - mean) / std
         expected = (sample_dataset["temperature"].values - 20.0) / 5.0
@@ -134,7 +135,7 @@ class TestDatasetFunctions:
             "wind_speed": {"mean": 10.0, "std": 2.0},
         }
 
-        result = SimpleWWMDataset._apply_scaling(sample_dataset.copy(), variables, scaling_params)
+        result = du.apply_scaling(sample_dataset.copy(), variables, scaling_params)
 
         # Check both variables were scaled
         expected_temp = (sample_dataset["temperature"].values - 20.0) / 5.0
@@ -151,7 +152,7 @@ class TestDatasetFunctions:
             # wind_speed scaling params missing
         }
 
-        result = SimpleWWMDataset._apply_scaling(sample_dataset.copy(), variables, scaling_params)
+        result = du.apply_scaling(sample_dataset.copy(), variables, scaling_params)
 
         # Check temperature was scaled
         expected_temp = (sample_dataset["temperature"].values - 20.0) / 5.0
@@ -164,11 +165,11 @@ class TestDatasetFunctions:
         """Test combined workflow of computing prev and delta variables."""
         # First compute previous timestep
         features = ["prev_temperature"]
-        ds_with_prev = SimpleWWMDataset._compute_prevT(sample_dataset, features)
+        ds_with_prev = du.compute_prevT(sample_dataset, features)
 
         # Then compute delta
         targets = ["delta_temperature"]
-        ds_final = SimpleWWMDataset._compute_deltaT(ds_with_prev, targets)
+        ds_final = du.compute_deltaT(ds_with_prev, targets)
 
         # Check both variables exist
         assert "prev_temperature" in ds_final
@@ -186,7 +187,7 @@ class TestDatasetFunctions:
 
 
 class TestReconstructFromDelta:
-    """Test suite for SimpleWWMDataset.reconstruct_from_delta static method."""
+    """Test suite for du.reconstruct_from_delta function."""
 
     @pytest.fixture
     def delta_dataset(self):
@@ -241,7 +242,7 @@ class TestReconstructFromDelta:
             ]
         )
 
-        reconstructed, _ = SimpleWWMDataset.reconstruct_from_delta(
+        reconstructed, _ = du.reconstruct_from_delta(
             delta_predictions=delta_predictions,
             dataset=delta_dataset,
             target_name="delta_temperature",
@@ -268,7 +269,7 @@ class TestReconstructFromDelta:
         delta_predictions = np.zeros((5, 3))
 
         with pytest.raises(ValueError, match="not a delta target"):
-            SimpleWWMDataset.reconstruct_from_delta(
+            du.reconstruct_from_delta(
                 delta_predictions=delta_predictions,
                 dataset=delta_dataset,
                 target_name="temperature",  # Not a delta target
@@ -293,7 +294,7 @@ class TestReconstructFromDelta:
 
         delta_predictions = np.array([[5.0, 5.0], [5.0, 5.0], [5.0, 5.0]])
 
-        reconstructed, updated_ds = SimpleWWMDataset.reconstruct_from_delta(
+        reconstructed, updated_ds = du.reconstruct_from_delta(
             delta_predictions=delta_predictions,
             dataset=ds,
             target_name="delta_temperature",
@@ -378,7 +379,7 @@ class TestSequenceWWMDatasetFunctions:
 
     def test_sequence_dataset_raises_on_invalid_seq_len(self, mock_sequence_dataset):
         """Test that invalid seq_len raises ValueError."""
-        with pytest.raises(ValueError, match="must be less than"):
+        with pytest.raises(ValueError, match="must be less than or equal to"):
             SequenceWWMDataset(
                 data_dir=mock_sequence_dataset,
                 data_range=[1, 2],  # Small time range
@@ -434,8 +435,8 @@ class TestSequenceWWMDatasetFunctions:
 
         # data_range=[1,2] keeps first day (24 samples); dataset drops first timestep -> 23
         assert ds.n_time == 23
-        assert ds.n_valid_times == 20
-        assert len(ds) == 80  # 20 valid starts * 4 nodes
+        assert ds.n_valid_times == 21
+        assert len(ds) == 84  # 21 valid starts * 4 nodes
 
     def test_sequence_dataset_preload_item_values(self, deterministic_sequence_dataset):
         """Test preloaded sequence indexing returns the expected timesteps and target."""
@@ -458,8 +459,8 @@ class TestSequenceWWMDatasetFunctions:
         assert tuple(X_seq.shape) == (3, 2)
         np.testing.assert_allclose(X_seq[:, 0].numpy(), expected_u10)
         np.testing.assert_allclose(X_seq[:, 1].numpy(), expected_v10)
-        # Target is next step after sequence: original t=4 at node 0
-        np.testing.assert_allclose(y_target.numpy(), np.array([40.0], dtype=np.float32))
+        # Target is last step in the sequence: original t=3 at node 0
+        np.testing.assert_allclose(y_target.numpy(), np.array([30.0], dtype=np.float32))
 
     def test_sequence_dataset_lazy_matches_preload(self, deterministic_sequence_dataset):
         """Test lazy-loading sequence access matches preloaded access for the same index."""
@@ -493,7 +494,7 @@ class TestSequenceWWMDatasetFunctions:
 
 
 class TestSimpleWWMDatasetCoverage:
-    """Additional branch coverage tests for SimpleWWMDataset."""
+    """Additional branch coverage tests for SimpleWWMDataset and dataset_utils."""
 
     @pytest.fixture
     def simple_dataset_zarr(self, tmp_path):
@@ -541,16 +542,16 @@ class TestSimpleWWMDatasetCoverage:
         scaling_yaml = tmp_path / "scaling.yaml"
         scaling_yaml.write_text("temperature:\n  mean: 20.0\n  std: 5.0\n")
 
-        params = SimpleWWMDataset._load_scaling_config(str(scaling_yaml))
+        params = du.load_scaling_config(str(scaling_yaml))
         assert params["temperature"]["mean"] == 20.0
         assert params["temperature"]["std"] == 5.0
 
-        scaled = SimpleWWMDataset._apply_scaling(sample_dataset.copy(), ["temperature"], params)
-        reverted = SimpleWWMDataset._revert_scaling(scaled.copy(), ["temperature"], params)
+        scaled = du.apply_scaling(sample_dataset.copy(), ["temperature"], params)
+        reverted = du.revert_scaling(scaled.copy(), ["temperature"], params)
         np.testing.assert_allclose(reverted["temperature"].values, sample_dataset["temperature"].values)
 
         with pytest.raises(ValueError, match="No parameters found"):
-            SimpleWWMDataset._revert_scaling(sample_dataset.copy(), ["wind_speed"], params)
+            du.revert_scaling(sample_dataset.copy(), ["wind_speed"], params)
 
     def test_reconstruct_from_delta_with_scaling_reverts_prev(self):
         """Cover branch where reconstruction reverts scaling of prev_* feature."""
@@ -564,7 +565,7 @@ class TestSimpleWWMDatasetCoverage:
         )
 
         delta_predictions = np.array([[0.0], [1.0], [2.0]])
-        reconstructed, _ = SimpleWWMDataset.reconstruct_from_delta(
+        reconstructed, _ = du.reconstruct_from_delta(
             delta_predictions=delta_predictions,
             dataset=ds,
             target_name="delta_temperature",
@@ -626,10 +627,9 @@ class TestSimpleWWMDatasetCoverage:
             targets=["sigWaveHeight"],
             sample_weight_strategy=None,
         )
-        ds.sample_weight_strategy = "invalid_strategy"
 
         with pytest.raises(ValueError, match="Unknown sample_weight_strategy"):
-            ds.compute_weights()
+            du.compute_weights(ds.y, ds.targets, "invalid_strategy", 1.0)
 
     def test_subsample_by_zscore_reduces_or_keeps_samples(self, simple_dataset_zarr):
         """Cover z-score subsampling branch including probability scaling/clipping."""

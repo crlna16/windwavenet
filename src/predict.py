@@ -18,7 +18,7 @@ import xarray as xr
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import log_hyperparameters, print_config_tree, unscale_target_predictions
-from src.data.WWMDatasets import SimpleWWMDataset
+from src.data import dataset_utils as du
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -70,6 +70,10 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     )
     predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
+    # run test metrics that are synced to wandb
+    if cfg.test_metrics:
+        trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+
     log.info("Retrieving metadata from source dataset")
     datamodule_data = cast(Any, datamodule)
     ds_pred_data = datamodule_data.ds_pred
@@ -83,8 +87,8 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         seq_len = ds_pred_data.seq_len
         n_valid_times = ds_pred_data.n_valid_times
         log.info(f"Sequence dataset detected: seq_len={seq_len}, n_valid_times={n_valid_times}")
-        # Predictions are for timesteps [seq_len:] only
-        pred_time_slice = slice(seq_len, None)
+        # Predictions are for the last step of each sequence: timesteps [seq_len-1:]
+        pred_time_slice = slice(seq_len - 1, None)
         pred_n_time = n_valid_times
     else:
         seq_len = 0
@@ -131,7 +135,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
             ds_for_reconstruction = ds.isel(time=pred_time_slice) if is_sequence_dataset else ds
 
             delta_predictions = predictions_reshaped.cpu().numpy()
-            reconstructed, ds_for_reconstruction = SimpleWWMDataset.reconstruct_from_delta(
+            reconstructed, ds_for_reconstruction = du.reconstruct_from_delta(
                 delta_predictions=delta_predictions,
                 dataset=ds_for_reconstruction,
                 target_name=target_name,

@@ -188,6 +188,34 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         else:
             raise ValueError(f"Unknown stage: {stage}")
 
+    def _make_dataloader(self, dataset, batch_size: int, shuffle: bool, worker_init_fn=None):
+        """Create the appropriate DataLoader for the given dataset.
+
+        Uses ``torch_geometric.loader.DataLoader`` for PyG datasets
+        and ``torch.utils.data.DataLoader`` for standard torch datasets.
+        """
+        from torch_geometric.data import Dataset as GDataset
+
+        kwargs = dict(
+            dataset=dataset,
+            batch_size=batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            shuffle=shuffle,
+            prefetch_factor=self.prefetch_factor,
+        )
+
+        if isinstance(dataset, GDataset):
+            from torch_geometric.loader import DataLoader as GDataLoader
+
+            kwargs["persistent_workers"] = self.persistent_workers if self.num_workers > 0 else False
+            return GDataLoader(**kwargs)
+
+        kwargs["persistent_workers"] = self.persistent_workers if self.num_workers > 0 else False
+        if worker_init_fn is not None:
+            kwargs["worker_init_fn"] = worker_init_fn
+        return DataLoader(**kwargs)
+
     def train_dataloader(self) -> DataLoader:
         """Create and return the train dataloader."""
         worker_init_fn = None
@@ -195,45 +223,33 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             if hasattr(self.ds_train, "worker_init_fn"):
                 worker_init_fn = lambda worker_id: self.ds_train.worker_init_fn(worker_id)  # noqa: E731
 
-        return DataLoader(
+        return self._make_dataloader(
             dataset=self.ds_train,
             batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers if self.num_workers > 0 else False,
             shuffle=True,
             worker_init_fn=worker_init_fn,
-            prefetch_factor=self.prefetch_factor,
         )
 
     def val_dataloader(self) -> DataLoader:
         """Create and return the validation dataloader."""
-        return DataLoader(
+        return self._make_dataloader(
             dataset=self.ds_val,
             batch_size=4 * self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
             shuffle=True,
-            prefetch_factor=self.prefetch_factor,
         )
 
     def test_dataloader(self) -> DataLoader:
         """Create and return the test dataloader."""
-        return DataLoader(
+        return self._make_dataloader(
             dataset=self.ds_test,
             batch_size=4 * self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
             shuffle=False,
-            prefetch_factor=self.prefetch_factor,
         )
 
     def predict_dataloader(self) -> DataLoader:
         """Create and return the predict dataloader."""
-        return DataLoader(
+        return self._make_dataloader(
             dataset=self.ds_pred,
             batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
             shuffle=False,
         )

@@ -7,9 +7,6 @@
 #SBATCH --time=16:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
-module load git
-uv sync
-source .venv/bin/activate
 #wandb agent wwm-emulator/simple-wwm-emulator/w5i9gsye
 #wandb agent wwm-emulator/simple-wwm-emulator/pneifth9
 #wandb agent wwm-emulator/simple-wwm-emulator/na1becz6
@@ -22,4 +19,5 @@ source .venv/bin/activate
 #wandb agent wwm-emulator/simple-wwm-emulator/btsgf6ro # xgboost sigWaveHeight
 #wandb agent wwm-emulator/simple-wwm-emulator/ms3xo7a2 # xgboost subsample
 #wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
-wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0
+#wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0
+uv run wandb agent wwm-emulator/wwm-emulator-hourly/wyhsaahk

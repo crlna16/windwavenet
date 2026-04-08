@@ -19,7 +19,7 @@ import torch
 import xarray as xr
 
 from src.utils import pylogger
-from src.data.WWMDatasets import SimpleWWMDataset
+from src.data import dataset_utils as du
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -352,7 +352,7 @@ def generate_predictions_ml(
             log.info(f"Reconstructing {original_var} from delta predictions")
 
             # Note: ML models don't use scaling, so pass empty features and no scaling_params
-            reconstructed, ds = SimpleWWMDataset.reconstruct_from_delta(
+            reconstructed, ds = du.reconstruct_from_delta(
                 delta_predictions=predictions_reshaped,
                 dataset=ds,
                 target_name=target_name,
