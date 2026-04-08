@@ -58,6 +58,10 @@ data:
   max_links: 10000
   full_graph_target: true
 
+# Number of sub-graphs packed into one PyG Batch per forward pass.
+# Increase for better GPU utilisation; decrease if you run out of memory.
+batch_size_graphs: 32
+
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
   target_names: ${data.targets}
