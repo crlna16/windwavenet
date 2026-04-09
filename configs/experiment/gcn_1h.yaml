@@ -37,7 +37,6 @@ model:
 
 trainer:
   devices: 1
-  val_check_interval: 20000 # set to 1.0 to cover all
 
 
 logger: # set to null to disable logging

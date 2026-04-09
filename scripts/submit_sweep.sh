@@ -20,4 +20,4 @@
 #wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
 #wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/wyhsaahk
-uv run wandb agent wwm-emulator/wwm-emulator-hourly/qwku9lfa
+uv run wandb agent wwm-emulator/wwm-emulator-hourly/bd4b16dq
