@@ -325,7 +325,7 @@ class GraphWWMDataset(GDataset):
 
     Handles graph construction (adjacency, BFS subgraphs, caching) and provides
     sample access. Set ``full_graph_target=True`` for targets at all subgraph
-    nodes; default targets the center node only.
+    nodes; ``full_graph_target=False`` returns only the center node as the target.
     """
 
     def __init__(
@@ -344,7 +344,7 @@ class GraphWWMDataset(GDataset):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
-        full_graph_target: bool = False,
+        full_graph_target: bool = True,
     ) -> None:
         """Initialize the graph dataset.
 
@@ -369,8 +369,8 @@ class GraphWWMDataset(GDataset):
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
             max_links: Maximum number of BFS hops from center node (default: 10).
-            full_graph_target: If True, target covers all subgraph nodes.
-                If False (default), target is center node only.
+            full_graph_target: If True (default), target covers all subgraph nodes.
+                If False, target is center node only.
         """
         self.data_dir = Path(data_dir)
         self.data_range = data_range

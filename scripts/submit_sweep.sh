@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH -A ka1176
 #SBATCH -p vader
-#SBATCH --array=0-1
 #SBATCH --mem=200G
 #SBATCH --gres=gpu:1
 #SBATCH --time=16:00:00
@@ -20,4 +19,5 @@
 #wandb agent wwm-emulator/simple-wwm-emulator/ms3xo7a2 # xgboost subsample
 #wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
 #wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0
-uv run wandb agent wwm-emulator/wwm-emulator-hourly/wyhsaahk
+#uv run wandb agent wwm-emulator/wwm-emulator-hourly/wyhsaahk
+uv run wandb agent wwm-emulator/wwm-emulator-hourly/bd4b16dq
