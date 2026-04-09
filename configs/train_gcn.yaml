@@ -52,7 +52,7 @@ data:
   max_radius: 20000.0
   max_nodes: 200
   max_links: 10000
-  full_graph_target: false
+  full_graph_target: true
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
@@ -61,7 +61,7 @@ model:
   target_bins: null
 
   backbone:
-    _target_: src.model.backbones.GCNCenterNet.GCNCenterNet
+    _target_: src.model.backbones.GCNFullNet.GCNFullNet
     input_dim: 3   # must match len(data.features)
     output_dim: 1  # must match len(data.targets)
     hidden_dim: 128

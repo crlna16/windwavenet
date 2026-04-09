@@ -40,7 +40,7 @@ class GraphWWMDataModule(BaseWWMDataModule):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
-        full_graph_target: bool = False,
+        full_graph_target: bool = True,
     ) -> None:
         self.graph_features = graph_features
         self.max_radius = max_radius

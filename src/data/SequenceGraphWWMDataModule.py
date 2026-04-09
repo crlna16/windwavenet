@@ -41,7 +41,7 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
-        full_graph_target: bool = False,
+        full_graph_target: bool = True,
     ) -> None:
         self.seq_len = seq_len
         self.graph_features = graph_features
