@@ -38,9 +38,9 @@ class GCNFullNet(nn.Module):
         self.dropout = dropout
 
         self.convs = nn.ModuleList()
-        self.convs.append(GCNConv(input_dim, hidden_dim))
+        self.convs.append(GCNConv(input_dim, hidden_dim, add_self_loops=False))
         for _ in range(num_layers - 1):
-            self.convs.append(GCNConv(hidden_dim, hidden_dim))
+            self.convs.append(GCNConv(hidden_dim, hidden_dim, add_self_loops=False))
 
         self.fc = nn.Linear(hidden_dim, output_dim)
 
@@ -48,15 +48,16 @@ class GCNFullNet(nn.Module):
         """Forward pass through the network.
 
         Args:
-            data: PyG Batch object with attributes x, edge_index.
+            data: PyG Batch object with attributes x, edge_index, edge_weight.
 
         Returns:
             Predictions of shape (total_nodes_in_batch, output_dim) for all nodes.
         """
         x, edge_index = data.x, data.edge_index
+        edge_weight = getattr(data, "edge_weight", None)
 
         for conv in self.convs:
-            x = conv(x, edge_index)
+            x = conv(x, edge_index, edge_weight=edge_weight)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
 

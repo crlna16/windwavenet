@@ -17,7 +17,6 @@ Usage example::
         data.test_days=[335,365]
 """
 
-from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -30,6 +29,7 @@ from lightning_utilities.core.rank_zero import rank_zero_only
 from torch_geometric.data import Batch, Data as GData
 
 from src.data import dataset_utils as du
+from src.data import graph_utils as gu
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import print_config_tree, unscale_target_predictions
 
@@ -38,168 +38,6 @@ if getattr(rank_zero_only, "rank", None) is None:
     rank_zero_only.rank = 0
 
 log = RankedLogger(__name__, rank_zero_only=True)
-
-
-# ---------------------------------------------------------------------------
-# Graph utilities (extracted from GraphWWMDataset for standalone use)
-# ---------------------------------------------------------------------------
-
-
-def _build_adjacency(ds: xr.Dataset) -> Dict[int, List[int]]:
-    """Build a 0-indexed node adjacency list from the dataset's edge array.
-
-    Edge node IDs are 1-indexed in the dataset; they are converted to
-    0-indexed positional indices into ``ds.nSCHISM_hgrid_node``.
-
-    Args:
-        ds: xarray Dataset containing ``SCHISM_hgrid_edge_nodes`` at time 0.
-
-    Returns:
-        Dict mapping node position → list of neighbour positions (0-indexed).
-    """
-    raw_edges = ds.isel(time=0)["SCHISM_hgrid_edge_nodes"].values.astype(int)
-
-    ds_node_ids = ds.nSCHISM_hgrid_node.values
-    id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
-
-    adjacency: Dict[int, List[int]] = defaultdict(list)
-    for a_id, b_id in raw_edges:
-        # Edge node IDs are 1-indexed; subtract 1 to get 0-indexed node IDs
-        a_pos = id_to_pos.get(int(a_id) - 1)
-        b_pos = id_to_pos.get(int(b_id) - 1)
-        if a_pos is not None and b_pos is not None:
-            adjacency[a_pos].append(b_pos)
-            adjacency[b_pos].append(a_pos)
-
-    log.info(f"Built adjacency list: {len(adjacency)} nodes with neighbours.")
-    return adjacency
-
-
-def _build_subgraph(
-    center_pos: int,
-    adjacency: Dict[int, List[int]],
-    node_x: np.ndarray,
-    node_y: np.ndarray,
-    max_radius: float,
-    max_nodes: int,
-    max_links: int,
-) -> Tuple[np.ndarray, torch.Tensor, int]:
-    """BFS sub-graph expansion around a center node.
-
-    Mirrors ``GraphWWMDataset._build_subgraph`` exactly.
-
-    Args:
-        center_pos: 0-indexed position of the center node.
-        adjacency: Dict of node → neighbours.
-        node_x: Node x-coordinates array.
-        node_y: Node y-coordinates array.
-        max_radius: Maximum Euclidean distance from center (meters).
-        max_nodes: Maximum number of nodes in the sub-graph.
-        max_links: Maximum BFS hop depth.
-
-    Returns:
-        Tuple ``(subgraph_nodes, edge_index, center_local_idx)`` where
-        *subgraph_nodes* is a sorted array of global 0-indexed node positions,
-        *edge_index* is a ``(2, n_edges)`` tensor of local indices, and
-        *center_local_idx* is the position of the center within *subgraph_nodes*.
-    """
-    cx, cy = node_x[center_pos], node_y[center_pos]
-
-    visited = {center_pos}
-    queue: deque = deque([(center_pos, 0)])
-
-    while queue and len(visited) < max_nodes:
-        current, depth = queue.popleft()
-        if depth >= max_links:
-            continue
-        for neighbour in adjacency.get(current, []):
-            if neighbour in visited:
-                continue
-            dx = node_x[neighbour] - cx
-            dy = node_y[neighbour] - cy
-            if np.sqrt(dx * dx + dy * dy) >= max_radius:
-                continue
-            visited.add(neighbour)
-            queue.append((neighbour, depth + 1))
-            if len(visited) >= max_nodes:
-                break
-
-    subgraph_nodes = np.sort(np.array(list(visited)))
-    global_to_local = {g: l for l, g in enumerate(subgraph_nodes)}  # noqa: E741
-    center_local_idx = global_to_local[center_pos]
-
-    subgraph_set = set(subgraph_nodes.tolist())
-    src_list: List[int] = []
-    dst_list: List[int] = []
-    for u in subgraph_nodes:
-        local_u = global_to_local[u]
-        src_list.append(local_u)
-        dst_list.append(local_u)
-        for v in adjacency.get(u, []):
-            if v in subgraph_set:
-                src_list.append(local_u)
-                dst_list.append(global_to_local[v])
-
-    edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
-    return subgraph_nodes, edge_index, center_local_idx
-
-
-def partition_domain(
-    n_nodes: int,
-    adjacency: Dict[int, List[int]],
-    node_x: np.ndarray,
-    node_y: np.ndarray,
-    max_radius: float,
-    max_nodes: int,
-    max_links: int,
-) -> List[Tuple[int, np.ndarray, torch.Tensor, int]]:
-    """Partition all mesh nodes into a covering set of BFS sub-graphs.
-
-    Greedy set-cover: iterate nodes in order 0..n_nodes-1, pick the first
-    uncovered node as center, BFS-expand its sub-graph, mark all nodes in the
-    sub-graph as covered (including any overlap at the boundaries), repeat
-    until every node is covered.
-
-    A node may appear in more than one sub-graph's topology (so message-passing
-    has full context at boundaries), but for prediction assembly only the first
-    sub-graph that covers a node is authoritative ("first seen wins").
-
-    Args:
-        n_nodes: Total number of mesh nodes.
-        adjacency: 0-indexed adjacency list.
-        node_x: Node x-coordinates.
-        node_y: Node y-coordinates.
-        max_radius: BFS radius constraint.
-        max_nodes: BFS node count cap.
-        max_links: BFS hop depth cap.
-
-    Returns:
-        List of ``(center_pos, subgraph_nodes, edge_index, center_local_idx)``
-        tuples, one per partition.
-    """
-    covered = np.zeros(n_nodes, dtype=bool)
-    partitions = []
-
-    for node in range(n_nodes):
-        if covered[node]:
-            continue
-
-        subgraph_nodes, edge_index, center_local_idx = _build_subgraph(
-            center_pos=node,
-            adjacency=adjacency,
-            node_x=node_x,
-            node_y=node_y,
-            max_radius=max_radius,
-            max_nodes=max_nodes,
-            max_links=max_links,
-        )
-
-        # Mark all nodes in this sub-graph as covered (first-seen wins)
-        covered[subgraph_nodes] = True
-        partitions.append((node, subgraph_nodes, edge_index, center_local_idx))
-
-    log.info(f"Domain partitioned into {len(partitions)} sub-graphs covering {covered.sum()}/{n_nodes} nodes.")
-    return partitions
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +83,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     node_y: np.ndarray = ds["SCHISM_hgrid_node_y"].values
 
     log.info("Building adjacency list ...")
-    adjacency = _build_adjacency(ds)
+    adjacency = gu.build_adjacency(ds)
 
     # Drop graph topology variables after adjacency is built
     ds = ds.drop_vars([v for v in graph_features if v in ds], errors="ignore")
@@ -258,7 +96,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     max_links: int = int(cfg.data.max_links)
 
     log.info(f"Partitioning domain with max_radius={max_radius}, max_nodes={max_nodes}, max_links={max_links} ...")
-    partitions = partition_domain(
+    partitions = gu.partition_domain(
         n_nodes=n_nodes,
         adjacency=adjacency,
         node_x=node_x,
@@ -267,6 +105,14 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         max_nodes=max_nodes,
         max_links=max_links,
     )
+
+    # Precompute edge weights for every partition
+    edge_weight_scale: float = float(cfg.data.edge_weight_scale)
+    log.info(f"Computing edge weights with scale={edge_weight_scale} ...")
+    edge_weights = [
+        gu.compute_edge_weights(edge_index, subgraph_nodes, node_x, node_y, scale=edge_weight_scale)
+        for _, subgraph_nodes, edge_index, _ in partitions
+    ]
 
     # ------------------------------------------------------------------
     # 4.  Load model from checkpoint
@@ -351,8 +197,9 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
                     GData(
                         x=torch.from_numpy(X_t[subgraph_nodes].copy()),
                         edge_index=edge_index,
+                        edge_weight=edge_weights[batch_start + i],
                     )
-                    for _, subgraph_nodes, edge_index, _ in partitions[batch_start:batch_end]
+                    for i, (_, subgraph_nodes, edge_index, _) in enumerate(partitions[batch_start:batch_end])
                 ]
                 batch = Batch.from_data_list(data_list).to(device)
 
