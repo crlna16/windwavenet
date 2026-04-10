@@ -393,6 +393,12 @@ class GraphWWMDataset(GDataset):
         if subsample_prob is not None:
             raise ValueError(f"Subsample probability must be None for graph datasets. Found {subsample_prob}")
 
+        if sample_weight_strategy is not None:
+            raise ValueError(
+                f"Sample weighting is not supported for graph datasets. "
+                f"Found sample_weight_strategy='{sample_weight_strategy}'. Set it to null."
+            )
+
         # --- Pipeline: open, preprocess (keep graph vars), scale ---
         self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
         # No node filtering — full mesh retained for graph construction
