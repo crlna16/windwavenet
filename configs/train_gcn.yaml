@@ -65,9 +65,10 @@ model:
     _target_: src.model.backbones.GCNFullNet.GCNFullNet
     input_dim: 3   # must match len(data.features)
     output_dim: 1  # must match len(data.targets)
-    hidden_dim: 128
-    num_layers: 3
-    dropout: 0.1
+    # Backbone-specific hyperparameters (hidden_dim, num_layers, dropout, etc.)
+    # are intentionally omitted here so that experiment configs can set a
+    # different _target_ without leftover keys causing instantiation errors.
+    # Constructor defaults apply when no experiment is active.
 
   optimizer:
     _target_: torch.optim.AdamW
