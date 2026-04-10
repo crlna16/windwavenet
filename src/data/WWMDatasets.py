@@ -3,12 +3,10 @@
 #
 # SPDX-License-Identifier: MIT
 
-from collections import defaultdict, deque
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import time
 import torch
 from torch.utils.data import Dataset
 
@@ -16,6 +14,7 @@ from torch_geometric.data import Dataset as GDataset
 from torch_geometric.data import Data as GData
 
 from src.data import dataset_utils as du
+from src.data import graph_utils as gu
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -409,18 +408,28 @@ class GraphWWMDataset(GDataset):
         self.n_center_nodes = len(self.center_nodes)
 
         # --- Load edges once (time-invariant) and build adjacency ---
-        self._build_adjacency()
+        self.adjacency = gu.build_adjacency(self.ds)
 
         # --- Extract node coordinates (not time-varying) ---
         self.node_x = self.ds["SCHISM_hgrid_node_x"].values
         self.node_y = self.ds["SCHISM_hgrid_node_y"].values
 
-        # --- Cache subgraph topology per center node ---
+        # --- Cache subgraph topology + edge lengths per center node ---
         log.info(f"Precomputing subgraph topology for {self.n_center_nodes} center nodes...")
-        self.graph_cache: Dict[int, Tuple[np.ndarray, torch.Tensor, int]] = {}
+        self.graph_cache: Dict[int, Tuple[np.ndarray, torch.Tensor, int, torch.Tensor]] = {}
         for center_pos in self.center_nodes:
-            self.graph_cache[int(center_pos)] = self._build_subgraph(int(center_pos))
-        log.info(f"Cached {len(self.graph_cache)} subgraph topologies.")
+            subgraph_nodes, edge_index, center_local_idx = gu.build_subgraph(
+                center_pos=int(center_pos),
+                adjacency=self.adjacency,
+                node_x=self.node_x,
+                node_y=self.node_y,
+                max_radius=self.max_radius,
+                max_nodes=self.max_nodes,
+                max_links=self.max_links,
+            )
+            edge_attr = gu.compute_edge_lengths(edge_index, subgraph_nodes, self.node_x, self.node_y)
+            self.graph_cache[int(center_pos)] = (subgraph_nodes, edge_index, center_local_idx, edge_attr)
+        log.info(f"Cached {len(self.graph_cache)} subgraph topologies (with edge lengths).")
 
         # Drop graph_features from dataset to free memory
         self.ds = self.ds.drop_vars(
@@ -461,107 +470,6 @@ class GraphWWMDataset(GDataset):
             f"{self._n_time} time steps, {self._total_samples} total samples, "
             f"target: {target_mode}."
         )
-
-    def _build_adjacency(self) -> None:
-        """Load edges from timestep 0 and build an adjacency list.
-
-        Edge node IDs are 1-indexed in the dataset; they are converted to
-        0-indexed positional indices into ``self.ds.nSCHISM_hgrid_node``.
-        """
-        start_time = time.time()
-
-        raw_edges = self.ds.isel(time=0)["SCHISM_hgrid_edge_nodes"].values.astype(int)
-
-        # Map 1-indexed node IDs to 0-indexed positions
-        ds_node_ids = self.ds.nSCHISM_hgrid_node.values
-        id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
-
-        self.adjacency: Dict[int, List[int]] = defaultdict(list)
-        valid_count = 0
-        for a_id, b_id in raw_edges:
-            # Edge node IDs are 1-indexed; subtract 1 to get 0-indexed node IDs
-            a_pos = id_to_pos.get(int(a_id) - 1)
-            b_pos = id_to_pos.get(int(b_id) - 1)
-            if a_pos is not None and b_pos is not None:
-                self.adjacency[a_pos].append(b_pos)
-                self.adjacency[b_pos].append(a_pos)
-                valid_count += 1
-
-        elapsed = time.time() - start_time
-        log.info(
-            f"Built adjacency list in {elapsed:.1f}s: "
-            f"{valid_count} valid edges, {len(self.adjacency)} nodes with neighbors."
-        )
-
-    def _build_subgraph(self, center_pos: int) -> Tuple[np.ndarray, torch.Tensor, int]:
-        """Build subgraph topology around a center node using BFS.
-
-        BFS expands along mesh edges, bounded by:
-        - ``max_radius``: max Euclidean distance (meters) from center node
-        - ``max_nodes``: max number of nodes in the subgraph
-        - ``max_links``: max number of BFS hops from the center node
-
-        Args:
-            center_pos: 0-indexed positional index of the center node.
-
-        Returns:
-            Tuple of (subgraph_nodes, edge_index, center_local_idx) where:
-                - subgraph_nodes: sorted array of 0-indexed positional node indices
-                - edge_index: (2, n_edges) tensor of local edge indices
-                - center_local_idx: local index of the center node in subgraph_nodes
-        """
-        cx, cy = self.node_x[center_pos], self.node_y[center_pos]
-
-        visited = {center_pos}
-        queue = deque([(center_pos, 0)])
-
-        while queue and len(visited) < self.max_nodes:
-            current, depth = queue.popleft()
-
-            if depth >= self.max_links:
-                continue
-
-            for neighbor in self.adjacency.get(current, []):
-                if neighbor in visited:
-                    continue
-
-                # Check distance from center node
-                dx = self.node_x[neighbor] - cx
-                dy = self.node_y[neighbor] - cy
-                dist = np.sqrt(dx * dx + dy * dy)
-                if dist >= self.max_radius:
-                    continue
-
-                visited.add(neighbor)
-                queue.append((neighbor, depth + 1))
-
-                if len(visited) >= self.max_nodes:
-                    break
-
-        # Build local node mapping
-        subgraph_nodes = np.sort(np.array(list(visited)))
-        global_to_local = {g: l for l, g in enumerate(subgraph_nodes)}  # noqa: E741
-        center_local_idx = global_to_local[center_pos]
-
-        # Build edge_index: include all edges where both endpoints are in subgraph
-        # plus self-loops on the diagonal (required by many PyG message-passing layers)
-        subgraph_set = set(subgraph_nodes)
-        src_list = []
-        dst_list = []
-        for u in subgraph_nodes:
-            local_u = global_to_local[u]
-            # Self-loop
-            src_list.append(local_u)
-            dst_list.append(local_u)
-            # Neighbor edges
-            for v in self.adjacency.get(u, []):
-                if v in subgraph_set:
-                    src_list.append(local_u)
-                    dst_list.append(global_to_local[v])
-
-        edge_index = torch.tensor([src_list, dst_list], dtype=torch.long)
-
-        return subgraph_nodes, edge_index, center_local_idx
 
     def _extract_node_features(self, time_idx: int, subgraph_nodes: np.ndarray) -> torch.Tensor:
         """Extract node features for a subgraph at a single time step.
@@ -607,14 +515,15 @@ class GraphWWMDataset(GDataset):
             torch_geometric.data.Data with attributes:
                 - x: (n_subgraph_nodes, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
+                - edge_attr: (n_edges, 1) Euclidean edge lengths
                 - y: target tensor (shape depends on full_graph_target)
                 - center_idx: local index of center node in x
         """
-        subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
+        subgraph_nodes, edge_index, center_local_idx, edge_attr = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
         target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
         y = self._extract_targets(time_idx, target_nodes)
-        return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
+        return GData(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y, center_idx=center_local_idx)
 
     def __len__(self) -> int:
         """Return the total number of samples (center_nodes * time_steps)."""
@@ -782,12 +691,13 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             torch_geometric.data.Data with attributes:
                 - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
+                - edge_attr: (n_edges, 1) Euclidean edge lengths
                 - y: target tensor (shape depends on full_graph_target)
                 - center_idx: local index of center node in x
         """
-        subgraph_nodes, edge_index, center_local_idx = self.graph_cache[center_node_pos]
+        subgraph_nodes, edge_index, center_local_idx, edge_attr = self.graph_cache[center_node_pos]
         x = self._extract_sequence_node_features(time_idx, subgraph_nodes)
         target_time = time_idx + self.seq_len - 1
         target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
         y = self._extract_targets(target_time, target_nodes)
-        return GData(x=x, edge_index=edge_index, y=y, center_idx=center_local_idx)
+        return GData(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y, center_idx=center_local_idx)
