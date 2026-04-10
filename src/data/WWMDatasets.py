@@ -344,6 +344,7 @@ class GraphWWMDataset(GDataset):
         max_nodes: int = 1000,
         max_links: int = 10,
         full_graph_target: bool = True,
+        edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the graph dataset.
 
@@ -370,6 +371,9 @@ class GraphWWMDataset(GDataset):
             max_links: Maximum number of BFS hops from center node (default: 10).
             full_graph_target: If True (default), target covers all subgraph nodes.
                 If False, target is center node only.
+            edge_weight_scale: Length scale (meters) for inverse-distance edge
+                weights.  An edge whose Euclidean length equals this value
+                receives weight 0.5 (default: 1000.0).
         """
         self.data_dir = Path(data_dir)
         self.data_range = data_range
@@ -384,6 +388,7 @@ class GraphWWMDataset(GDataset):
         self.max_radius = max_radius
         self.max_nodes = max_nodes
         self.max_links = max_links
+        self.edge_weight_scale = edge_weight_scale
 
         if subsample_prob is not None:
             raise ValueError(f"Subsample probability must be None for graph datasets. Found {subsample_prob}")
@@ -414,7 +419,7 @@ class GraphWWMDataset(GDataset):
         self.node_x = self.ds["SCHISM_hgrid_node_x"].values
         self.node_y = self.ds["SCHISM_hgrid_node_y"].values
 
-        # --- Cache subgraph topology + edge lengths per center node ---
+        # --- Cache subgraph topology + edge weights per center node ---
         log.info(f"Precomputing subgraph topology for {self.n_center_nodes} center nodes...")
         self.graph_cache: Dict[int, Tuple[np.ndarray, torch.Tensor, int, torch.Tensor]] = {}
         for center_pos in self.center_nodes:
@@ -427,9 +432,17 @@ class GraphWWMDataset(GDataset):
                 max_nodes=self.max_nodes,
                 max_links=self.max_links,
             )
-            edge_attr = gu.compute_edge_lengths(edge_index, subgraph_nodes, self.node_x, self.node_y)
-            self.graph_cache[int(center_pos)] = (subgraph_nodes, edge_index, center_local_idx, edge_attr)
-        log.info(f"Cached {len(self.graph_cache)} subgraph topologies (with edge lengths).")
+            edge_weight = gu.compute_edge_weights(
+                edge_index,
+                subgraph_nodes,
+                self.node_x,
+                self.node_y,
+                scale=self.edge_weight_scale,
+            )
+            self.graph_cache[int(center_pos)] = (subgraph_nodes, edge_index, center_local_idx, edge_weight)
+        log.info(
+            f"Cached {len(self.graph_cache)} subgraph topologies (with edge weights, scale={self.edge_weight_scale})."
+        )
 
         # Drop graph_features from dataset to free memory
         self.ds = self.ds.drop_vars(
@@ -515,15 +528,15 @@ class GraphWWMDataset(GDataset):
             torch_geometric.data.Data with attributes:
                 - x: (n_subgraph_nodes, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
-                - edge_attr: (n_edges, 1) Euclidean edge lengths
+                - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (shape depends on full_graph_target)
                 - center_idx: local index of center node in x
         """
-        subgraph_nodes, edge_index, center_local_idx, edge_attr = self.graph_cache[center_node_pos]
+        subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
         target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
         y = self._extract_targets(time_idx, target_nodes)
-        return GData(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y, center_idx=center_local_idx)
+        return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
 
     def __len__(self) -> int:
         """Return the total number of samples (center_nodes * time_steps)."""
@@ -578,6 +591,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         max_nodes: int = 1000,
         max_links: int = 10,
         full_graph_target: bool = False,
+        edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the sequence graph dataset.
 
@@ -599,6 +613,8 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             max_links: Maximum number of BFS hops from center node.
             full_graph_target: If True, target covers all subgraph nodes.
                 If False (default), target is center node only.
+            edge_weight_scale: Length scale (meters) for inverse-distance edge
+                weights (default: 1000.0).
         """
         self.seq_len = seq_len
 
@@ -618,6 +634,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             max_nodes=max_nodes,
             max_links=max_links,
             full_graph_target=full_graph_target,
+            edge_weight_scale=edge_weight_scale,
         )
 
         # Validate seq_len
@@ -691,13 +708,13 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             torch_geometric.data.Data with attributes:
                 - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
-                - edge_attr: (n_edges, 1) Euclidean edge lengths
+                - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (shape depends on full_graph_target)
                 - center_idx: local index of center node in x
         """
-        subgraph_nodes, edge_index, center_local_idx, edge_attr = self.graph_cache[center_node_pos]
+        subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_sequence_node_features(time_idx, subgraph_nodes)
         target_time = time_idx + self.seq_len - 1
         target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
         y = self._extract_targets(target_time, target_nodes)
-        return GData(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y, center_idx=center_local_idx)
+        return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)

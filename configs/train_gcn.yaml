@@ -53,6 +53,7 @@ data:
   max_nodes: 200
   max_links: 10000
   full_graph_target: true
+  edge_weight_scale: 1000.0
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator

@@ -106,9 +106,11 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         max_links=max_links,
     )
 
-    # Precompute edge lengths for every partition
-    edge_attrs = [
-        gu.compute_edge_lengths(edge_index, subgraph_nodes, node_x, node_y)
+    # Precompute edge weights for every partition
+    edge_weight_scale: float = float(cfg.data.edge_weight_scale)
+    log.info(f"Computing edge weights with scale={edge_weight_scale} ...")
+    edge_weights = [
+        gu.compute_edge_weights(edge_index, subgraph_nodes, node_x, node_y, scale=edge_weight_scale)
         for _, subgraph_nodes, edge_index, _ in partitions
     ]
 
@@ -195,7 +197,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
                     GData(
                         x=torch.from_numpy(X_t[subgraph_nodes].copy()),
                         edge_index=edge_index,
-                        edge_attr=edge_attrs[batch_start + i],
+                        edge_weight=edge_weights[batch_start + i],
                     )
                     for i, (_, subgraph_nodes, edge_index, _) in enumerate(partitions[batch_start:batch_end])
                 ]

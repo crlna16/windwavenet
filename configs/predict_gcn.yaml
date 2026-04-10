@@ -57,6 +57,7 @@ data:
   max_nodes: 200
   max_links: 10000
   full_graph_target: true
+  edge_weight_scale: 1000.0
 
 # Number of sub-graphs packed into one PyG Batch per forward pass.
 # Increase for better GPU utilisation; decrease if you run out of memory.

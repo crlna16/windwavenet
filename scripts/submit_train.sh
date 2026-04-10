@@ -6,6 +6,5 @@
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
-uv run src/train.py experiment=densenet_1h data.train_days="[1, 120]"
-#uv run src/train.py
-#uv run src/train.py model.backbone.input_dim=2 data.features='["windSpeedX", "windSpeedY"]'
+
+uv run src/train.py --config-name=train_gcn data.batch_size=256 "data.train_days=[1, 90]" data.node_idx_csv=src/data/node_selection/node_idx_closest_center_10000.csv test=false
