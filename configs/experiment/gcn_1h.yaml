@@ -27,13 +27,10 @@ data:
 model:
   target_bins:
     sigWaveHeight: [0.5, 1.0, 2.0]
+
   backbone:
-    _target_: src.model.backbones.GCNFullNet.GCNFullNet
-    input_dim: 7   # must match len(data.features)
-    output_dim: 1  # must match len(data.targets)
-    hidden_dim: 128
-    num_layers: 3
-    dropout: 0.1
+    input_dim: 7
+    output_dim: 1
 
 trainer:
   devices: 1
