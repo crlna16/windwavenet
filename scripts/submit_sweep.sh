@@ -3,7 +3,7 @@
 #SBATCH -p vader
 #SBATCH --mem=200G
 #SBATCH --gres=gpu:1
-#SBATCH --time=16:00:00
+#SBATCH --time=36:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
 #wandb agent wwm-emulator/simple-wwm-emulator/w5i9gsye
@@ -20,4 +20,4 @@
 #wandb agent wwm-emulator/simple-wwm-emulator/xpzhovm8
 #wandb agent wwm-emulator/wwm-emulator-hourly/r31hnrh0
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/wyhsaahk
-uv run wandb agent wwm-emulator/wwm-emulator-hourly/bd4b16dq
+uv run wandb agent wwm-emulator/wwm-emulator-hourly/jijm2aen
