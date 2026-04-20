@@ -14,6 +14,7 @@ task_name: "train_gcn_lstm"
 experiment_name: "default"
 train: True
 test: True
+predict: False
 ckpt_path: null
 seed: null
 

@@ -3,16 +3,20 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Full-domain prediction with a GCNFullNet model.
+"""Full-domain prediction with graph-based models (GCN, GCN-EPD, GCN-LSTM).
 
 The mesh is partitioned into non-overlapping (or minimally overlapping) sub-graphs
 via greedy set cover.  For each time step, each sub-graph is processed
-independently by the trained GCNFullNet and the per-node predictions are
+independently by the trained model and the per-node predictions are
 assembled into a full-domain array.  The output format matches predict.py.
+
+Supports both single-step backbones (GCNFullNet, GCNEncProcDec) and
+sequence backbones (GCLSTMNet) that require ``seq_len`` consecutive
+time steps as input.
 
 Usage example::
 
-    python src/predict_gcn.py \
+    python src/predict_gcn.py --config-name=predict_gcn \
         ckpt_path=<path/to/checkpoint.ckpt> \
         data.test_days=[335,365]
 """
@@ -31,6 +35,7 @@ from torch_geometric.data import Batch, Data as GData
 from src.data import dataset_utils as du
 from src.data import graph_utils as gu
 from src.utils.pylogger import RankedLogger
+from src.utils.instantiators import instantiate_loggers
 from src.utils.utils import print_config_tree, unscale_target_predictions
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
@@ -46,7 +51,11 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 def predict_gcn(cfg: DictConfig) -> xr.Dataset:
-    """Predict over the full mesh domain using a trained GCNFullNet model.
+    """Predict over the full mesh domain using a trained graph model.
+
+    Supports GCNFullNet, GCNEncProcDec, and GCLSTMNet backbones.
+    Sequence models (``data.seq_len > 1``) receive a window of consecutive
+    time steps; single-step models receive one time step at a time.
 
     Args:
         cfg: Hydra configuration.
@@ -170,7 +179,12 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     X_all = np.stack([ds[f].values for f in features], axis=-1).astype(np.float32)
     log.info(f"Feature array shape: {X_all.shape}")
 
-    # 5c. Number of sub-graphs packed into a single PyG Batch per forward pass.
+    # 5c. Sequence length for temporal models (GCLSTMNet).  Non-sequence
+    #     backbones (GCNFullNet, GCNEncProcDec) default to seq_len=1.
+    seq_len: int = int(cfg.data.get("seq_len", 1))
+    log.info(f"Sequence length: {seq_len}")
+
+    # 5d. Number of sub-graphs packed into a single PyG Batch per forward pass.
     #     Larger values give better GPU utilisation at the cost of more host memory.
     batch_size_graphs: int = int(cfg.get("batch_size_graphs", 32))
 
@@ -187,20 +201,39 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
 
     with torch.no_grad():
         for time_idx in range(n_time):
-            X_t = X_all[time_idx]  # (n_nodes, n_features) — view, no copy
+            # For sequence models, gather seq_len consecutive frames;
+            # for single-step models this is just X_all[time_idx].
+            if seq_len > 1:
+                t_start = max(0, time_idx - seq_len + 1)
+                X_window = X_all[t_start : time_idx + 1]  # (<=seq_len, n_nodes, n_feat)
+                # Pad with the earliest available frame if near the start
+                if X_window.shape[0] < seq_len:
+                    pad = np.repeat(X_window[:1], seq_len - X_window.shape[0], axis=0)
+                    X_window = np.concatenate([pad, X_window], axis=0)
+                # X_window: (seq_len, n_nodes, n_features)
+            else:
+                X_window = None
+
+            X_t = X_all[time_idx]  # (n_nodes, n_features)
 
             for batch_start in range(0, len(partitions), batch_size_graphs):
                 batch_end = min(batch_start + batch_size_graphs, len(partitions))
 
                 # Build a list of GData objects (on CPU) and collate into a single Batch
-                data_list = [
-                    GData(
-                        x=torch.from_numpy(X_t[subgraph_nodes].copy()),
-                        edge_index=edge_index,
-                        edge_weight=edge_weights[batch_start + i],
+                data_list = []
+                for i, (_, subgraph_nodes, edge_index, _) in enumerate(partitions[batch_start:batch_end]):
+                    if seq_len > 1:
+                        # (seq_len, n_sg_nodes, n_feat) -> (n_sg_nodes, seq_len, n_feat)
+                        x = torch.from_numpy(X_window[:, subgraph_nodes, :].transpose(1, 0, 2).copy())
+                    else:
+                        x = torch.from_numpy(X_t[subgraph_nodes].copy())
+                    data_list.append(
+                        GData(
+                            x=x,
+                            edge_index=edge_index,
+                            edge_weight=edge_weights[batch_start + i],
+                        )
                     )
-                    for i, (_, subgraph_nodes, edge_index, _) in enumerate(partitions[batch_start:batch_end])
-                ]
                 batch = Batch.from_data_list(data_list).to(device)
 
                 preds = model.forward(batch)  # (total_nodes_in_batch, n_targets)
@@ -220,7 +253,36 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     log.info("Inference complete.")
 
     # ------------------------------------------------------------------
-    # 6.  Post-process: unscale / delta-reconstruct
+    # 6.  Compute test metrics (optional, numpy-only — no extra GPU pass)
+    # ------------------------------------------------------------------
+    if cfg.get("test_metrics", False):
+        log.info("Computing test metrics from prediction buffer ...")
+        Y_all = np.stack([ds[t].values for t in targets], axis=-1).astype(np.float32)
+        # Y_all shape: (n_time, n_nodes, n_targets)  — same space as all_predictions
+
+        metrics: Dict[str, float] = {}
+        for target_idx, target_name in enumerate(targets):
+            pred = all_predictions[:, :, target_idx]
+            truth = Y_all[:, :, target_idx]
+            rmse = float(np.sqrt(np.mean((pred - truth) ** 2)))
+            mae = float(np.mean(np.abs(pred - truth)))
+            bias = float(np.mean(pred - truth))
+            metrics[f"test/rmse_{target_name}"] = rmse
+            metrics[f"test/mae_{target_name}"] = mae
+            metrics[f"test/bias_{target_name}"] = bias
+            log.info(f"  {target_name}:  RMSE={rmse:.6f}  MAE={mae:.6f}  bias={bias:.6f}")
+
+        # Log to wandb if a logger is configured
+        loggers = instantiate_loggers(cfg.get("logger"))
+        for lgr in loggers:
+            if hasattr(lgr, "log_metrics"):
+                lgr.log_metrics(metrics, step=0)
+            if hasattr(lgr, "finalize"):
+                lgr.finalize("success")
+        log.info("Test metrics logged.")
+
+    # ------------------------------------------------------------------
+    # 7.  Post-process: unscale / delta-reconstruct
     # ------------------------------------------------------------------
     data_vars: Dict[str, Any] = {}
 
@@ -253,7 +315,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             )
 
     # ------------------------------------------------------------------
-    # 7.  Build output xarray Dataset and save to NetCDF
+    # 8.  Build output xarray Dataset and save to NetCDF
     # ------------------------------------------------------------------
     output_target_names = [tn.replace("delta_", "") for tn in targets]
 
@@ -266,7 +328,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
         },
         attrs={
-            "description": f"GCN full-domain predictions for {', '.join(output_target_names)}",
+            "description": f"Graph model full-domain predictions for {', '.join(output_target_names)}",
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
             "n_partitions": len(partitions),

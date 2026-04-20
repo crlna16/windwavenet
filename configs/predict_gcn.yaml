@@ -19,6 +19,8 @@ ckpt_path: null
 
 seed: null
 
+test_metrics: false  # compute RMSE/MAE from prediction buffer and log to wandb
+
 ## ------------------------------------------------------------------
 ## Configuration for GCN full-domain prediction
 ##
