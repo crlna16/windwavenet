@@ -323,8 +323,7 @@ class GraphWWMDataset(GDataset):
     """Graph dataset built from the SCHISM mesh.
 
     Handles graph construction (adjacency, BFS subgraphs, caching) and provides
-    sample access. Set ``full_graph_target=True`` for targets at all subgraph
-    nodes; ``full_graph_target=False`` returns only the center node as the target.
+    sample access.
     """
 
     def __init__(
@@ -343,7 +342,6 @@ class GraphWWMDataset(GDataset):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
-        full_graph_target: bool = True,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the graph dataset.
@@ -369,8 +367,6 @@ class GraphWWMDataset(GDataset):
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
             max_links: Maximum number of BFS hops from center node (default: 10).
-            full_graph_target: If True (default), target covers all subgraph nodes.
-                If False, target is center node only.
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights.  An edge whose Euclidean length equals this value
                 receives weight 0.5 (default: 1000.0).
@@ -383,7 +379,6 @@ class GraphWWMDataset(GDataset):
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.preload_data = preload_data
-        self.full_graph_target = full_graph_target
         self.graph_features = [str(f) for f in graph_features]
         self.max_radius = max_radius
         self.max_nodes = max_nodes
@@ -477,11 +472,9 @@ class GraphWWMDataset(GDataset):
         # because PyG's Dataset.__init__ may trigger len() or other methods.
         GDataset.__init__(self)
 
-        target_mode = "all subgraph nodes" if self.full_graph_target else "center node only"
         log.info(
             f"GraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
-            f"{self._n_time} time steps, {self._total_samples} total samples, "
-            f"target: {target_mode}."
+            f"{self._n_time} time steps, {self._total_samples} total samples. "
         )
 
     def _extract_node_features(self, time_idx: int, subgraph_nodes: np.ndarray) -> torch.Tensor:
@@ -529,12 +522,12 @@ class GraphWWMDataset(GDataset):
                 - x: (n_subgraph_nodes, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
-                - y: target tensor (shape depends on full_graph_target)
+                - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
-        target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
+        target_nodes = subgraph_nodes
         y = self._extract_targets(time_idx, target_nodes)
         return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
 
@@ -569,8 +562,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
 
     Each node's features span ``seq_len`` consecutive time steps instead of a
     single time step, giving the model temporal context on every graph node.
-    Set ``full_graph_target=True`` for targets at all subgraph nodes;
-    default targets the center node only.
     """
 
     def __init__(
@@ -590,7 +581,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
-        full_graph_target: bool = False,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the sequence graph dataset.
@@ -611,8 +601,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
             max_links: Maximum number of BFS hops from center node.
-            full_graph_target: If True, target covers all subgraph nodes.
-                If False (default), target is center node only.
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights (default: 1000.0).
         """
@@ -633,7 +621,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             max_radius=max_radius,
             max_nodes=max_nodes,
             max_links=max_links,
-            full_graph_target=full_graph_target,
             edge_weight_scale=edge_weight_scale,
         )
 
@@ -647,11 +634,10 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
 
-        target_mode = "all subgraph nodes" if self.full_graph_target else "center node only"
         log.info(
             f"SequenceGraphWWMDataset initialized: {self.n_center_nodes} center nodes, "
             f"seq_len={self.seq_len}, {self._n_valid_times} valid times, "
-            f"{self._total_samples} total samples, target: {target_mode}."
+            f"{self._total_samples} total samples."
         )
 
     def _extract_sequence_node_features(self, time_start: int, subgraph_nodes: np.ndarray) -> torch.Tensor:
@@ -709,12 +695,12 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
                 - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
-                - y: target tensor (shape depends on full_graph_target)
+                - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_sequence_node_features(time_idx, subgraph_nodes)
         target_time = time_idx + self.seq_len - 1
-        target_nodes = subgraph_nodes if self.full_graph_target else center_node_pos
+        target_nodes = subgraph_nodes
         y = self._extract_targets(target_time, target_nodes)
         return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
