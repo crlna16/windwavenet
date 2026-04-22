@@ -24,22 +24,6 @@ from src.data import dataset_utils as du
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
-def unscale_target_predictions(
-    target_predictions: torch.Tensor,
-    target_name: str,
-    features: List[str],
-    scaling_params: dict | None,
-) -> torch.Tensor:
-    """Convert scaled target predictions back to physical units when needed."""
-    if not scaling_params or target_name not in features or target_name not in scaling_params:
-        return target_predictions
-
-    mean = scaling_params[target_name]["mean"]
-    std = scaling_params[target_name]["std"]
-    log.info(f"Reverting scaling for target '{target_name}' with mean={mean:.4f}, std={std:.4f}")
-    return target_predictions * std + mean
-
-
 def task_wrapper(task_func: Callable) -> Callable:
     """Optional decorator that controls the failure behavior when executing the task function.
 
@@ -254,51 +238,6 @@ def get_bin_mask(
         return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
 
 
-def extract_data_from_datamodule(datamodule, stage: str = "fit"):
-    """Extract numpy arrays from Lightning DataModule.
-
-    Args:
-        datamodule: Lightning DataModule
-        stage: Stage to setup ('fit', 'test', etc.)
-
-    Returns:
-        Tuple of (X_train, y_train, weights_train, X_val, y_val, weights_val, X_test, y_test, weights_test)
-    """
-    datamodule.setup(stage=stage)
-
-    # Extract training data
-    train_dataset = datamodule.ds_train
-    X_train = train_dataset.X.cpu().numpy()
-    y_train = train_dataset.y.cpu().numpy()
-    weights_train = train_dataset.weights.cpu().numpy() if train_dataset.weights is not None else None
-
-    # Extract validation data
-    val_dataset = datamodule.ds_val
-    X_val = val_dataset.X.cpu().numpy()
-    y_val = val_dataset.y.cpu().numpy()
-    weights_val = val_dataset.weights.cpu().numpy() if val_dataset.weights is not None else None
-
-    # Extract test data
-    test_dataset = datamodule.ds_test
-    X_test = test_dataset.X.cpu().numpy()
-    y_test = test_dataset.y.cpu().numpy()
-    weights_test = test_dataset.weights.cpu().numpy() if test_dataset.weights is not None else None
-
-    log.info(f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
-
-    return (
-        X_train,
-        y_train,
-        weights_train,
-        X_val,
-        y_val,
-        weights_val,
-        X_test,
-        y_test,
-        weights_test,
-    )
-
-
 def generate_predictions_ml(
     ml_model,
     datamodule,
@@ -312,84 +251,32 @@ def generate_predictions_ml(
         datamodule: Lightning DataModule
         target_names: List of target variable names
         model_target: Model target name for attributes
-        output_dir: Directory to save predictions
 
     Returns:
         xr.Dataset with predictions
     """
     log.info("Generating predictions on test set...")
 
-    # Get test dataset
     test_dataset = datamodule.ds_test
     X_test = test_dataset.X
 
-    # Generate predictions
     predictions = ml_model.predict(X_test)  # Shape: (n_samples, n_targets)
-    if len(predictions.shape) == 1:  # unsqueeze if single target
+    if len(predictions.shape) == 1:
         predictions = predictions[:, np.newaxis]
 
-    log.info("Retrieving metadata from source dataset")
-    ds = datamodule.ds_test.ds
+    ds = test_dataset.ds
+    n_time = ds.sizes["time"]
+    n_nodes = ds.sizes["nSCHISM_hgrid_node"]
+    predictions = predictions.reshape(n_time, n_nodes, len(target_names))
 
-    ds_dims = ds.sizes
-    log.info(f"Dataset dimensions: time={ds_dims['time']}, nSCHISM_hgrid_node={ds_dims['nSCHISM_hgrid_node']}")
-
-    log.info(f"Target names: {target_names}")
-
-    # Create xarray Dataset with predictions
-    data_vars = {}
-
-    for i, target_name in enumerate(target_names):
-        # Extract predictions for this target
-        target_predictions = predictions[:, i]
-
-        # Reshape to match spatial and temporal dimensions
-        predictions_reshaped = target_predictions.reshape(ds_dims["time"], ds_dims["nSCHISM_hgrid_node"])
-
-        # If this is a delta prediction, reconstruct the full values
-        if target_name.startswith("delta_"):
-            original_var = target_name.replace("delta_", "")
-            log.info(f"Reconstructing {original_var} from delta predictions")
-
-            # Note: ML models don't use scaling, so pass empty features and no scaling_params
-            reconstructed, ds = du.reconstruct_from_delta(
-                delta_predictions=predictions_reshaped,
-                dataset=ds,
-                target_name=target_name,
-                features=[],  # No scaling in ML pipeline
-                scaling_params=None,
-            )
-
-            # Store both the reconstructed values and the delta predictions
-            data_vars[original_var] = (
-                ["time", "nSCHISM_hgrid_node"],
-                reconstructed,
-            )
-            data_vars[target_name] = (
-                ["time", "nSCHISM_hgrid_node"],
-                predictions_reshaped,
-            )
-        else:
-            # Direct prediction of the target variable
-            data_vars[target_name] = (
-                ["time", "nSCHISM_hgrid_node"],
-                predictions_reshaped,
-            )
-
-    otn = [tn.replace("delta_", "") for tn in target_names]
-
-    ds_pred = xr.Dataset(
-        data_vars,
-        coords={
-            "time": ds.time,
-            "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
-            "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
-            "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
-        },
-        attrs={
-            "description": f"Predictions for {', '.join(otn)}",
-            "model": model_target,
-        },
+    ds_pred = du.build_prediction_dataset(
+        predictions=predictions,
+        target_names=target_names,
+        ds=ds,
+        features=[],
+        scaling_params=None,
+        time_coords=ds.time,
+        extra_attrs={"model": model_target},
     )
 
     return ds_pred

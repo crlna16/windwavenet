@@ -17,7 +17,7 @@ import xarray as xr
 
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
-from src.utils.utils import log_hyperparameters, print_config_tree, unscale_target_predictions
+from src.utils.utils import log_hyperparameters, print_config_tree
 from src.data import dataset_utils as du
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -115,71 +115,21 @@ def predict(cfg: DictConfig) -> xr.Dataset:
 
     target_names = config_targets
 
-    # Create xarray Dataset with predictions
-    data_vars = {}
+    # Reshape predictions to (n_time, n_nodes, n_targets) numpy array
+    predictions_np = predictions.cpu().numpy().reshape(pred_n_time, n_nodes, len(target_names))
 
-    for i, target_name in enumerate(target_names):
-        # Extract predictions for this target
-        target_predictions = predictions[:, i]
+    # For sequence datasets, slice the source dataset to matching time range
+    if is_sequence_dataset:
+        ds = ds.isel(time=pred_time_slice)
 
-        # Reshape to match spatial and temporal dimensions
-        # For sequence datasets, pred_n_time < ds.sizes["time"]
-        predictions_reshaped = target_predictions.reshape(pred_n_time, n_nodes)
-
-        # If this is a delta prediction, reconstruct the full values
-        if target_name.startswith("delta_"):
-            original_var = target_name.replace("delta_", "")
-            log.info(f"Reconstructing {original_var} from delta predictions")
-
-            # For sequence datasets, slice the source dataset to matching time range
-            ds_for_reconstruction = ds.isel(time=pred_time_slice) if is_sequence_dataset else ds
-
-            delta_predictions = predictions_reshaped.cpu().numpy()
-            reconstructed, ds_for_reconstruction = du.reconstruct_from_delta(
-                delta_predictions=delta_predictions,
-                dataset=ds_for_reconstruction,
-                target_name=target_name,
-                features=features,
-                scaling_params=scaling_params,
-            )
-
-            # Store both the reconstructed values and the delta predictions
-            data_vars[original_var] = (
-                ["time", "nSCHISM_hgrid_node"],
-                reconstructed,
-            )
-            data_vars[target_name] = (
-                ["time", "nSCHISM_hgrid_node"],
-                delta_predictions,
-            )
-        else:
-            # Direct prediction of the target variable
-            predictions_reshaped = unscale_target_predictions(
-                predictions_reshaped,
-                target_name,
-                features,
-                scaling_params,
-            )
-            data_vars[target_name] = (
-                ["time", "nSCHISM_hgrid_node"],
-                predictions_reshaped.cpu().numpy(),
-            )
-
-    otn = [tn.replace("delta_", "") for tn in target_names]
-
-    # For sequence datasets, use sliced time coordinates
-    pred_time_coords = ds.time.isel(time=pred_time_slice)
-
-    ds_pred = xr.Dataset(
-        data_vars,
-        coords={
-            "time": pred_time_coords,
-            "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
-            "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
-            "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
-        },
-        attrs={
-            "description": f"Predictions for {', '.join(otn)}",
+    ds_pred = du.build_prediction_dataset(
+        predictions=predictions_np,
+        target_names=target_names,
+        ds=ds,
+        features=features,
+        scaling_params=scaling_params,
+        time_coords=ds.time,
+        extra_attrs={
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
             "seq_len": seq_len,

@@ -5,8 +5,9 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import numpy as np
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
 
@@ -187,6 +188,47 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         else:
             raise ValueError(f"Unknown stage: {stage}")
+
+    def to_numpy(
+        self, stage: str = "fit"
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        Optional[np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        Optional[np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        Optional[np.ndarray],
+    ]:
+        """Extract train / val / test data as numpy arrays.
+
+        Calls :meth:`setup` if datasets have not been created yet.
+
+        Args:
+            stage: Stage to set up (``"fit"`` creates train, val, and test).
+
+        Returns:
+            ``(X_train, y_train, w_train, X_val, y_val, w_val, X_test, y_test, w_test)``
+            where ``w_*`` is ``None`` when no sample weights are available.
+        """
+        if self.ds_train is None:
+            self.setup(stage=stage)
+
+        def _extract(ds):
+            X = ds.X.cpu().numpy()
+            y = ds.y.cpu().numpy()
+            w = ds.weights.cpu().numpy() if ds.weights is not None else None
+            return X, y, w
+
+        X_train, y_train, w_train = _extract(self.ds_train)
+        X_val, y_val, w_val = _extract(self.ds_val)
+        X_test, y_test, w_test = _extract(self.ds_test)
+
+        log.info(f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+
+        return X_train, y_train, w_train, X_val, y_val, w_val, X_test, y_test, w_test
 
     def _make_dataloader(self, dataset, batch_size: int, shuffle: bool, worker_init_fn=None):
         """Create the appropriate DataLoader for the given dataset.

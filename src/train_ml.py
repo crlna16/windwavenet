@@ -19,7 +19,6 @@ from src.utils.pylogger import RankedLogger
 from src.utils.utils import (
     print_config_tree,
     task_wrapper,
-    extract_data_from_datamodule,
     generate_predictions_ml,
 )
 
@@ -66,7 +65,7 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         X_test,
         y_test,
         weights_test,
-    ) = extract_data_from_datamodule(datamodule, stage="fit")
+    ) = datamodule.to_numpy(stage="fit")
 
     if cfg.logger:
         log.info("Initializing WandB...")
