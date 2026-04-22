@@ -78,8 +78,6 @@ class GCLSTMNet(nn.Module):
     transforms inside the LSTM gates.  This tightly couples spatial message
     passing with temporal gating at every timestep, unlike
     ``GraphConvLSTMNet`` which runs GCN and LSTM sequentially.
-
-    Designed for ``SequenceGraphWWMDataset`` with ``full_graph_target=True``.
     """
 
     def __init__(

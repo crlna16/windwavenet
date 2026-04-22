@@ -55,7 +55,6 @@ data:
   max_radius: 20000.0
   max_nodes: 1000
   max_links: 10000
-  full_graph_target: true
   edge_weight_scale: 1000.0
 
 # Number of sub-graphs packed into one PyG Batch per forward pass.

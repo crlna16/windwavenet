@@ -41,7 +41,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
-        full_graph_target: bool = True,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         self.seq_len = seq_len
@@ -49,7 +48,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
         self.max_radius = max_radius
         self.max_nodes = max_nodes
         self.max_links = max_links
-        self.full_graph_target = full_graph_target
         self.edge_weight_scale = edge_weight_scale
 
         super().__init__(
@@ -96,6 +94,5 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
             max_radius=self.max_radius,
             max_nodes=self.max_nodes,
             max_links=self.max_links,
-            full_graph_target=self.full_graph_target,
             edge_weight_scale=self.edge_weight_scale,
         )
