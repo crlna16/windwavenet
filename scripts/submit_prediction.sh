@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ka1176
 #SBATCH -p vader
-#SBATCH --mem=100G
+#SBATCH --mem=200G
 #SBATCH --gres=gpu:1
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
@@ -29,4 +29,12 @@ export HYDRA_FULL_ERROR=1
 
 #uv run src/predict_gcn.py --config-name=predict_gcn_epd data.batch_size=256 data.max_links=10000000 data.max_nodes=1000 data.max_radius=200000. model.backbone.decoder_layers=2 model.backbone.dropout=0.1 model.backbone.encoder_layers=2 model.backbone.hidden_dim=32 model.backbone.num_mp_layers=10 model.backbone.use_residual=True experiment=gcn_1h data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml  data.edge_weight_scale=10000 'ckpt_path="logs/train_gcn_epd/gcn_1h/runs/2026-04-13_12-44-19/wwm-emulator-hourly/ky6nafyr/checkpoints/epoch=6-step=148288.ckpt"' logger.wandb.id="ky6nafyr" test_metrics=true
 
-uv run src/predict_gcn.py --config-name=predict_gcn_lstm data.seq_len=3 data.batch_size=256 data.max_links=10000000 data.max_nodes=1000 data.max_radius=200000. experiment=gcn_1h data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml test_metrics=true logger.wandb.id="gva36ir9" 'ckpt_path="logs/train_gcn_lstm/gcn_1h/runs/2026-04-14_11-12-28/wwm-emulator-hourly/gva36ir9/checkpoints/epoch=9-step=211640.ckpt"'
+#uv run src/predict_gcn.py --config-name=predict_gcn_lstm data.seq_len=3 data.batch_size=256 data.max_links=10000000 data.max_nodes=1000 data.max_radius=200000. experiment=gcn_1h data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml test_metrics=true logger.wandb.id="gva36ir9" 'ckpt_path="logs/train_gcn_lstm/gcn_1h/runs/2026-04-14_11-12-28/wwm-emulator-hourly/gva36ir9/checkpoints/epoch=9-step=211640.ckpt"'
+
+#uv run src/predict_gcn.py --config-name=predict_gcn experiment=gcn_1h 'ckpt_path="logs/train_gcn/gcn_1h/runs/2026-04-16_09-41-#08/wwm-emulator-hourly/iuq1j3gc/checkpoints/epoch=9-step=13557250.ckpt"' test_metrics=true
+
+#uv run src/predict_gcn.py --config-name=predict_gcn experiment=gcn_1h test_metrics=true 'ckpt_path="logs/train_gcn/gcn_1h/runs/2026-04-20_20-03-17/wwm-emulator-hourly/kohjbsn7/checkpoints/epoch=28-step=614336.ckpt"' logger.wandb.id="kohjbsn7"
+
+#uv run src/predict_gcn.py --config-name=predict_gcn_epd data.edge_weight_scale=9871.563115460658 model.backbone.decoder_layers=7 model.backbone.dropout=0.031050583992663906 model.backbone.encoder_layers=4 model.backbone.hidden_dim=64 model.backbone.num_mp_layers=7 model.backbone.use_residual=True experiment=gcn_1h test_metrics=true logger.wandb.id="rtp6k3jf" 'ckpt_path="logs/train_gcn_epd/gcn_1h/runs/2026-04-21_15-26-38/wwm-emulator-hourly/rtp6k3jf/checkpoints/epoch=3-step=84736.ckpt"'
+
+uv run src/predict_gcn.py --config-name=predict_gcn_epd  data.edge_weight_scale=8534.332166734499 model.backbone.decoder_layers=3 model.backbone.dropout=0.2803011615690626 model.backbone.encoder_layers=3 model.backbone.hidden_dim=512 model.backbone.num_mp_layers=7 model.backbone.use_residual=True experiment=gcn_1h test_metrics=true data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml logger.wandb.id="mfhsjn04" 'ckpt_path="logs/train_gcn_epd/gcn_1h/runs/2026-04-21_22-38-27/wwm-emulator-hourly/mfhsjn04/checkpoints/epoch=3-step=84736.ckpt"'
