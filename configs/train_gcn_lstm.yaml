@@ -25,7 +25,6 @@ seed: null
 ## aggregates spatial information, then a per-node LSTM processes
 ## the temporal sequence of spatially-enriched embeddings.
 ## Requires SequenceGraphWWMDataModule (graph + seq_len).
-## Only supports full_graph_target=true.
 ## -----------------------------------------------
 data:
   _target_: src.data.SequenceGraphWWMDataModule.SequenceGraphWWMDataModule
@@ -55,7 +54,6 @@ data:
   max_radius: 20000.0
   max_nodes: 1000
   max_links: 10000
-  full_graph_target: true
   edge_weight_scale: 1000.0
 
 model:
@@ -63,6 +61,7 @@ model:
   target_names: ${data.targets}
   loss_weights: null
   target_bins: null
+  focal_gamma: null
 
   backbone:
     _target_: src.model.backbones.GCLSTMNet.GCLSTMNet

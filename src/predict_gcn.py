@@ -22,7 +22,7 @@ Usage example::
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import hydra
 import numpy as np
@@ -36,7 +36,7 @@ from src.data import dataset_utils as du
 from src.data import graph_utils as gu
 from src.utils.pylogger import RankedLogger
 from src.utils.instantiators import instantiate_loggers
-from src.utils.utils import print_config_tree, unscale_target_predictions
+from src.utils.utils import print_config_tree
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -282,53 +282,16 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         log.info("Test metrics logged.")
 
     # ------------------------------------------------------------------
-    # 7.  Post-process: unscale / delta-reconstruct
+    # 7.  Post-process and build output xarray Dataset
     # ------------------------------------------------------------------
-    data_vars: Dict[str, Any] = {}
-
-    for target_idx, target_name in enumerate(targets):
-        target_preds = torch.from_numpy(all_predictions[:, :, target_idx])  # (n_time, n_nodes)
-
-        if target_name.startswith("delta_"):
-            original_var = target_name.replace("delta_", "")
-            log.info(f"Reconstructing {original_var} from delta predictions")
-            delta_np = target_preds.numpy()
-            reconstructed, ds = du.reconstruct_from_delta(
-                delta_predictions=delta_np,
-                dataset=ds,
-                target_name=target_name,
-                features=features,
-                scaling_params=scaling_params,
-            )
-            data_vars[original_var] = (["time", "nSCHISM_hgrid_node"], reconstructed)
-            data_vars[target_name] = (["time", "nSCHISM_hgrid_node"], delta_np)
-        else:
-            target_preds = unscale_target_predictions(
-                target_preds,
-                target_name,
-                features,
-                scaling_params,
-            )
-            data_vars[target_name] = (
-                ["time", "nSCHISM_hgrid_node"],
-                target_preds.numpy(),
-            )
-
-    # ------------------------------------------------------------------
-    # 8.  Build output xarray Dataset and save to NetCDF
-    # ------------------------------------------------------------------
-    output_target_names = [tn.replace("delta_", "") for tn in targets]
-
-    ds_pred = xr.Dataset(
-        data_vars,
-        coords={
-            "time": ds.time,
-            "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
-            "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
-            "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
-        },
-        attrs={
-            "description": f"Graph model full-domain predictions for {', '.join(output_target_names)}",
+    ds_pred = du.build_prediction_dataset(
+        predictions=all_predictions,
+        target_names=targets,
+        ds=ds,
+        features=features,
+        scaling_params=scaling_params,
+        time_coords=ds.time,
+        extra_attrs={
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
             "n_partitions": len(partitions),

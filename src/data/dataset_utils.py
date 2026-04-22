@@ -498,3 +498,111 @@ def reconstruct_from_delta(
     reconstructed = prev_values + delta_predictions
 
     return reconstructed, dataset
+
+
+# ---------------------------------------------------------------------------
+# Prediction post-processing
+# ---------------------------------------------------------------------------
+
+
+def unscale_predictions(
+    predictions: np.ndarray,
+    target_name: str,
+    features: List[str],
+    scaling_params: Optional[Dict[str, Dict[str, float]]],
+) -> np.ndarray:
+    """Revert z-score scaling on a numpy prediction array.
+
+    Only applies if *target_name* appears in both *features* and *scaling_params*.
+
+    Args:
+        predictions: Array of predictions (any shape).
+        target_name: Name of the target variable.
+        features: Feature names used by the model.
+        scaling_params: ``{var: {mean: …, std: …}}`` or ``None``.
+
+    Returns:
+        Un-scaled predictions (same shape as input).
+    """
+    if not scaling_params or target_name not in features or target_name not in scaling_params:
+        return predictions
+
+    mean = scaling_params[target_name]["mean"]
+    std = scaling_params[target_name]["std"]
+    log.info(f"Reverting scaling for target '{target_name}' with mean={mean:.4f}, std={std:.4f}")
+    return predictions * std + mean
+
+
+def build_prediction_dataset(
+    predictions: np.ndarray,
+    target_names: List[str],
+    ds: xr.Dataset,
+    features: List[str],
+    scaling_params: Optional[Dict[str, Dict[str, float]]],
+    time_coords: xr.DataArray,
+    extra_attrs: Optional[Dict[str, object]] = None,
+) -> xr.Dataset:
+    """Build an xarray Dataset from raw model predictions.
+
+    Handles delta-target reconstruction, un-scaling, and coordinate
+    attachment.  This is the single source of truth for converting a
+    ``(n_time, n_nodes, n_targets)`` prediction buffer into the
+    standard NetCDF output format.
+
+    Args:
+        predictions: Array of shape ``(n_time, n_nodes, n_targets)``.
+        target_names: Ordered list of target variable names matching
+            the last axis of *predictions*.
+        ds: Source xarray Dataset (supplies coordinates and ``prev_*``
+            variables for delta reconstruction).
+        features: Feature names used by the model.
+        scaling_params: Scaling parameters, or ``None``.
+        time_coords: Time coordinate for the output (may be a slice of
+            ``ds.time`` for sequence models).
+        extra_attrs: Additional global attributes for the output dataset.
+
+    Returns:
+        xr.Dataset with standard dimensions ``(time, nSCHISM_hgrid_node)``
+        and coordinates ``nSCHISM_hgrid_node_x`` / ``nSCHISM_hgrid_node_y``.
+    """
+    data_vars: Dict[str, object] = {}
+
+    for i, target_name in enumerate(target_names):
+        target_preds = predictions[:, :, i]  # (n_time, n_nodes)
+
+        if target_name.startswith("delta_"):
+            original_var = target_name.replace("delta_", "")
+            log.info(f"Reconstructing {original_var} from delta predictions")
+            reconstructed, ds = reconstruct_from_delta(
+                delta_predictions=target_preds,
+                dataset=ds,
+                target_name=target_name,
+                features=features,
+                scaling_params=scaling_params,
+            )
+            data_vars[original_var] = (["time", "nSCHISM_hgrid_node"], reconstructed)
+            data_vars[target_name] = (["time", "nSCHISM_hgrid_node"], target_preds)
+        else:
+            target_preds = unscale_predictions(target_preds, target_name, features, scaling_params)
+            data_vars[target_name] = (["time", "nSCHISM_hgrid_node"], target_preds)
+
+    output_target_names = [tn.replace("delta_", "") for tn in target_names]
+
+    attrs: Dict[str, object] = {
+        "description": f"Predictions for {', '.join(output_target_names)}",
+    }
+    if extra_attrs:
+        attrs.update(extra_attrs)
+
+    ds_pred = xr.Dataset(
+        data_vars,
+        coords={
+            "time": time_coords,
+            "nSCHISM_hgrid_node": ds.nSCHISM_hgrid_node,
+            "nSCHISM_hgrid_node_x": ds.SCHISM_hgrid_node_x,
+            "nSCHISM_hgrid_node_y": ds.SCHISM_hgrid_node_y,
+        },
+        attrs=attrs,
+    )
+
+    return ds_pred

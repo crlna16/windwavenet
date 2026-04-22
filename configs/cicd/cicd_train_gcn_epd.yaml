@@ -46,7 +46,6 @@ data:
   preload_data: true
   sample_weight_strategy: null
   sample_weight_power: 1.0
-  full_graph_target: true
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator

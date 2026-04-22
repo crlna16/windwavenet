@@ -22,7 +22,6 @@ data:
   targets:
     - sigWaveHeight
   sample_weight_strategy: z_score
-  full_graph_target: true
 
 model:
   target_bins:
