@@ -63,6 +63,7 @@ model:
   target_names: ${data.targets}
   loss_weights: null
   target_bins: null
+  focal_gamma: null
 
   backbone:
     _target_: src.model.backbones.GCLSTMNet.GCLSTMNet

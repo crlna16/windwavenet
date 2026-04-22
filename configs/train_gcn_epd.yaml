@@ -19,11 +19,7 @@ seed: null
 
 ## ----------------------------------
 ## Configuration for GCN training
-## ----------------------------------
-## By default, predicts center node only (GCNCenterNet).
-## For full-graph prediction, override on the CLI:
-##   data.full_graph_target=true
-##   model.backbone._target_=src.model.backbones.GCNFullNet.GCNFullNet
+## Used EPD model
 ## ----------------------------------
 data:
   _target_: src.data.GraphWWMDataModule.GraphWWMDataModule
@@ -50,8 +46,8 @@ data:
   subsample_prob: null
   preload_data: true
   max_radius: 20000.0
-  max_nodes: 200
-  max_links: 10000
+  max_nodes: 1000
+  max_links: 1000000
   full_graph_target: true
   edge_weight_scale: 1000.0
 
@@ -60,6 +56,7 @@ model:
   target_names: ${data.targets}
   loss_weights: null
   target_bins: null
+  focal_gamma: null
 
   backbone:
     _target_: src.model.backbones.GCNEncProcDec.GCNEncProcDec
@@ -116,6 +113,7 @@ callbacks:
     _target_: lightning.pytorch.callbacks.EarlyStopping
     monitor: val/loss
     patience: 5
+    min_delta: 0.0
     mode: "min"
 
   model_summary:
