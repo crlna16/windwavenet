@@ -41,4 +41,6 @@ export HYDRA_FULL_ERROR=1
 
 #uv run src/predict.py --config-name=predict_lstm model.backbone.bidirectional=True model.backbone.dropout=0.1 model.backbone.hidden_dim=256 model.backbone.num_layers=4 experiment=lstm_1h data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml data.seq_len=48 test_metrics=true logger.wandb.id="ct5xl531" 'ckpt_path="logs/train_lstm/lstm_1h/runs/2026-03-25_12-29-00/wwm-emulator-hourly/ct5xl531/checkpoints/epoch=16-step=88060.ckpt"'
 
-uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center experiment=gcn_1h test_metrics=true logger.wandb.id="9377mnmw" 'ckpt_path="logs/train_gcn_lstm_center/gcn_1h/runs/2026-04-22_16-39-55/wwm-emulator-hourly/9377mnmw/checkpoints/epoch=16-step=356235.ckpt"'
+#uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center experiment=gcn_1h test_metrics=true logger.wandb.id="9377mnmw" 'ckpt_path="logs/train_gcn_lstm_center/gcn_1h/runs/2026-04-22_16-39-55/wwm-emulator-hourly/9377mnmw/checkpoints/epoch=16-step=356235.ckpt"'
+
+uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center_vn experiment=gcn_1h data.seq_len=3 test_metrics=true logger.wandb.id="blvne490" 'ckpt_path="outputs/2026-04-23/14-13-04/wwm-emulator-hourly/blvne490/checkpoints/epoch=26-step=571428.ckpt"'

@@ -16,4 +16,4 @@
 
 #uv run src/train.py --config-name=train_gcn experiment=gcn_1h data.batch_size=256 test=false predict=false  "data.train_days=[1, 90]" data.node_idx_csv=src/data/node_selection/node_idx_closest_center_10000.csv model.focal_gamma=1.0
 
-uv run src/train.py --config-name=train_gcn_lstm_center_vn data.batch_size=256 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_10000.csv  data.train_days="[1, 90]" experiment=gcn_1h
+uv run src/train.py --config-name=train_gcn_lstm_center_vn data.batch_size=256 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_10000.csv  data.train_days="[1, 90]" experiment=gcn_1h data.seq_len=3 model.focal_gamma=1.0 test=false predict=false
