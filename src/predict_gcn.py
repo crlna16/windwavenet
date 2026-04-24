@@ -34,6 +34,7 @@ from torch_geometric.data import Batch, Data as GData
 
 from src.data import dataset_utils as du
 from src.data import graph_utils as gu
+from src.data.WWMDatasets import CenterHistoryData
 from src.utils.pylogger import RankedLogger
 from src.utils.instantiators import instantiate_loggers
 from src.utils.utils import print_config_tree
@@ -188,6 +189,13 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     #     Larger values give better GPU utilisation at the cost of more host memory.
     batch_size_graphs: int = int(cfg.get("batch_size_graphs", 32))
 
+    # 5e. Center-history mode: only the center node of each partition receives
+    #     temporal history; all other nodes get current-time features only.
+    #     Used with the CenterLSTMGCNNet backbone.
+    center_history_only: bool = bool(cfg.data.get("center_history_only", False))
+    if center_history_only:
+        log.info("Center-history mode enabled: only center nodes receive temporal sequences.")
+
     # ------------------------------------------------------------------
     # 6.  Run inference: iterate time steps, process partitions in batches
     # ------------------------------------------------------------------
@@ -221,19 +229,43 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
 
                 # Build a list of GData objects (on CPU) and collate into a single Batch
                 data_list = []
-                for i, (_, subgraph_nodes, edge_index, _) in enumerate(partitions[batch_start:batch_end]):
-                    if seq_len > 1:
+                for i, (_, subgraph_nodes, edge_index, center_local_idx) in enumerate(
+                    partitions[batch_start:batch_end]
+                ):
+                    if center_history_only and seq_len > 1:
+                        # Current-time features for all nodes (2-D)
+                        x = torch.from_numpy(X_t[subgraph_nodes].copy())
+                        # Temporal sequence for center node only
+                        center_global = subgraph_nodes[center_local_idx]
+                        x_center_seq = torch.from_numpy(X_window[:, center_global, :].copy())  # (seq_len, n_features)
+                        data_list.append(
+                            CenterHistoryData(
+                                x=x,
+                                x_center_seq=x_center_seq,
+                                edge_index=edge_index,
+                                edge_weight=edge_weights[batch_start + i],
+                                center_idx=center_local_idx,
+                            )
+                        )
+                    elif seq_len > 1:
                         # (seq_len, n_sg_nodes, n_feat) -> (n_sg_nodes, seq_len, n_feat)
                         x = torch.from_numpy(X_window[:, subgraph_nodes, :].transpose(1, 0, 2).copy())
+                        data_list.append(
+                            GData(
+                                x=x,
+                                edge_index=edge_index,
+                                edge_weight=edge_weights[batch_start + i],
+                            )
+                        )
                     else:
                         x = torch.from_numpy(X_t[subgraph_nodes].copy())
-                    data_list.append(
-                        GData(
-                            x=x,
-                            edge_index=edge_index,
-                            edge_weight=edge_weights[batch_start + i],
+                        data_list.append(
+                            GData(
+                                x=x,
+                                edge_index=edge_index,
+                                edge_weight=edge_weights[batch_start + i],
+                            )
                         )
-                    )
                 batch = Batch.from_data_list(data_list).to(device)
 
                 preds = model.forward(batch)  # (total_nodes_in_batch, n_targets)

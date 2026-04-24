@@ -704,3 +704,72 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         target_nodes = subgraph_nodes
         y = self._extract_targets(target_time, target_nodes)
         return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
+
+
+class CenterHistoryData(GData):
+    """PyG Data subclass with correct batching for center-only temporal features.
+
+    ``x_center_seq`` is a *graph-level* attribute of shape
+    ``(seq_len, n_features)`` for a single graph.  When batched via
+    ``Batch.from_data_list``, it should stack along a **new** batch
+    dimension (like ``y_global``) instead of being concatenated along
+    the node dimension.  Returning ``None`` from ``__cat_dim__``
+    achieves exactly that, producing shape ``(batch_size, seq_len, n_features)``.
+    """
+
+    def __cat_dim__(self, key: str, value, *args, **kwargs):
+        if key == "x_center_seq":
+            return None  # stack along a new batch dimension
+        return super().__cat_dim__(key, value, *args, **kwargs)
+
+
+class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
+    """Graph dataset where only the center node carries temporal history.
+
+    Non-center nodes receive current-time features (2-D), while the center
+    node's history is provided as a separate ``x_center_seq`` attribute.
+    This is designed for the ``CenterLSTMGCNNet`` backbone which processes
+    center history with an LSTM and current features with a GCN.
+    """
+
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> CenterHistoryData:
+        """Construct a center-history graph sample.
+
+        Args:
+            time_idx: First time index of the feature sequence (0-indexed).
+            center_node_pos: 0-indexed positional index of the center node.
+
+        Returns:
+            CenterHistoryData with attributes:
+                - x: (n_subgraph_nodes, n_features) current-time node features
+                - x_center_seq: (seq_len, n_features) center node temporal history
+                - edge_index: (2, n_edges) edge index tensor
+                - edge_weight: (n_edges,) inverse-distance edge weights
+                - y: (n_subgraph_nodes, n_targets) targets at last time step
+                - center_idx: local index of center node in x
+        """
+        subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
+
+        # Current-time features for ALL nodes (at the last time step of the window)
+        present_time = time_idx + self.seq_len - 1
+        x = self._extract_node_features(present_time, subgraph_nodes)
+
+        # Temporal sequence for the CENTER node only
+        center_global_idx = subgraph_nodes[center_local_idx]
+        time_indices = list(range(time_idx, time_idx + self.seq_len))
+        sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=center_global_idx)
+        x_da = sample[self.features].to_dataarray(dim="variable")
+        # x_da shape: (variable, time) — single node
+        x_center_seq = torch.from_numpy(x_da.values.T.copy()).float()  # (seq_len, n_features)
+
+        # Targets at the last time step for all subgraph nodes
+        y = self._extract_targets(present_time, subgraph_nodes)
+
+        return CenterHistoryData(
+            x=x,
+            x_center_seq=x_center_seq,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            y=y,
+            center_idx=center_local_idx,
+        )

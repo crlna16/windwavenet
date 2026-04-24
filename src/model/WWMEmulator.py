@@ -84,6 +84,7 @@ class WWMEmulator(L.LightningModule):
 
         # Track best validation loss
         self.best_val_loss = float("inf")
+        self.best_val_rmse = {name: float("inf") for name in target_names}
 
         # Per-variable RMSE metrics
         self.train_rmse = nn.ModuleDict({name: MeanSquaredError(squared=False) for name in target_names})
@@ -267,6 +268,14 @@ class WWMEmulator(L.LightningModule):
 
             # Log the best validation loss
             self.log("val/best_loss", self.best_val_loss, on_epoch=True, prog_bar=True)
+
+        for name in self.target_names:
+            val_rmse = self.trainer.callback_metrics.get(f"val/rmse_{name}")
+            if val_rmse is not None:
+                if val_rmse < self.best_val_rmse[name]:
+                    self.best_val_rmse[name] = val_rmse.item()
+
+                self.log(f"val/best_rmse_{name}", self.best_val_rmse[name], on_epoch=True, prog_bar=True)
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data.
