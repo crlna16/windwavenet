@@ -37,7 +37,7 @@ from src.data import graph_utils as gu
 from src.data.WWMDatasets import CenterHistoryData
 from src.utils.pylogger import RankedLogger
 from src.utils.instantiators import instantiate_loggers
-from src.utils.utils import print_config_tree
+from src.utils.utils import get_bin_mask, print_config_tree
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -303,6 +303,28 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             metrics[f"test/mae_{target_name}"] = mae
             metrics[f"test/bias_{target_name}"] = bias
             log.info(f"  {target_name}:  RMSE={rmse:.6f}  MAE={mae:.6f}  bias={bias:.6f}")
+
+        # Per-bin RMSE (if target_bins are configured)
+        target_bins = cfg.model.get("target_bins") or {}
+        for target_idx, target_name in enumerate(targets):
+            if target_name not in target_bins:
+                continue
+            bins = list(target_bins[target_name])
+            pred = all_predictions[:, :, target_idx].ravel()
+            truth = Y_all[:, :, target_idx].ravel()
+            for bin_idx in range(len(bins) + 1):
+                mask = get_bin_mask(truth, bins, bin_idx)
+                if mask.sum() == 0:
+                    continue
+                if bin_idx == 0:
+                    bin_label = f"<{bins[0]}"
+                elif bin_idx == len(bins):
+                    bin_label = f">={bins[-1]}"
+                else:
+                    bin_label = f"[{bins[bin_idx - 1]},{bins[bin_idx]})"
+                rmse_bin = float(np.sqrt(np.mean((pred[mask] - truth[mask]) ** 2)))
+                metrics[f"test/rmse_{target_name}_{bin_label}"] = rmse_bin
+                log.info(f"  {target_name} {bin_label}:  RMSE={rmse_bin:.6f}  (n={int(mask.sum())})")
 
         # Log to wandb if a logger is configured
         loggers = instantiate_loggers(cfg.get("logger"))
