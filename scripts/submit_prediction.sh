@@ -43,4 +43,8 @@ export HYDRA_FULL_ERROR=1
 
 #uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center experiment=gcn_1h test_metrics=true logger.wandb.id="9377mnmw" 'ckpt_path="logs/train_gcn_lstm_center/gcn_1h/runs/2026-04-22_16-39-55/wwm-emulator-hourly/9377mnmw/checkpoints/epoch=16-step=356235.ckpt"'
 
-uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center_vn experiment=gcn_1h data.seq_len=3 test_metrics=true logger.wandb.id="blvne490" 'ckpt_path="outputs/2026-04-23/14-13-04/wwm-emulator-hourly/blvne490/checkpoints/epoch=26-step=571428.ckpt"'
+#uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center_vn experiment=gcn_1h data.seq_len=3 test_metrics=true logger.wandb.id="blvne490" 'ckpt_path="outputs/2026-04-23/14-13-04/wwm-emulator-hourly/blvne490/checkpoints/epoch=26-step=571428.ckpt"'
+
+#uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center_vn data.edge_weight_scale=7500.0 model.backbone.hidden_dim=512 model.backbone.lstm_hidden_dim=64 model.backbone.num_gcn_layers=4 model.backbone.num_lstm_layers=3 test_metrics=true data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml data.seq_len=3 logger.wandb.id="nppp8tih" 'ckpt_path="logs/train_gcn_lstm_center_vn/runs/2026-04-28_13-31-54/wwm-emulator-hourly/nppp8tih/checkpoints/epoch=34-step=740740.ckpt"'
+
+uv run src/predict_gcn.py --config-name=predict_gcn_lstm_center_vn data.edge_weight_scale=7500.0 model.backbone.dropout=0.25 model.backbone.hidden_dim=512 model.backbone.lstm_hidden_dim=64 model.backbone.num_gcn_layers=4 model.backbone.num_lstm_layers=3 test_metrics=true data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml data.seq_len=48 logger.wandb.id=94en0ed8 'ckpt_path="logs/train_gcn_lstm_center_vn/runs/2026-04-28_20-04-53/wwm-emulator-hourly/94en0ed8/checkpoints/epoch=12-step=269321.ckpt"'
