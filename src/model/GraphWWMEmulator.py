@@ -32,7 +32,8 @@ class GraphWWMEmulator(WWMEmulator):
         Returns:
             Model predictions.
         """
-        return self.backbone(data)
+        preds = self.backbone(data)
+        return self._apply_output_constraints(preds)
 
     def model_step(self, batch) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
         """Perform a single model step on a PyG batch.

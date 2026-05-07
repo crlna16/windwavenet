@@ -31,6 +31,9 @@ model:
     input_dim: 7
     output_dim: 1
 
+  output_constraints:
+    sigWaveHeight: semipositive
+
 trainer:
   devices: 1
 

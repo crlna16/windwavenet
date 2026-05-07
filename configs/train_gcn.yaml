@@ -54,6 +54,7 @@ model:
   target_names: ${data.targets}
   loss_weights: null
   target_bins: null
+  output_constraints: null
   focal_gamma: null
 
   backbone:
