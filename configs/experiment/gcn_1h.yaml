@@ -8,7 +8,7 @@ test: false
 experiment_name: "gcn_1h"
 
 data:
-  train_days: [1, 304]
+  train_days: [1, 90]
   val_days: [305, 334]
   test_days: [335, 365]
   features:
@@ -22,6 +22,8 @@ data:
   targets:
     - sigWaveHeight
   sample_weight_strategy: z_score
+  node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
+  scaling_config: src/data/scaling/scale_2020_JFM_hourly.yaml
 
 model:
   target_bins:
