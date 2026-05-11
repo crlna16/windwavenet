@@ -191,7 +191,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
 
     # 5e. Center-history mode: only the center node of each partition receives
     #     temporal history; all other nodes get current-time features only.
-    #     Used with the CenterLSTMGCNNet backbone.
+    #     Used with the VirtualNodeCenterLSTMGCNNet backbone.
     center_history_only: bool = bool(cfg.data.get("center_history_only", False))
     if center_history_only:
         log.info("Center-history mode enabled: only center nodes receive temporal sequences.")

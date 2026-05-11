@@ -17,7 +17,7 @@ class CenterHistoryGraphWWMDataModule(BaseWWMDataModule):
     Each sample is a graph subgraph where the center node carries a
     temporal sequence of ``seq_len`` time steps, while all other nodes
     carry only current-time features.  Designed for the
-    ``CenterLSTMGCNNet`` backbone.
+    ``VirtualNodeCenterLSTMGCNNet`` backbone.
     """
 
     def __init__(

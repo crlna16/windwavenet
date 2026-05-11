@@ -728,7 +728,7 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
 
     Non-center nodes receive current-time features (2-D), while the center
     node's history is provided as a separate ``x_center_seq`` attribute.
-    This is designed for the ``CenterLSTMGCNNet`` backbone which processes
+    This is designed for the ``VirutalNodeCenterLSTMGCNNet`` backbone which processes
     center history with an LSTM and current features with a GCN.
     """
 
