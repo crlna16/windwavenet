@@ -25,6 +25,7 @@
 
 #uv run src/train.py --config-name=train_gcn_lstm_center_vn experiment=gcn_1h data.edge_weight_scale=7500.0 model.backbone.dropout=0.25 model.backbone.hidden_dim=512 model.backbone.lstm_hidden_dim=64 model.backbone.num_gcn_layers=4 model.backbone.num_lstm_layers=3 model.focal_gamma=0.35 callbacks.early_stopping.patience=5 model.scheduler.patience=2 "data.train_days=[1, 90]" trainer.enable_progress_bar=false test=false predict=false data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml data.node_idx_csv=/work/ka1176/caroline/gitlab/wave-wind-model-emulator/src/data/node_selection/node_idx_closest_center_10000.csv data.seq_len=48 data.batch_size=256
 
+<<<<<<< HEAD
 #uv run src/train.py --config-name=train experiment=gcn_1h  test=true predict=false
 
 #uv run src/train.py --config-name=train_lstm experiment=gcn_1h model.backbone.dropout=0.1 model.backbone.hidden_dim=256 model.backbone.num_layers=4 model.optimizer.lr=0.0002 data.preload_data=true test=true predict=false data.seq_len=3
@@ -35,3 +36,4 @@
 #uv run src/train.py --config-name=train_gcn_lstm_center_vn experiment=gcn_1h data.edge_weight_scale=7500.0 model.backbone.dropout=0.25 model.backbone.hidden_dim=512 model.backbone.lstm_hidden_dim=64 model.backbone.num_gcn_layers=4 model.backbone.num_lstm_layers=3 model.focal_gamma=0.35 callbacks.early_stopping.patience=5 model.scheduler.patience=2 "data.train_days=[1, 90]" trainer.enable_progress_bar=false test=false predict=false data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml data.node_idx_csv=/work/ka1176/caroline/gitlab/wave-wind-model-emulator/src/data/node_selection/node_idx_closest_center_10000.csv data.seq_len=3 data.batch_size=256
 
 uv run src/train.py --config-name=train_gcn_epd data.edge_weight_scale=7500.0 model.backbone.decoder_layers=7 model.backbone.dropout=0.03 model.backbone.encoder_layers=4 model.backbone.hidden_dim=64 model.backbone.num_mp_layers=7 model.backbone.use_residual=True experiment=gcn_1h test=false predict=false model.focal_gamma=0.35 data.train_days="[1,90]" data.scaling_config="src/data/scaling/scale_2020_JFM_hourly.yaml" data.node_idx_csv="src/data/node_selection/node_idx_closest_center_10000.csv" data.batch_size=256
+uv run src/train.py --config-name=train experiment=gcn_1h  test=true predict=false

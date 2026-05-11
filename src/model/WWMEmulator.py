@@ -3,11 +3,13 @@
 #
 # SPDX-License-Identifier: MIT
 
+import math
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import lightning as L
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchmetrics import MeanSquaredError
 
 from src.utils.pylogger import RankedLogger
@@ -23,6 +25,15 @@ class WWMEmulator(L.LightningModule):
     via Hydra configuration.
     """
 
+    # Registry of supported output constraint functions
+    CONSTRAINT_FUNCTIONS = {
+        "semipositive": lambda x: torch.relu(x),
+        "positive": lambda x: F.softplus(x),
+        "angle_deg": lambda x: torch.remainder(x, 360.0),
+        "angle_rad": lambda x: torch.remainder(x, 2.0 * math.pi),
+        "sigmoid": lambda x: torch.sigmoid(x),
+    }
+
     def __init__(
         self,
         backbone: nn.Module,
@@ -31,6 +42,7 @@ class WWMEmulator(L.LightningModule):
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,  # accessed via hparams
         loss_weights: Optional[Dict[str, float]] = None,
         target_bins: Optional[Dict[str, List[float]]] = None,
+        output_constraints: Optional[Dict[str, str]] = None,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -42,6 +54,10 @@ class WWMEmulator(L.LightningModule):
             loss_weights: Optional dict mapping target names to loss weights (default: equal weights of 1.0).
             target_bins: Optional dict mapping target names to bin edges for binned metrics.
                         E.g., {'sigWaveHeight': [-1.0, 0.0, 0.5]} creates bins: <-1, [-1,0), [0,0.5), >=0.5
+            output_constraints: Optional dict mapping target names to constraint types.
+                        Supported types: 'semipositive' (ReLU, >=0), 'positive' (softplus, >0),
+                        'angle_deg' (mod 360), 'angle_rad' (mod 2*pi), 'sigmoid' ((0,1)).
+                        E.g., {'sigWaveHeight': 'semipositive', 'meanWaveDirection': 'angle_deg'}
 
         Note:
             Sample weights are now computed and stored in the dataset. Configure them via the data module
@@ -74,6 +90,19 @@ class WWMEmulator(L.LightningModule):
 
         log.info(f"Loss weights: {self.loss_weights}")
 
+        # Initialize output constraints
+        self.output_constraints = output_constraints if output_constraints is not None else {}
+        if self.output_constraints:
+            for name, constraint in self.output_constraints.items():
+                if name not in target_names:
+                    raise ValueError(f"Output constraint target '{name}' not found in target_names: {target_names}")
+                if constraint not in self.CONSTRAINT_FUNCTIONS:
+                    raise ValueError(
+                        f"Unknown constraint type '{constraint}' for target '{name}'. "
+                        f"Supported types: {list(self.CONSTRAINT_FUNCTIONS.keys())}"
+                    )
+            log.info(f"Output constraints: {self.output_constraints}")
+
         # Store target bins for binned metrics
         self.target_bins = target_bins if target_bins is not None else {}
         if self.target_bins:
@@ -105,6 +134,25 @@ class WWMEmulator(L.LightningModule):
                     self.test_rmse_binned[bin_key] = MeanSquaredError(squared=False)
                     log.info(f"Added validation and test metric {bin_key} for {name}")
 
+    def _apply_output_constraints(self, preds: torch.Tensor) -> torch.Tensor:
+        """Apply output constraints to predictions.
+
+        Args:
+            preds: Model predictions of shape (batch_size, num_targets).
+
+        Returns:
+            Constrained predictions with the same shape.
+        """
+        if not self.output_constraints:
+            return preds
+
+        preds = preds.clone()
+        for i, name in enumerate(self.target_names):
+            if name in self.output_constraints:
+                constraint_fn = self.CONSTRAINT_FUNCTIONS[self.output_constraints[name]]
+                preds[:, i] = constraint_fn(preds[:, i])
+        return preds
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
 
@@ -115,7 +163,7 @@ class WWMEmulator(L.LightningModule):
             Model predictions
         """
         output = self.backbone(x)
-        return output
+        return self._apply_output_constraints(output)
 
     def model_step(
         self, batch: Tuple[torch.Tensor, ...]
