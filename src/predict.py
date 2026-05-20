@@ -6,6 +6,7 @@
 from typing import Any, List, cast
 
 import hydra
+import numpy as np
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -117,6 +118,16 @@ def predict(cfg: DictConfig) -> xr.Dataset:
 
     # Reshape predictions to (n_time, n_nodes, n_targets) numpy array
     predictions_np = predictions.cpu().numpy().reshape(pred_n_time, n_nodes, len(target_names))
+
+    # NaN-out boundary nodes if configured (fair comparison with graph models)
+    boundary_nodes_csv = cfg.data.get("boundary_nodes_csv", None)
+    if boundary_nodes_csv is not None:
+        boundary_node_ids = du.load_node_indices(boundary_nodes_csv)
+        ds_node_ids = ds.nSCHISM_hgrid_node.values
+        id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
+        boundary_positions = np.array([id_to_pos[int(nid)] for nid in boundary_node_ids if int(nid) in id_to_pos])
+        predictions_np[:, boundary_positions, :] = np.nan
+        log.info(f"Set {len(boundary_positions)} boundary node predictions to NaN.")
 
     # For sequence datasets, slice the source dataset to matching time range
     if is_sequence_dataset:

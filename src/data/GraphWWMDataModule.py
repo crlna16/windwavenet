@@ -29,6 +29,7 @@ class GraphWWMDataModule(BaseWWMDataModule):
         graph_features: List[str],
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -43,6 +44,7 @@ class GraphWWMDataModule(BaseWWMDataModule):
         edge_weight_scale: float = 1000.0,
     ) -> None:
         self.graph_features = graph_features
+        self.boundary_nodes_csv = boundary_nodes_csv
         self.max_radius = max_radius
         self.max_nodes = max_nodes
         self.max_links = max_links
@@ -84,6 +86,7 @@ class GraphWWMDataModule(BaseWWMDataModule):
             graph_features=self.graph_features,
             scaling_config=self.scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=self.boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             subsample_prob=subsample_prob,

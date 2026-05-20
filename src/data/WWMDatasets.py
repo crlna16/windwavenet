@@ -335,6 +335,7 @@ class GraphWWMDataset(GDataset):
         graph_features: List[str],
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
@@ -357,6 +358,9 @@ class GraphWWMDataset(GDataset):
             node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
                 containing node indices to use as center nodes. The full mesh is always
                 retained for graph construction. If None, all nodes are center nodes.
+            boundary_nodes_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
+                listing open-sea boundary nodes to exclude from the graph. All edges
+                connecting to these nodes are removed.
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
@@ -409,6 +413,19 @@ class GraphWWMDataset(GDataset):
 
         # --- Load edges once (time-invariant) and build adjacency ---
         self.adjacency = gu.build_adjacency(self.ds)
+
+        # --- Remove open-sea boundary nodes if CSV is provided ---
+        if boundary_nodes_csv is not None:
+            boundary_node_ids = du.load_node_indices(boundary_nodes_csv)
+            ds_node_ids = self.ds.nSCHISM_hgrid_node.values
+            id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
+            boundary_positions = np.array([id_to_pos[int(nid)] for nid in boundary_node_ids if int(nid) in id_to_pos])
+            self.adjacency = gu.remove_boundary_nodes(self.adjacency, boundary_positions)
+            # Also remove boundary nodes from center nodes if present
+            boundary_set = set(int(p) for p in boundary_positions)
+            self.center_nodes = np.array([c for c in self.center_nodes if int(c) not in boundary_set])
+            self.n_center_nodes = len(self.center_nodes)
+            log.info(f"After boundary removal: {self.n_center_nodes} center nodes remain.")
 
         # --- Extract node coordinates (not time-varying) ---
         self.node_x = self.ds["SCHISM_hgrid_node_x"].values
@@ -574,6 +591,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         seq_len: int,
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         subsample_prob: Optional[float] = None,
@@ -594,6 +612,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             seq_len: Number of consecutive time steps for node feature sequences.
             scaling_config: Path to YAML file containing mean and std for each variable.
             node_idx_csv: Optional CSV file with center node indices.
+            boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
             subsample_prob: Must be None for graph datasets.
@@ -614,6 +633,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             graph_features=graph_features,
             scaling_config=scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             subsample_prob=subsample_prob,

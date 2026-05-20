@@ -23,6 +23,51 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 # ---------------------------------------------------------------------------
+# Boundary node removal
+# ---------------------------------------------------------------------------
+
+
+def remove_boundary_nodes(
+    adjacency: Dict[int, List[int]],
+    boundary_positions: np.ndarray,
+) -> Dict[int, List[int]]:
+    """Remove boundary nodes from the adjacency list and prune dangling edges.
+
+    All edges that connect to a boundary node are removed.  The adjacency
+    is modified in-place and also returned.
+
+    Args:
+        adjacency: Dict mapping node position -> list of neighbour positions.
+        boundary_positions: Array of 0-indexed node positions to remove.
+
+    Returns:
+        The pruned adjacency dict (same object, modified in-place).
+    """
+    boundary_set = set(int(p) for p in boundary_positions)
+
+    n_nodes_removed = 0
+    n_edges_removed = 0
+
+    for node_pos in boundary_set:
+        if node_pos in adjacency:
+            n_edges_removed += len(adjacency[node_pos])
+            del adjacency[node_pos]
+            n_nodes_removed += 1
+
+    # Remove references to boundary nodes from remaining neighbor lists
+    for node_pos in list(adjacency.keys()):
+        original_len = len(adjacency[node_pos])
+        adjacency[node_pos] = [nb for nb in adjacency[node_pos] if nb not in boundary_set]
+        n_edges_removed += original_len - len(adjacency[node_pos])
+
+    log.info(
+        f"Removed {n_nodes_removed} boundary nodes and {n_edges_removed} edges "
+        f"from adjacency ({len(boundary_set)} boundary positions requested)."
+    )
+    return adjacency
+
+
+# ---------------------------------------------------------------------------
 # Adjacency
 # ---------------------------------------------------------------------------
 

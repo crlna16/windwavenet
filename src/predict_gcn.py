@@ -95,6 +95,16 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     log.info("Building adjacency list ...")
     adjacency = gu.build_adjacency(ds)
 
+    # Remove open-sea boundary nodes if configured
+    boundary_nodes_csv = cfg.data.get("boundary_nodes_csv", None)
+    boundary_positions: np.ndarray | None = None
+    if boundary_nodes_csv is not None:
+        boundary_node_ids = du.load_node_indices(boundary_nodes_csv)
+        ds_node_ids = ds.nSCHISM_hgrid_node.values
+        id_to_pos = {int(nid): pos for pos, nid in enumerate(ds_node_ids)}
+        boundary_positions = np.array([id_to_pos[int(nid)] for nid in boundary_node_ids if int(nid) in id_to_pos])
+        adjacency = gu.remove_boundary_nodes(adjacency, boundary_positions)
+
     # Drop graph topology variables after adjacency is built
     ds = ds.drop_vars([v for v in graph_features if v in ds], errors="ignore")
 
@@ -200,7 +210,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     # 6.  Run inference: iterate time steps, process partitions in batches
     # ------------------------------------------------------------------
     n_time = ds.sizes["time"]
-    all_predictions = np.empty((n_time, n_nodes, n_targets), dtype=np.float32)
+    all_predictions = np.full((n_time, n_nodes, n_targets), np.nan, dtype=np.float32)
 
     log.info(
         f"Running inference over {n_time} time steps, "
@@ -292,10 +302,15 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         Y_all = np.stack([ds[t].values for t in targets], axis=-1).astype(np.float32)
         # Y_all shape: (n_time, n_nodes, n_targets)  — same space as all_predictions
 
+        # Exclude boundary nodes (NaN positions) from metrics
+        valid_mask = ~np.isnan(all_predictions[:, :, 0])
+        n_excluded = n_nodes - valid_mask[0].sum() if boundary_positions is not None else 0
+        log.info(f"Metrics exclude {n_excluded} boundary nodes ({valid_mask.sum()} valid samples).")
+
         metrics: Dict[str, float] = {}
         for target_idx, target_name in enumerate(targets):
-            pred = all_predictions[:, :, target_idx]
-            truth = Y_all[:, :, target_idx]
+            pred = all_predictions[:, :, target_idx][valid_mask]
+            truth = Y_all[:, :, target_idx][valid_mask]
             rmse = float(np.sqrt(np.mean((pred - truth) ** 2)))
             mae = float(np.mean(np.abs(pred - truth)))
             bias = float(np.mean(pred - truth))
@@ -310,8 +325,8 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             if target_name not in target_bins:
                 continue
             bins = list(target_bins[target_name])
-            pred = all_predictions[:, :, target_idx].ravel()
-            truth = Y_all[:, :, target_idx].ravel()
+            pred = all_predictions[:, :, target_idx][valid_mask]
+            truth = Y_all[:, :, target_idx][valid_mask]
             for bin_idx in range(len(bins) + 1):
                 mask = get_bin_mask(truth, bins, bin_idx)
                 if mask.sum() == 0:

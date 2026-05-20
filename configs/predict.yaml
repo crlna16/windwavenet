@@ -54,6 +54,7 @@ data:
     - delta_sigWaveHeight
   scaling_config: src/data/scaling/scale_2020_hourly.yaml
   node_idx_csv: null
+  boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
   batch_size: 2048
   num_workers: 8
   pin_memory: true

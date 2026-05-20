@@ -43,6 +43,7 @@ data:
   seq_len: 24
   scaling_config: src/data/scaling/scale_2020_JFM_hourly.yaml
   node_idx_csv: null
+  boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
   batch_size: 256
   num_workers: 8
   pin_memory: true
