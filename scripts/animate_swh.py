@@ -31,7 +31,6 @@ import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection
 from scipy.interpolate import griddata
 from tqdm import tqdm
@@ -404,7 +403,6 @@ def main(argv: list[str] | None = None) -> None:
         print("\n--- Part 2: German Bight (scatter + edges) ---")
         ax.clear()
         setup_map_ax(ax, extent_lonlat=GERMAN_BIGHT_EXTENT)
-        print("... finished setting up map")
 
         lc = LineCollection(
             segments,
@@ -415,7 +413,6 @@ def main(argv: list[str] | None = None) -> None:
             zorder=1,
         )
         ax.add_collection(lc)
-        print("... added line collection")
 
         scatter = ax.scatter(
             gb_lon,
@@ -433,35 +430,11 @@ def main(argv: list[str] | None = None) -> None:
         cbar2.set_label("Significant wave height (m)")
         title2 = ax.set_title(f"German Bight \u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
-        print("... created base figure")
-
-        # Render static background once, then blit only dynamic artists per frame
-        fig.canvas.draw()
-        bg2 = fig.canvas.copy_from_bbox(fig.bbox)
-        print("... rendered static background")
-
-        # Patch draw methods so grab_frame skips the expensive full re-render
-        # but still satisfies savefig's internal "Figure.draw was called" check.
-        def _fast_canvas_draw(self):
-            self.renderer = self.get_renderer()  # reuse renderer (no clear)
-            self.figure.draw(self.renderer)  # triggers savefig flag (fig.draw is no-op)
-
-        _orig_canvas_draw = FigureCanvasAgg.draw
-        _orig_fig_draw = fig.draw
-        FigureCanvasAgg.draw = _fast_canvas_draw
-        fig.draw = lambda renderer: None  # no-op: skip actual artist rendering
 
         for i in tqdm(range(n_frames), desc="Part 2", unit="frame"):
-            fig.canvas.restore_region(bg2)
             scatter.set_array(swh_all[i][gb_indices])
             title2.set_text(f"German Bight \u2014 {time_strings[i]}")
-            ax.draw_artist(scatter)
-            ax.draw_artist(title2)
-            fig.canvas.blit(fig.bbox)
             writer.grab_frame()
-
-        FigureCanvasAgg.draw = _orig_canvas_draw
-        fig.draw = _orig_fig_draw
 
         cbar2.remove()
 
@@ -497,27 +470,10 @@ def main(argv: list[str] | None = None) -> None:
         title3 = ax.set_title(f"Wadden Sea \u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
-        # Render static background once, then blit only dynamic artists per frame
-        fig.canvas.draw()
-        bg3 = fig.canvas.copy_from_bbox(fig.bbox)
-
-        # Patch draw methods (same as Part 2)
-        _orig_canvas_draw = FigureCanvasAgg.draw
-        _orig_fig_draw = fig.draw
-        FigureCanvasAgg.draw = _fast_canvas_draw
-        fig.draw = lambda renderer: None
-
         for i in tqdm(range(n_frames), desc="Part 3", unit="frame"):
-            fig.canvas.restore_region(bg3)
             scatter3.set_array(swh_all[i][ws_indices])
             title3.set_text(f"Wadden Sea \u2014 {time_strings[i]}")
-            ax.draw_artist(scatter3)
-            ax.draw_artist(title3)
-            fig.canvas.blit(fig.bbox)
             writer.grab_frame()
-
-        FigureCanvasAgg.draw = _orig_canvas_draw
-        fig.draw = _orig_fig_draw
 
     plt.close(fig)
     print(f"\nDone. Video saved to: {output_path}")
