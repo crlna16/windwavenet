@@ -401,6 +401,8 @@ def main(argv: list[str] | None = None) -> None:
 
         # --- Part 2: German Bight scatter + edges ---
         print("\n--- Part 2: German Bight (scatter + edges) ---")
+        gb_vmax = float(swh_all[:, gb_indices].max())
+        print(f"German Bight SWH max: {gb_vmax:.2f} m")
         ax.clear()
         setup_map_ax(ax, extent_lonlat=GERMAN_BIGHT_EXTENT)
 
@@ -420,7 +422,7 @@ def main(argv: list[str] | None = None) -> None:
             c=swh_all[0][gb_indices],
             cmap=args.cmap,
             vmin=0,
-            vmax=7,
+            vmax=gb_vmax,
             s=3,
             edgecolors="none",
             transform=ccrs.PlateCarree(),
@@ -440,6 +442,8 @@ def main(argv: list[str] | None = None) -> None:
 
         # --- Part 3: Wadden Sea zoom (scatter + edges) ---
         print("\n--- Part 3: Wadden Sea zoom (scatter + edges) ---")
+        ws_vmax = float(swh_all[:, ws_indices].max())
+        print(f"Wadden Sea SWH max: {ws_vmax:.2f} m")
         ax.clear()
         setup_map_ax(ax, extent_lonlat=WADDEN_SEA_EXTENT)
 
@@ -459,7 +463,7 @@ def main(argv: list[str] | None = None) -> None:
             c=swh_all[0][ws_indices],
             cmap=args.cmap,
             vmin=0,
-            vmax=7,
+            vmax=ws_vmax,
             s=5,
             edgecolors="none",
             transform=ccrs.PlateCarree(),
