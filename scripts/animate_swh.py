@@ -122,13 +122,12 @@ def main(argv: list[str] | None = None) -> None:
         subplot_kw={"projection": ccrs.PlateCarree()},
     )
 
-    ax.stock_img()  # Natural Earth shaded relief (green lowlands, brown mountains)
     ax.add_feature(
         cfeature.NaturalEarthFeature(
             "physical",
-            "ocean",
+            "land",
             "10m",
-            facecolor="white",
+            facecolor="darkkhaki",
             edgecolor="none",
         ),
         zorder=2,
