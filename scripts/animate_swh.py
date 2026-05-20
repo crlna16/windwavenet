@@ -23,6 +23,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import multiprocessing as mp
 from pathlib import Path
 
 import cartopy.crs as ccrs
@@ -30,11 +31,31 @@ import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection
 from scipy.interpolate import griddata
 from tqdm import tqdm
 
 from src.data.graph_utils import build_adjacency
+
+
+# --- Worker globals for parallel griddata ---
+_worker_points = None
+_worker_xi = None
+_worker_yi = None
+
+
+def _init_griddata_worker(points, xi, yi):
+    """Initializer for multiprocessing workers: store shared arrays."""
+    global _worker_points, _worker_xi, _worker_yi
+    _worker_points = points
+    _worker_xi = xi
+    _worker_yi = yi
+
+
+def _regrid_one_frame(swh_values):
+    """Worker function: interpolate one SWH field onto the regular grid."""
+    return griddata(_worker_points, swh_values, (_worker_xi, _worker_yi), method="linear")
 
 
 # --- German Bight extent (lon/lat) ---
@@ -90,6 +111,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=1,
         help="Plot every Nth node in the German Bight view (default: 1 = all).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of parallel workers for griddata interpolation (default: 1).",
     )
     return parser.parse_args(argv)
 
@@ -239,6 +266,14 @@ def main(argv: list[str] | None = None) -> None:
     ws_y = node_y[ws_indices]
     print(f"Wadden Sea: {len(ws_indices)} nodes (subsample={step}).")
 
+    # Pre-transform subset coordinates to lon/lat (avoids repeated UTM->PlateCarree
+    # transforms during rendering, which is the main bottleneck for LineCollection)
+    plate = ccrs.PlateCarree()
+    gb_lonlat = plate.transform_points(data_crs, gb_x, gb_y)
+    gb_lon, gb_lat = gb_lonlat[:, 0], gb_lonlat[:, 1]
+    ws_lonlat = plate.transform_points(data_crs, ws_x, ws_y)
+    ws_lon, ws_lat = ws_lonlat[:, 0], ws_lonlat[:, 1]
+
     print("Building adjacency from zarr (shared data)...")
     ds_zarr = xr.open_dataset(
         "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr",
@@ -254,27 +289,66 @@ def main(argv: list[str] | None = None) -> None:
     ws_edge_src, ws_edge_dst = get_edges_for_subset(adjacency, ws_indices)
     print(f"Wadden Sea edges: {len(ws_edge_src)}")
 
-    # Pre-compute edge line segments (static geometry)
+    # Pre-compute edge line segments in lon/lat (avoids UTM transform at render time)
     segments = np.stack(
-        [np.column_stack([gb_x[edge_src], gb_y[edge_src]]), np.column_stack([gb_x[edge_dst], gb_y[edge_dst]])],
+        [np.column_stack([gb_lon[edge_src], gb_lat[edge_src]]), np.column_stack([gb_lon[edge_dst], gb_lat[edge_dst]])],
         axis=1,
     )
     ws_segments = np.stack(
         [
-            np.column_stack([ws_x[ws_edge_src], ws_y[ws_edge_src]]),
-            np.column_stack([ws_x[ws_edge_dst], ws_y[ws_edge_dst]]),
+            np.column_stack([ws_lon[ws_edge_src], ws_lat[ws_edge_src]]),
+            np.column_stack([ws_lon[ws_edge_dst], ws_lat[ws_edge_dst]]),
         ],
         axis=1,
     )
 
-    # --- Set up FFmpeg writer ---
+    # --- Output path ---
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.suffix.lower() not in (".mp4", ".mov", ".avi"):
+        output_path = output_path.with_suffix(".mp4")
+
+    # ===================================================================
+    # Pre-load all SWH data into memory (single bulk read)
+    # ===================================================================
+    print(f"\nLoading SWH data for frames {t_start}..{t_end - 1} into memory...")
+    swh_all = ds["sigWaveHeight"].isel(time=slice(t_start, t_end)).values  # (n_frames, n_nodes)
+    print(f"SWH block loaded: {swh_all.shape}, {swh_all.nbytes / 1e6:.1f} MB")
+
+    # ===================================================================
+    # Pre-compute regridded fields for Part 1 (parallelizable)
+    # ===================================================================
+    n_workers = min(args.workers, n_frames)
+    print(f"\n--- Pre-computing {n_frames} regridded fields ({n_workers} workers) ---")
+    swh_arrays = [swh_all[i] for i in range(n_frames)]
+
+    if n_workers > 1:
+        with mp.Pool(n_workers, initializer=_init_griddata_worker, initargs=(points, xi, yi)) as pool:
+            grids = list(
+                tqdm(
+                    pool.imap(_regrid_one_frame, swh_arrays),
+                    total=n_frames,
+                    desc="Regridding",
+                    unit="frame",
+                )
+            )
+    else:
+        grids = []
+        for swh in tqdm(swh_arrays, desc="Regridding", unit="frame"):
+            grids.append(griddata(points, swh, (xi, yi), method="linear"))
+
+    print(f"\nTotal frames: {3 * n_frames} (Part 1: {n_frames}, Part 2: {n_frames}, Part 3: {n_frames})")
+
+    # ===================================================================
+    # Render frames sequentially via FFmpeg pipe
+    # ===================================================================
+    ffmpeg_bin = "/sw/spack-levante/ffmpeg-4.3.2-rmywep/bin/ffmpeg"
+    time_strings = [str(ds.time.values[t_start + i])[:16].replace("T", " ") for i in range(n_frames)]
 
     try:
         from matplotlib.animation import FFMpegWriter
 
-        plt.rcParams["animation.ffmpeg_path"] = "/sw/spack-levante/ffmpeg-4.3.2-rmywep/bin/ffmpeg"
+        plt.rcParams["animation.ffmpeg_path"] = ffmpeg_bin
         writer = FFMpegWriter(
             fps=args.fps,
             metadata={"title": "SWH Animation"},
@@ -290,11 +364,7 @@ def main(argv: list[str] | None = None) -> None:
         print("FFmpeg unavailable, using PillowWriter (GIF).")
 
     print(f"Output: {output_path}")
-    print(f"Total frames: {3 * n_frames} (Part 1: {n_frames}, Part 2: {n_frames}, Part 3: {n_frames})")
 
-    # ===================================================================
-    # Write both parts frame-by-frame into one video file
-    # ===================================================================
     fig, ax = plt.subplots(
         figsize=(10, 8),
         subplot_kw={"projection": ccrs.PlateCarree()},
@@ -302,17 +372,14 @@ def main(argv: list[str] | None = None) -> None:
 
     with writer.saving(fig, str(output_path), dpi=args.dpi):
         # --- Part 1: Full domain heatmap ---
-        print("\n--- Part 1: Full domain (regridded heatmap) ---")
+        print("\n--- Part 1: Full domain (writing frames) ---")
         ax.clear()
         setup_map_ax(ax, data_crs=data_crs, node_x=node_x, node_y=node_y)
 
-        # Initial regridded frame
-        swh_0 = ds["sigWaveHeight"].isel(time=t_start).values
-        grid_0 = griddata(points, swh_0, (xi, yi), method="linear")
         mesh = ax.pcolormesh(
             x_reg,
             y_reg,
-            grid_0,
+            grids[0],
             cmap=args.cmap,
             vmin=0,
             vmax=7,
@@ -322,20 +389,14 @@ def main(argv: list[str] | None = None) -> None:
         )
         cbar = fig.colorbar(mesh, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
         cbar.set_label("Significant wave height (m)")
-        time_str = str(ds.time.values[t_start])[:16].replace("T", " ")
-        title = ax.set_title(f"Full domain \u2014 {time_str}", fontsize=11)
+        title = ax.set_title(f"Full domain \u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
         for i in tqdm(range(n_frames), desc="Part 1", unit="frame"):
-            t_idx = t_start + i
-            swh = ds["sigWaveHeight"].isel(time=t_idx).values
-            grid = griddata(points, swh, (xi, yi), method="linear")
-            mesh.set_array(grid.ravel())
-            time_str = str(ds.time.values[t_idx])[:16].replace("T", " ")
-            title.set_text(f"Full domain \u2014 {time_str}")
+            mesh.set_array(grids[i].ravel())
+            title.set_text(f"Full domain \u2014 {time_strings[i]}")
             writer.grab_frame()
 
-        # Clean up Part 1 artists
         cbar.remove()
         mesh.remove()
 
@@ -343,47 +404,65 @@ def main(argv: list[str] | None = None) -> None:
         print("\n--- Part 2: German Bight (scatter + edges) ---")
         ax.clear()
         setup_map_ax(ax, extent_lonlat=GERMAN_BIGHT_EXTENT)
+        print("... finished setting up map")
 
-        # Draw edges
         lc = LineCollection(
             segments,
             colors="grey",
             linewidths=0.3,
             alpha=0.4,
-            transform=data_crs,
+            transform=ccrs.PlateCarree(),
             zorder=1,
         )
         ax.add_collection(lc)
+        print("... added line collection")
 
-        # Initial scatter
-        swh_gb_0 = ds["sigWaveHeight"].isel(time=t_start).values[gb_indices]
         scatter = ax.scatter(
-            gb_x,
-            gb_y,
-            c=swh_gb_0,
+            gb_lon,
+            gb_lat,
+            c=swh_all[0][gb_indices],
             cmap=args.cmap,
             vmin=0,
             vmax=7,
             s=3,
             edgecolors="none",
-            transform=data_crs,
+            transform=ccrs.PlateCarree(),
             zorder=3,
         )
         cbar2 = fig.colorbar(scatter, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
         cbar2.set_label("Significant wave height (m)")
-        time_str = str(ds.time.values[t_start])[:16].replace("T", " ")
-        title2 = ax.set_title(f"German Bight \u2014 {time_str}", fontsize=11)
+        title2 = ax.set_title(f"German Bight \u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
+        print("... created base figure")
+
+        # Render static background once, then blit only dynamic artists per frame
+        fig.canvas.draw()
+        bg2 = fig.canvas.copy_from_bbox(fig.bbox)
+        print("... rendered static background")
+
+        # Patch draw methods so grab_frame skips the expensive full re-render
+        # but still satisfies savefig's internal "Figure.draw was called" check.
+        def _fast_canvas_draw(self):
+            self.renderer = self.get_renderer()  # reuse renderer (no clear)
+            self.figure.draw(self.renderer)  # triggers savefig flag (fig.draw is no-op)
+
+        _orig_canvas_draw = FigureCanvasAgg.draw
+        _orig_fig_draw = fig.draw
+        FigureCanvasAgg.draw = _fast_canvas_draw
+        fig.draw = lambda renderer: None  # no-op: skip actual artist rendering
 
         for i in tqdm(range(n_frames), desc="Part 2", unit="frame"):
-            t_idx = t_start + i
-            swh_gb = ds["sigWaveHeight"].isel(time=t_idx).values[gb_indices]
-            scatter.set_array(swh_gb)
-            time_str = str(ds.time.values[t_idx])[:16].replace("T", " ")
-            title2.set_text(f"German Bight \u2014 {time_str}")
+            fig.canvas.restore_region(bg2)
+            scatter.set_array(swh_all[i][gb_indices])
+            title2.set_text(f"German Bight \u2014 {time_strings[i]}")
+            ax.draw_artist(scatter)
+            ax.draw_artist(title2)
+            fig.canvas.blit(fig.bbox)
             writer.grab_frame()
 
-        # Clean up Part 2 artists
+        FigureCanvasAgg.draw = _orig_canvas_draw
+        fig.draw = _orig_fig_draw
+
         cbar2.remove()
 
         # --- Part 3: Wadden Sea zoom (scatter + edges) ---
@@ -391,44 +470,54 @@ def main(argv: list[str] | None = None) -> None:
         ax.clear()
         setup_map_ax(ax, extent_lonlat=WADDEN_SEA_EXTENT)
 
-        # Draw edges
         lc3 = LineCollection(
             ws_segments,
             colors="grey",
             linewidths=0.3,
             alpha=0.4,
-            transform=data_crs,
+            transform=ccrs.PlateCarree(),
             zorder=1,
         )
         ax.add_collection(lc3)
 
-        # Initial scatter
-        swh_ws_0 = ds["sigWaveHeight"].isel(time=t_start).values[ws_indices]
         scatter3 = ax.scatter(
-            ws_x,
-            ws_y,
-            c=swh_ws_0,
+            ws_lon,
+            ws_lat,
+            c=swh_all[0][ws_indices],
             cmap=args.cmap,
             vmin=0,
             vmax=7,
             s=5,
             edgecolors="none",
-            transform=data_crs,
+            transform=ccrs.PlateCarree(),
             zorder=3,
         )
         cbar3 = fig.colorbar(scatter3, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
         cbar3.set_label("Significant wave height (m)")
-        time_str = str(ds.time.values[t_start])[:16].replace("T", " ")
-        title3 = ax.set_title(f"Wadden Sea \u2014 {time_str}", fontsize=11)
+        title3 = ax.set_title(f"Wadden Sea \u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
+        # Render static background once, then blit only dynamic artists per frame
+        fig.canvas.draw()
+        bg3 = fig.canvas.copy_from_bbox(fig.bbox)
+
+        # Patch draw methods (same as Part 2)
+        _orig_canvas_draw = FigureCanvasAgg.draw
+        _orig_fig_draw = fig.draw
+        FigureCanvasAgg.draw = _fast_canvas_draw
+        fig.draw = lambda renderer: None
+
         for i in tqdm(range(n_frames), desc="Part 3", unit="frame"):
-            t_idx = t_start + i
-            swh_ws = ds["sigWaveHeight"].isel(time=t_idx).values[ws_indices]
-            scatter3.set_array(swh_ws)
-            time_str = str(ds.time.values[t_idx])[:16].replace("T", " ")
-            title3.set_text(f"Wadden Sea \u2014 {time_str}")
+            fig.canvas.restore_region(bg3)
+            scatter3.set_array(swh_all[i][ws_indices])
+            title3.set_text(f"Wadden Sea \u2014 {time_strings[i]}")
+            ax.draw_artist(scatter3)
+            ax.draw_artist(title3)
+            fig.canvas.blit(fig.bbox)
             writer.grab_frame()
+
+        FigureCanvasAgg.draw = _orig_canvas_draw
+        fig.draw = _orig_fig_draw
 
     plt.close(fig)
     print(f"\nDone. Video saved to: {output_path}")
