@@ -40,6 +40,10 @@ from src.data.graph_utils import build_adjacency
 # --- German Bight extent (lon/lat) ---
 GERMAN_BIGHT_EXTENT = [5.5, 10.0, 53.0, 56.0]  # [lon_min, lon_max, lat_min, lat_max]
 
+# --- Wadden Sea / coastal zoom extent (lon/lat) ---
+# Bounded by: Groningen (west), Sylt (east), Helgoland (south), Rømø (north)
+WADDEN_SEA_EXTENT = [6.5, 8.7, 54.1, 55.2]  # [lon_min, lon_max, lat_min, lat_max]
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Animate SWH: full-domain heatmap + German Bight graph view.")
@@ -111,16 +115,21 @@ def build_regular_grid(node_x: np.ndarray, node_y: np.ndarray, resolution: float
     return x_reg, y_reg, xi, yi
 
 
-def get_german_bight_mask(node_x: np.ndarray, node_y: np.ndarray, data_crs):
-    """Return boolean mask for nodes within the German Bight extent."""
+def get_region_mask(node_x: np.ndarray, node_y: np.ndarray, data_crs, extent_lonlat):
+    """Return boolean mask for nodes within a lon/lat bounding box."""
     plate = ccrs.PlateCarree()
-    lon_min, lon_max, lat_min, lat_max = GERMAN_BIGHT_EXTENT
+    lon_min, lon_max, lat_min, lat_max = extent_lonlat
     corners_lonlat = np.array([[lon_min, lat_min], [lon_max, lat_max]])
     corners_utm = data_crs.transform_points(plate, corners_lonlat[:, 0], corners_lonlat[:, 1])
     x_min, x_max = corners_utm[0, 0], corners_utm[1, 0]
     y_min, y_max = corners_utm[0, 1], corners_utm[1, 1]
     mask = (node_x >= x_min) & (node_x <= x_max) & (node_y >= y_min) & (node_y <= y_max)
     return mask
+
+
+def get_german_bight_mask(node_x: np.ndarray, node_y: np.ndarray, data_crs):
+    """Return boolean mask for nodes within the German Bight extent."""
+    return get_region_mask(node_x, node_y, data_crs, GERMAN_BIGHT_EXTENT)
 
 
 def get_edges_for_subset(adjacency: dict, subset_indices: np.ndarray):
@@ -221,6 +230,15 @@ def main(argv: list[str] | None = None) -> None:
     gb_y = node_y[gb_indices]
     print(f"German Bight: {len(gb_indices)} nodes (subsample={step}).")
 
+    # --- Prepare Wadden Sea subset for Part 3 ---
+    print("Selecting Wadden Sea nodes...")
+    ws_mask = get_region_mask(node_x, node_y, data_crs, WADDEN_SEA_EXTENT)
+    ws_indices = np.where(ws_mask)[0]
+    ws_indices = ws_indices[::step]
+    ws_x = node_x[ws_indices]
+    ws_y = node_y[ws_indices]
+    print(f"Wadden Sea: {len(ws_indices)} nodes (subsample={step}).")
+
     print("Building adjacency from zarr (shared data)...")
     ds_zarr = xr.open_dataset(
         "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr",
@@ -232,9 +250,20 @@ def main(argv: list[str] | None = None) -> None:
     edge_src, edge_dst = get_edges_for_subset(adjacency, gb_indices)
     print(f"German Bight edges: {len(edge_src)}")
 
+    print("Building edge list for Wadden Sea subset...")
+    ws_edge_src, ws_edge_dst = get_edges_for_subset(adjacency, ws_indices)
+    print(f"Wadden Sea edges: {len(ws_edge_src)}")
+
     # Pre-compute edge line segments (static geometry)
     segments = np.stack(
         [np.column_stack([gb_x[edge_src], gb_y[edge_src]]), np.column_stack([gb_x[edge_dst], gb_y[edge_dst]])],
+        axis=1,
+    )
+    ws_segments = np.stack(
+        [
+            np.column_stack([ws_x[ws_edge_src], ws_y[ws_edge_src]]),
+            np.column_stack([ws_x[ws_edge_dst], ws_y[ws_edge_dst]]),
+        ],
         axis=1,
     )
 
@@ -261,7 +290,7 @@ def main(argv: list[str] | None = None) -> None:
         print("FFmpeg unavailable, using PillowWriter (GIF).")
 
     print(f"Output: {output_path}")
-    print(f"Total frames: {2 * n_frames} (Part 1: {n_frames}, Part 2: {n_frames})")
+    print(f"Total frames: {3 * n_frames} (Part 1: {n_frames}, Part 2: {n_frames}, Part 3: {n_frames})")
 
     # ===================================================================
     # Write both parts frame-by-frame into one video file
@@ -352,6 +381,53 @@ def main(argv: list[str] | None = None) -> None:
             scatter.set_array(swh_gb)
             time_str = str(ds.time.values[t_idx])[:16].replace("T", " ")
             title2.set_text(f"German Bight \u2014 {time_str}")
+            writer.grab_frame()
+
+        # Clean up Part 2 artists
+        cbar2.remove()
+
+        # --- Part 3: Wadden Sea zoom (scatter + edges) ---
+        print("\n--- Part 3: Wadden Sea zoom (scatter + edges) ---")
+        ax.clear()
+        setup_map_ax(ax, extent_lonlat=WADDEN_SEA_EXTENT)
+
+        # Draw edges
+        lc3 = LineCollection(
+            ws_segments,
+            colors="grey",
+            linewidths=0.3,
+            alpha=0.4,
+            transform=data_crs,
+            zorder=1,
+        )
+        ax.add_collection(lc3)
+
+        # Initial scatter
+        swh_ws_0 = ds["sigWaveHeight"].isel(time=t_start).values[ws_indices]
+        scatter3 = ax.scatter(
+            ws_x,
+            ws_y,
+            c=swh_ws_0,
+            cmap=args.cmap,
+            vmin=0,
+            vmax=7,
+            s=5,
+            edgecolors="none",
+            transform=data_crs,
+            zorder=3,
+        )
+        cbar3 = fig.colorbar(scatter3, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
+        cbar3.set_label("Significant wave height (m)")
+        time_str = str(ds.time.values[t_start])[:16].replace("T", " ")
+        title3 = ax.set_title(f"Wadden Sea \u2014 {time_str}", fontsize=11)
+        fig.tight_layout()
+
+        for i in tqdm(range(n_frames), desc="Part 3", unit="frame"):
+            t_idx = t_start + i
+            swh_ws = ds["sigWaveHeight"].isel(time=t_idx).values[ws_indices]
+            scatter3.set_array(swh_ws)
+            time_str = str(ds.time.values[t_idx])[:16].replace("T", " ")
+            title3.set_text(f"Wadden Sea \u2014 {time_str}")
             writer.grab_frame()
 
     plt.close(fig)
