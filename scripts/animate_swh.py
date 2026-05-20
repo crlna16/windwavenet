@@ -387,8 +387,8 @@ def main(argv: list[str] | None = None) -> None:
             zorder=1,
         )
         cbar = fig.colorbar(mesh, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
-        cbar.set_label("Significant wave height (m)")
-        title = ax.set_title(f"Full domain \u2014 {time_strings[0]}", fontsize=11)
+        cbar.set_label("Signifikante Wellenhöhe (m)")
+        title = ax.set_title(f"\u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
         for i in tqdm(range(n_frames), desc="Part 1", unit="frame"):
@@ -427,8 +427,8 @@ def main(argv: list[str] | None = None) -> None:
             zorder=3,
         )
         cbar2 = fig.colorbar(scatter, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
-        cbar2.set_label("Significant wave height (m)")
-        title2 = ax.set_title(f"German Bight \u2014 {time_strings[0]}", fontsize=11)
+        cbar2.set_label("Signifikante Wellenhöhe (m)")
+        title2 = ax.set_title(f"\u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
         for i in tqdm(range(n_frames), desc="Part 2", unit="frame"):
@@ -466,8 +466,8 @@ def main(argv: list[str] | None = None) -> None:
             zorder=3,
         )
         cbar3 = fig.colorbar(scatter3, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
-        cbar3.set_label("Significant wave height (m)")
-        title3 = ax.set_title(f"Wadden Sea \u2014 {time_strings[0]}", fontsize=11)
+        cbar3.set_label("Signifikante Wellenhöhe (m)")
+        title3 = ax.set_title(f"\u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
         for i in tqdm(range(n_frames), desc="Part 3", unit="frame"):
