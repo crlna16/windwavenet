@@ -62,7 +62,7 @@ GERMAN_BIGHT_EXTENT = [5.5, 10.0, 53.0, 56.0]  # [lon_min, lon_max, lat_min, lat
 
 # --- Wadden Sea / coastal zoom extent (lon/lat) ---
 # Bounded by: Groningen (west), Sylt (east), Helgoland (south), Rømø (north)
-WADDEN_SEA_EXTENT = [6.5, 8.7, 54.1, 55.2]  # [lon_min, lon_max, lat_min, lat_max]
+WADDEN_SEA_EXTENT = [7.5, 8.7, 54.5, 55.2]  # [lon_min, lon_max, lat_min, lat_max]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
