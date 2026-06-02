@@ -1,0 +1,151 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - experiment: null
+  - hparams_search: null
+  - optional local: default
+  - debug: null
+
+## ----------------
+## General settings
+## ----------------
+task_name: "train_dual_path_gat_vn"
+experiment_name: "default"
+train: True
+test: True
+predict: False
+ckpt_path: null
+seed: null
+
+## -----------------------------------------------
+## Configuration for Dual-Path GAT + Virtual Node
+## -----------------------------------------------
+## Two-path architecture combining:
+##   Local path:  GATv2 with distance-conditioned attention (learned length
+##                scales via Gaussian RBF edge encoding).
+##   Global path: Cross-attention virtual node with LSTM temporal encoding
+##                and recurrent (GRU) state updates.
+## Requires CenterHistoryGraphWWMDataModule.
+## -----------------------------------------------
+data:
+  _target_: src.data.CenterHistoryGraphWWMDataModule.CenterHistoryGraphWWMDataModule
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
+  features:
+    - windSpeedX
+    - windSpeedY
+    - prev_sigWaveHeight
+  targets:
+    - sigWaveHeight
+  graph_features:
+    - SCHISM_hgrid_edge_nodes
+  seq_len: 24
+  scaling_config: src/data/scaling/scale_2020_JFM_hourly.yaml
+  node_idx_csv: null
+  boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
+  batch_size: 128
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  sample_weight_strategy: null
+  sample_weight_power: 1.0
+  subsample_prob: null
+  preload_data: true
+  max_radius: 2000000.0
+  max_nodes: 500
+  max_links: 1000000
+  edge_weight_scale: 1000.0
+
+model:
+  _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
+  target_names: ${data.targets}
+  loss_weights: null
+  target_bins: null
+  output_constraints: null
+  focal_gamma: null
+
+  backbone:
+    _target_: src.model.backbones.DualPathGATVN.DualPathGATVN
+    input_dim: 3         # must match len(data.features)
+    output_dim: 1        # must match len(data.targets)
+    hidden_dim: 128
+    lstm_hidden_dim: 64
+    num_lstm_layers: 2
+    num_layers: 3
+    heads: 4             # attention heads (hidden_dim must be divisible)
+    n_rbf: 16            # Gaussian RBF centres for distance encoding
+    dropout: 0.1
+    attn_dropout: 0.1
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 0.0005
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    _partial_: true
+    mode: min
+    factor: 0.5
+    patience: 5
+
+trainer:
+  _target_: lightning.pytorch.trainer.Trainer
+  min_epochs: 0
+  max_epochs: 1000
+  accelerator: auto
+  devices: auto
+  enable_progress_bar: false
+  benchmark: true
+
+logger:
+  wandb:
+    _target_: lightning.pytorch.loggers.wandb.WandbLogger
+    save_dir: "${paths.output_dir}"
+    offline: False
+    id: null
+    project: wwm-emulator-hourly
+    entity: wwm-emulator
+    log_model: False
+
+callbacks:
+  model_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    monitor: val/loss
+    save_last: true
+    save_top_k: 1
+    mode: "min"
+    auto_insert_metric_name: True
+
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: val/loss
+    min_delta: 0.0
+    patience: 10
+    mode: "min"
+
+  model_summary:
+    _target_: lightning.pytorch.callbacks.RichModelSummary
+    max_depth: -1
+
+paths:
+  root_dir: ${hydra:runtime.cwd}
+  output_dir: ${hydra:runtime.output_dir}
+  work_dir: ${hydra:runtime.cwd}
+
+hydra:
+  defaults:
+    - override hydra_logging: colorlog
+    - override job_logging: colorlog
+  run:
+    dir: ${paths.root_dir}/logs/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  sweep:
+    dir: ${paths.root_dir}/logs/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job_logging:
+    handlers:
+      file:
+        filename: ${hydra.runtime.output_dir}/${task_name}.log
