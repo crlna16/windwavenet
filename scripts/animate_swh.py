@@ -117,6 +117,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=1,
         help="Number of parallel workers for griddata interpolation (default: 1).",
     )
+    parser.add_argument(
+        "--bias",
+        action="store_true",
+        help="Plot bias (prediction - ground truth) with RdBu colormap [-1, +1] m.",
+    )
     return parser.parse_args(argv)
 
 
@@ -301,6 +306,17 @@ def main(argv: list[str] | None = None) -> None:
         axis=1,
     )
 
+    # --- Load ground truth for bias mode ---
+    if args.bias:
+        print("Loading ground truth from zarr for bias computation...")
+        ds_gt = xr.open_dataset(
+            "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr",
+            engine="zarr",
+        )
+        gt_all = ds_gt["sigWaveHeight"].isel(time=slice(t_start, t_end)).values
+        ds_gt.close()
+        print(f"Ground truth loaded: {gt_all.shape}")
+
     # --- Output path ---
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -313,6 +329,13 @@ def main(argv: list[str] | None = None) -> None:
     print(f"\nLoading SWH data for frames {t_start}..{t_end - 1} into memory...")
     swh_all = ds["sigWaveHeight"].isel(time=slice(t_start, t_end)).values  # (n_frames, n_nodes)
     print(f"SWH block loaded: {swh_all.shape}, {swh_all.nbytes / 1e6:.1f} MB")
+
+    # Compute bias if requested
+    if args.bias:
+        swh_all = swh_all - gt_all
+        bias_cmap = "RdBu"
+        bias_vmin, bias_vmax = -1.0, 1.0
+        print("Bias computed (prediction - ground truth). Using RdBu colormap [-1, +1] m.")
 
     # ===================================================================
     # Pre-compute regridded fields for Part 1 (parallelizable)
@@ -379,15 +402,15 @@ def main(argv: list[str] | None = None) -> None:
             x_reg,
             y_reg,
             grids[0],
-            cmap=args.cmap,
-            vmin=0,
-            vmax=7,
+            cmap=bias_cmap if args.bias else args.cmap,
+            vmin=bias_vmin if args.bias else 0,
+            vmax=bias_vmax if args.bias else 7,
             transform=data_crs,
             shading="auto",
             zorder=1,
         )
         cbar = fig.colorbar(mesh, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
-        cbar.set_label("Signifikante Wellenhöhe (m)")
+        cbar.set_label("Bias (m)" if args.bias else "Signifikante Wellenhöhe (m)")
         title = ax.set_title(f"\u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
@@ -401,8 +424,9 @@ def main(argv: list[str] | None = None) -> None:
 
         # --- Part 2: German Bight scatter + edges ---
         print("\n--- Part 2: German Bight (scatter + edges) ---")
-        gb_vmax = float(swh_all[:, gb_indices].max())
-        print(f"German Bight SWH max: {gb_vmax:.2f} m")
+        if not args.bias:
+            gb_vmax = float(swh_all[:, gb_indices].max())
+            print(f"German Bight SWH max: {gb_vmax:.2f} m")
         ax.clear()
         setup_map_ax(ax, extent_lonlat=GERMAN_BIGHT_EXTENT)
 
@@ -420,16 +444,16 @@ def main(argv: list[str] | None = None) -> None:
             gb_lon,
             gb_lat,
             c=swh_all[0][gb_indices],
-            cmap=args.cmap,
-            vmin=0,
-            vmax=gb_vmax,
+            cmap=bias_cmap if args.bias else args.cmap,
+            vmin=bias_vmin if args.bias else 0,
+            vmax=bias_vmax if args.bias else gb_vmax,
             s=3,
             edgecolors="none",
             transform=ccrs.PlateCarree(),
             zorder=3,
         )
         cbar2 = fig.colorbar(scatter, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
-        cbar2.set_label("Signifikante Wellenhöhe (m)")
+        cbar2.set_label("Bias (m)" if args.bias else "Signifikante Wellenhöhe (m)")
         title2 = ax.set_title(f"\u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 
@@ -442,8 +466,9 @@ def main(argv: list[str] | None = None) -> None:
 
         # --- Part 3: Wadden Sea zoom (scatter + edges) ---
         print("\n--- Part 3: Wadden Sea zoom (scatter + edges) ---")
-        ws_vmax = float(swh_all[:, ws_indices].max())
-        print(f"Wadden Sea SWH max: {ws_vmax:.2f} m")
+        if not args.bias:
+            ws_vmax = float(swh_all[:, ws_indices].max())
+            print(f"Wadden Sea SWH max: {ws_vmax:.2f} m")
         ax.clear()
         setup_map_ax(ax, extent_lonlat=WADDEN_SEA_EXTENT)
 
@@ -461,16 +486,16 @@ def main(argv: list[str] | None = None) -> None:
             ws_lon,
             ws_lat,
             c=swh_all[0][ws_indices],
-            cmap=args.cmap,
-            vmin=0,
-            vmax=ws_vmax,
+            cmap=bias_cmap if args.bias else args.cmap,
+            vmin=bias_vmin if args.bias else 0,
+            vmax=bias_vmax if args.bias else ws_vmax,
             s=5,
             edgecolors="none",
             transform=ccrs.PlateCarree(),
             zorder=3,
         )
         cbar3 = fig.colorbar(scatter3, ax=ax, orientation="horizontal", shrink=0.8, pad=0.05)
-        cbar3.set_label("Signifikante Wellenhöhe (m)")
+        cbar3.set_label("Bias (m)" if args.bias else "Signifikante Wellenhöhe (m)")
         title3 = ax.set_title(f"\u2014 {time_strings[0]}", fontsize=11)
         fig.tight_layout()
 

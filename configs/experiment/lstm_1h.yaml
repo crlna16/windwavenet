@@ -41,7 +41,6 @@ model:
 
 trainer:
   devices: 1
-  val_check_interval: 20000
 
 logger:
   wandb:
