@@ -51,7 +51,6 @@ data:
   persistent_workers: false
   sample_weight_strategy: null
   sample_weight_power: 1.0
-  subsample_prob: null
   preload_data: false
   max_radius: 20000.0
   max_nodes: 1000

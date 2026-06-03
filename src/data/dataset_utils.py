@@ -404,52 +404,6 @@ def compute_weights(
     return weights
 
 
-def subsample_by_zscore(
-    X: Optional[torch.Tensor],
-    y: torch.Tensor,
-    subsample_prob: float,
-) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
-    """Subsample based on z-score-derived retention probabilities.
-
-    Samples with higher absolute z-scores (outliers) are more likely to be
-    retained. Retention probability: ``p = 1 - exp(-z² / 2)``, scaled so the
-    expected retention rate equals *subsample_prob*.
-
-    Args:
-        X: Feature tensor ``(n_samples, n_features)`` or ``None``.
-        y: Target tensor ``(n_samples, n_targets)``.
-        subsample_prob: Target retention rate.
-
-    Returns:
-        ``(X, y)`` after subsampling. ``X`` may be ``None`` if the input was.
-    """
-    log.info(f"Subsampling dataset based on z-score with target rate {subsample_prob}...")
-
-    n_samples_before = len(y)
-
-    z_scores = (y - torch.mean(y, dim=0)) / torch.std(y, dim=0)
-    max_abs_z = torch.abs(z_scores).max(dim=1)[0]
-
-    retention_probs = 1.0 - torch.exp(-(max_abs_z**2) / 2.0)
-
-    if retention_probs.mean() > 0:
-        retention_probs = retention_probs * (subsample_prob / retention_probs.mean())
-        retention_probs = torch.clamp(retention_probs, 0.0, 1.0)
-
-    random_vals = torch.rand(n_samples_before)
-    keep_mask = random_vals < retention_probs
-
-    if X is not None:
-        X = X[keep_mask]
-    y = y[keep_mask]
-
-    n_samples_after = len(y)
-    retention_rate = n_samples_after / n_samples_before * 100
-    log.info(f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples ({retention_rate:.2f}%)")
-
-    return X, y
-
-
 # ---------------------------------------------------------------------------
 # Reconstruction
 # ---------------------------------------------------------------------------

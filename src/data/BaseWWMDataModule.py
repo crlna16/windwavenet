@@ -39,7 +39,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         persistent_workers: bool = False,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
         preload_data: bool = True,
     ) -> None:
         """Initialize the base WWM DataModule.
@@ -60,7 +59,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             persistent_workers: If True, workers are not shut down after each epoch.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
-            subsample_prob: Optional probability threshold for subsampling training data.
             preload_data: If True, preload data in memory for fast access.
         """
         super().__init__()
@@ -84,7 +82,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
-        self.subsample_prob = subsample_prob
         self.preload_data = preload_data
 
         self.ds_train: Optional[Dataset] = None
@@ -104,7 +101,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         node_idx_csv: Optional[str],
         sample_weight_strategy: Optional[str],
         sample_weight_power: Optional[float],
-        subsample_prob: Optional[float],
         preload_data: bool,
     ) -> Dataset:
         """Create a dataset instance. Subclasses must implement this.
@@ -114,7 +110,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
-            subsample_prob: Optional probability threshold for subsampling.
             preload_data: If True, preload data in memory.
 
         Returns:
@@ -139,7 +134,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=self.sample_weight_strategy,
                 sample_weight_power=self.sample_weight_power,
-                subsample_prob=self.subsample_prob,
                 preload_data=self.preload_data,
             )
 
@@ -148,7 +142,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
-                subsample_prob=None,
                 preload_data=True,
             )
 
@@ -157,7 +150,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
-                subsample_prob=None,
                 preload_data=True,
             )
 
@@ -168,7 +160,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=None,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
-                subsample_prob=None,
                 preload_data=True,
             )
 
@@ -179,7 +170,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=None,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
-                subsample_prob=None,
                 preload_data=True,
             )
 

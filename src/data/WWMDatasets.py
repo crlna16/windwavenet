@@ -36,7 +36,6 @@ class SimpleWWMDataset(Dataset):
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
         preload_data: bool = True,
     ) -> None:
         """Initialize the dataset.
@@ -52,9 +51,6 @@ class SimpleWWMDataset(Dataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
-            subsample_prob: Optional probability threshold for subsampling based on z_score.
-                If provided, samples are retained with probability derived from their z_score.
-                Higher z_score (outliers) have higher retention probability.
             preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
                 With multiple workers, each worker slices the time axis to avoid shared Zarr chunks.
         """
@@ -68,7 +64,6 @@ class SimpleWWMDataset(Dataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
-        self.subsample_prob = subsample_prob
         self.preload_data = preload_data
 
         # Store parameters for worker initialization
@@ -82,13 +77,6 @@ class SimpleWWMDataset(Dataset):
         self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
         self.X, self.y = du.load_and_preload_data(self.ds, self.features, self.targets, self.preload_data)
-
-        # Apply subsampling if requested (only works with preloaded data)
-        if self.subsample_prob is not None:
-            if self.preload_data:
-                self.X, self.y = du.subsample_by_zscore(self.X, self.y, self.subsample_prob)
-            else:
-                log.warning("Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling.")
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None and self.preload_data:
@@ -211,7 +199,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
         preload_data: bool = True,
     ) -> None:
         """Initialize the sequence dataset.
@@ -226,7 +213,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
-            subsample_prob: Optional probability threshold for subsampling.
             preload_data: If True, preload data in memory for fast access.
         """
         self.seq_len = seq_len
@@ -241,7 +227,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv=node_idx_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
             preload_data=preload_data,
         )
 
@@ -338,7 +323,6 @@ class GraphWWMDataset(GDataset):
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
         preload_data: bool = False,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
@@ -364,8 +348,6 @@ class GraphWWMDataset(GDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
-            subsample_prob: Optional probability threshold for subsampling based on z_score.
-                Must be None for graph datasets.
             preload_data: If True, preload X/y in memory. If False, load X/y lazily.
             max_radius: Maximum Euclidean distance (meters) from center node for
                 including neighbors in the subgraph (default: 10000.).
@@ -388,9 +370,6 @@ class GraphWWMDataset(GDataset):
         self.max_nodes = max_nodes
         self.max_links = max_links
         self.edge_weight_scale = edge_weight_scale
-
-        if subsample_prob is not None:
-            raise ValueError(f"Subsample probability must be None for graph datasets. Found {subsample_prob}")
 
         # --- Pipeline: open, preprocess (keep graph vars), scale ---
         self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
@@ -609,7 +588,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
         preload_data: bool = False,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
@@ -630,7 +608,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
-            subsample_prob: Must be None for graph datasets.
             preload_data: If True, preload X/y in memory.
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
@@ -651,7 +628,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv=boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
             preload_data=preload_data,
             max_radius=max_radius,
             max_nodes=max_nodes,

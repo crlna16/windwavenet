@@ -36,7 +36,6 @@ class GraphWWMDataModule(BaseWWMDataModule):
         persistent_workers: bool = False,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
         preload_data: bool = False,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
@@ -65,7 +64,6 @@ class GraphWWMDataModule(BaseWWMDataModule):
             persistent_workers=persistent_workers,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
             preload_data=preload_data,
         )
 
@@ -75,7 +73,6 @@ class GraphWWMDataModule(BaseWWMDataModule):
         node_idx_csv: Optional[str],
         sample_weight_strategy: Optional[str],
         sample_weight_power: Optional[float],
-        subsample_prob: Optional[float],
         preload_data: bool,
     ) -> Dataset:
         return GraphWWMDataset(
@@ -89,7 +86,6 @@ class GraphWWMDataModule(BaseWWMDataModule):
             boundary_nodes_csv=self.boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
             preload_data=preload_data,
             max_radius=self.max_radius,
             max_nodes=self.max_nodes,
