@@ -85,6 +85,7 @@ def minimal_predict_config():
                 f"paths.root_dir={tempfile.gettempdir()}",
                 f"paths.output_dir={tempfile.mkdtemp()}",
                 f"ckpt_path={tempfile.mktemp()}.ckpt",
+                "data.boundary_nodes_csv=null",
             ],
         )
 
@@ -230,6 +231,7 @@ def test_predict_with_delta_target(
                 f"paths.root_dir={tempfile.gettempdir()}",
                 f"paths.output_dir={tempfile.mkdtemp()}",
                 f"ckpt_path={tempfile.mktemp()}.ckpt",
+                "data.boundary_nodes_csv=null",
             ],
         )
 
@@ -328,6 +330,7 @@ def test_predict_with_multiple_targets(
                 f"paths.root_dir={tempfile.gettempdir()}",
                 f"paths.output_dir={tempfile.mkdtemp()}",
                 f"ckpt_path={tempfile.mktemp()}.ckpt",
+                "data.boundary_nodes_csv=null",
             ],
         )
 
