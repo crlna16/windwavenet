@@ -151,7 +151,7 @@ class DualPathGATVN(nn.Module):
                     head_dim,
                     heads=heads,
                     concat=True,
-                    add_self_loops=False,
+                    add_self_loops=True,
                     edge_dim=n_rbf,
                     dropout=attn_dropout,
                 )
