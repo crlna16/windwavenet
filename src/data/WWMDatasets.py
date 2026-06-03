@@ -527,7 +527,7 @@ class GraphWWMDataset(GDataset):
             return torch.from_numpy(values).float()
         return torch.from_numpy(values.T).float()
 
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
         """Construct a graph sample.
 
         Args:
@@ -535,18 +535,33 @@ class GraphWWMDataset(GDataset):
             center_node_pos: 0-indexed positional index of the center node.
 
         Returns:
-            torch_geometric.data.Data with attributes:
+            WWMGraphData with attributes:
                 - x: (n_subgraph_nodes, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
+                - sample_weight: (n_targets,) center-node z-score weight, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
         target_nodes = subgraph_nodes
         y = self._extract_targets(time_idx, target_nodes)
-        return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
+
+        sample_weight = None
+        if self.weights is not None:
+            center_global_idx = subgraph_nodes[center_local_idx]
+            flat_idx = time_idx * self.n_nodes + int(center_global_idx)
+            sample_weight = self.weights[flat_idx]  # (n_targets,)
+
+        return WWMGraphData(
+            x=x,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            y=y,
+            center_idx=center_local_idx,
+            sample_weight=sample_weight,
+        )
 
     def __len__(self) -> int:
         """Return the total number of samples (center_nodes * time_steps)."""
@@ -703,7 +718,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         center_pos = self.center_nodes[idx % self.n_center_nodes]
         return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
 
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
         """Construct a sequence graph sample.
 
         Args:
@@ -711,7 +726,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             center_node_pos: 0-indexed positional index of the center node.
 
         Returns:
-            torch_geometric.data.Data with attributes:
+            WWMGraphData with attributes:
                 - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
@@ -723,23 +738,36 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         target_time = time_idx + self.seq_len - 1
         target_nodes = subgraph_nodes
         y = self._extract_targets(target_time, target_nodes)
-        return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
+
+        sample_weight = None
+        if self.weights is not None:
+            center_global_idx = subgraph_nodes[center_local_idx]
+            flat_idx = target_time * self.n_nodes + int(center_global_idx)
+            sample_weight = self.weights[flat_idx]  # (n_targets,)
+
+        return WWMGraphData(
+            x=x,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            y=y,
+            center_idx=center_local_idx,
+            sample_weight=sample_weight,
+        )
 
 
-class CenterHistoryData(GData):
-    """PyG Data subclass with correct batching for center-only temporal features.
+class WWMGraphData(GData):
+    """PyG Data subclass for WWM graph samples.
 
-    ``x_center_seq`` is a *graph-level* attribute of shape
-    ``(seq_len, n_features)`` for a single graph.  When batched via
-    ``Batch.from_data_list``, it should stack along a **new** batch
-    dimension (like ``y_global``) instead of being concatenated along
-    the node dimension.  Returning ``None`` from ``__cat_dim__``
-    achieves exactly that, producing shape ``(batch_size, seq_len, n_features)``.
+    Handles batching of graph-level attributes by stacking them along a new
+    batch dimension instead of concatenating along the node dimension.  Any
+    attribute listed in ``_GRAPH_LEVEL_KEYS`` gets this treatment.
     """
 
+    _GRAPH_LEVEL_KEYS = {"x_center_seq", "sample_weight"}
+
     def __cat_dim__(self, key: str, value, *args, **kwargs):
-        if key == "x_center_seq":
-            return None  # stack along a new batch dimension
+        if key in self._GRAPH_LEVEL_KEYS:
+            return None  # stack → (batch_size, ...)
         return super().__cat_dim__(key, value, *args, **kwargs)
 
 
@@ -752,7 +780,7 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
     center history with an LSTM and current features with a GCN.
     """
 
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> CenterHistoryData:
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
         """Construct a center-history graph sample.
 
         Args:
@@ -760,13 +788,14 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
             center_node_pos: 0-indexed positional index of the center node.
 
         Returns:
-            CenterHistoryData with attributes:
+            WWMGraphData with attributes:
                 - x: (n_subgraph_nodes, n_features) current-time node features
                 - x_center_seq: (seq_len, n_features) center node temporal history
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: (n_subgraph_nodes, n_targets) targets at last time step
                 - center_idx: local index of center node in x
+                - sample_weight: (n_targets,) center-node z-score weight, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
 
@@ -785,11 +814,19 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # Targets at the last time step for all subgraph nodes
         y = self._extract_targets(present_time, subgraph_nodes)
 
-        return CenterHistoryData(
+        # Graph-level sample weight from center node's precomputed z-score weight
+        # self.weights shape: (n_times * n_nodes, n_targets), stacked time-major
+        sample_weight = None
+        if self.weights is not None:
+            flat_idx = present_time * self.n_nodes + int(center_global_idx)
+            sample_weight = self.weights[flat_idx]  # (n_targets,)
+
+        return WWMGraphData(
             x=x,
             x_center_seq=x_center_seq,
             edge_index=edge_index,
             edge_weight=edge_weight,
             y=y,
             center_idx=center_local_idx,
+            sample_weight=sample_weight,
         )
