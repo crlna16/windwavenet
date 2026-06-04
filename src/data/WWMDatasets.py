@@ -97,48 +97,6 @@ class SimpleWWMDataset(Dataset):
         """
         return len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
 
-    def worker_init_fn(self, worker_id: int) -> None:
-        """Initialize a worker by slicing the dataset across the time dimension.
-
-        Called after the dataset is pickled to the worker process. The dataset
-        (self.ds) is already preprocessed; we just split it across workers.
-
-        This allows lazy loading (preload_data=False) to work with multiple workers
-        by having each worker load only its portion of the time axis.
-
-        Args:
-            worker_id: Worker ID assigned by DataLoader
-        """
-        import torch.utils.data
-
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:
-            # Single-process loading
-            return
-
-        self.worker_id = worker_info.id
-        self.num_workers = worker_info.num_workers
-
-        # Split the already-preprocessed dataset across workers
-        total_times = len(self.ds.time)
-        times_per_worker = total_times // self.num_workers
-        start_time = self.worker_id * times_per_worker
-
-        if self.worker_id == self.num_workers - 1:
-            # Last worker takes remaining samples
-            end_time = total_times
-        else:
-            end_time = start_time + times_per_worker
-
-        # Filter dataset to this worker's samples
-        self.ds = self.ds.isel(time=slice(start_time, end_time))
-        self.worker_time_len = end_time - start_time
-
-        log.info(
-            f"Worker {self.worker_id}/{self.num_workers}: handling time indices [{start_time}:{end_time}] "
-            f"({end_time - start_time}/{total_times})"
-        )
-
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.
 
@@ -147,38 +105,11 @@ class SimpleWWMDataset(Dataset):
 
         Returns:
             Tuple of (features, targets, weights) as PyTorch tensors if weights are computed,
-            otherwise (features, targets). In lazy mode with multiple workers, the index
-            is wrapped to the worker-local time slice.
+            otherwise (features, targets).
         """
-        if self.preload_data:
-            if self.weights is not None:
-                return self.X[idx], self.y[idx], self.weights[idx]
-            return self.X[idx], self.y[idx]
-
-        # Lazy loading mode: load both features and targets from dataset
-        # Indexing follows the stacked order: time is the slow axis, node is the fast axis.
-        local_idx = idx
-
-        n_nodes = self.n_nodes
-        if self.worker_time_len is not None:
-            local_total = self.worker_time_len * n_nodes
-            local_idx = local_idx % local_total
-
-        local_t_idx = local_idx // n_nodes
-        local_x_idx = local_idx % n_nodes
-
-        sample_data = self.ds.isel(time=local_t_idx, nSCHISM_hgrid_node=local_x_idx)
-
-        xa = sample_data[self.features].to_dataarray()
-        x = torch.from_numpy(xa.values)
-
-        ya = sample_data[self.targets].to_dataarray()
-        y = torch.from_numpy(ya.values)
-
-        # Weights are not supported in lazy loading mode
         if self.weights is not None:
-            return x, y, self.weights[idx]
-        return x, y
+            return self.X[idx], self.y[idx], self.weights[idx]
+        return self.X[idx], self.y[idx]
 
 
 class SequenceWWMDataset(SimpleWWMDataset):
