@@ -36,7 +36,6 @@ class SimpleWWMDataset(Dataset):
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        preload_data: bool = True,
     ) -> None:
         """Initialize the dataset.
 
@@ -51,8 +50,6 @@ class SimpleWWMDataset(Dataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
-                With multiple workers, each worker slices the time axis to avoid shared Zarr chunks.
         """
         super().__init__()
 
@@ -64,7 +61,6 @@ class SimpleWWMDataset(Dataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
-        self.preload_data = preload_data
 
         # Store parameters for worker initialization
         self.worker_id = None
@@ -76,10 +72,12 @@ class SimpleWWMDataset(Dataset):
         self.ds = du.filter_nodes(self.ds, self.node_idx_csv)
         self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
-        self.X, self.y = du.load_and_preload_data(self.ds, self.features, self.targets, self.preload_data)
+
+        self.X = du.retrieve_data(self.ds, self.features)
+        self.y = du.retrieve_data(self.ds, self.targets)
 
         # Compute weights (only works with preloaded data)
-        if self.sample_weight_strategy is not None and self.preload_data:
+        if self.sample_weight_strategy is not None:
             self.weights = du.compute_weights(
                 self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
             )
@@ -87,7 +85,7 @@ class SimpleWWMDataset(Dataset):
             self.weights = None
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
-        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
+        log.info(f"Dataset initialized with {num_samples} samples.")
 
     def __len__(self) -> int:
         """Return the number of samples in the (possibly worker-sliced) dataset.
@@ -130,7 +128,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        preload_data: bool = True,
     ) -> None:
         """Initialize the sequence dataset.
 
@@ -144,7 +141,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
-            preload_data: If True, preload data in memory for fast access.
         """
         self.seq_len = seq_len
 
@@ -158,7 +154,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv=node_idx_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            preload_data=preload_data,
         )
 
         # Store time and node dimensions for sequence indexing
@@ -174,12 +169,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
         self.n_valid_times = self.n_time - self.seq_len + 1
 
         # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
-        if self.preload_data and self.X is not None:
-            n_features = self.X.shape[1]
-            n_targets = self.y.shape[1]
-            self.X = self.X.view(self.n_time, self.n_nodes, n_features)
-            self.y = self.y.view(self.n_time, self.n_nodes, n_targets)
-            log.info(f"Reshaped data for sequence access: X={tuple(self.X.shape)}, y={tuple(self.y.shape)}")
+        n_features = self.X.shape[1]
+        n_targets = self.y.shape[1]
+        self.X = self.X.view(self.n_time, self.n_nodes, n_features)
+        self.y = self.y.view(self.n_time, self.n_nodes, n_targets)
+        log.info(f"Reshaped data for sequence access: X={tuple(self.X.shape)}, y={tuple(self.y.shape)}")
 
         log.info(
             f"SequenceWWMDataset initialized with seq_len={seq_len}, "
@@ -209,28 +203,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
         time_start = idx // self.n_nodes
         node_idx = idx % self.n_nodes
 
-        if self.preload_data:
-            # X: sequence from time_start to time_start + seq_len
-            X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
+        # X: sequence from time_start to time_start + seq_len
+        X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
 
-            # y: target at last step in the sequence
-            y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
-
-            return X_seq, y_target
-
-        # Lazy loading mode
-        time_indices = list(range(time_start, time_start + self.seq_len))
-        node = self.ds.nSCHISM_hgrid_node.values[node_idx]
-
-        sample_data = self.ds.isel(time=time_indices).sel(nSCHISM_hgrid_node=node)
-
-        # Features for sequence
-        xa = sample_data[self.features].to_dataarray()
-        X_seq = torch.from_numpy(xa.values.T)  # (seq_len, n_features)
-
-        # Target at last step in sequence
-        ya = sample_data[self.targets].to_dataarray()
-        y_target = torch.from_numpy(ya.values[:, -1])  # (n_targets,)
+        # y: target at last step in the sequence
+        y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
 
         return X_seq, y_target
 
@@ -254,7 +231,6 @@ class GraphWWMDataset(GDataset):
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        preload_data: bool = False,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -279,7 +255,6 @@ class GraphWWMDataset(GDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily.
             max_radius: Maximum Euclidean distance (meters) from center node for
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
@@ -295,7 +270,6 @@ class GraphWWMDataset(GDataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
-        self.preload_data = preload_data
         self.graph_features = [str(f) for f in graph_features]
         self.max_radius = max_radius
         self.max_nodes = max_nodes
@@ -373,15 +347,11 @@ class GraphWWMDataset(GDataset):
         )
 
         # Now that graph_features are gone, preload node features if requested
-        if self.preload_data:
-            self.X = du.retrieve_data(self.ds, self.features)
-            self.y = du.retrieve_data(self.ds, self.targets)
-        else:
-            self.X = None
-            self.y = None
+        self.X = du.retrieve_data(self.ds, self.features)
+        self.y = du.retrieve_data(self.ds, self.targets)
 
         # Compute weights (only works with preloaded data)
-        if self.sample_weight_strategy is not None and self.preload_data:
+        if self.sample_weight_strategy is not None:
             self.weights = du.compute_weights(
                 self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
             )
@@ -519,7 +489,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        preload_data: bool = False,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -539,7 +508,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
-            preload_data: If True, preload X/y in memory.
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
             max_links: Maximum number of BFS hops from center node.
@@ -559,7 +527,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv=boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            preload_data=preload_data,
             max_radius=max_radius,
             max_nodes=max_nodes,
             max_links=max_links,

@@ -44,7 +44,6 @@ data:
   batch_size: 2
   num_workers: 0
   pin_memory: false
-  preload_data: true
   sample_weight_strategy: null
   sample_weight_power: 1.0
   max_nodes: 20

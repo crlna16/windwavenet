@@ -37,7 +37,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
         persistent_workers: bool = False,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        preload_data: bool = False,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -66,7 +65,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
             persistent_workers=persistent_workers,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            preload_data=preload_data,
         )
 
     def _create_dataset(
@@ -75,7 +73,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
         node_idx_csv: Optional[str],
         sample_weight_strategy: Optional[str],
         sample_weight_power: Optional[float],
-        preload_data: bool,
     ) -> Dataset:
         return SequenceGraphWWMDataset(
             data_dir=self.data_dir,
@@ -89,7 +86,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
             boundary_nodes_csv=self.boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            preload_data=preload_data,
             max_radius=self.max_radius,
             max_nodes=self.max_nodes,
             max_links=self.max_links,

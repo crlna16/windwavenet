@@ -14,7 +14,6 @@ command:
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
   - +trainer.limit_val_batches=1000
-  - data.preload_data=true
   - data.train_days=[1, 90]
   - trainer.enable_progress_bar=false
   - data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml
