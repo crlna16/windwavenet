@@ -60,7 +60,6 @@ data:
   batch_size: 32
   num_workers: 0
   pin_memory: false
-  preload_data: true
   sample_weight_strategy: z_score
   sample_weight_power: 1.8
 

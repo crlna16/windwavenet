@@ -446,7 +446,6 @@ class TestSequenceWWMDatasetFunctions:
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
-            preload_data=True,
         )
 
         # idx=0 -> time_start=0, node=0; after first timestep removal this maps to original t=1
@@ -470,7 +469,6 @@ class TestSequenceWWMDatasetFunctions:
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
-            preload_data=True,
         )
         lazy_ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
@@ -478,7 +476,6 @@ class TestSequenceWWMDatasetFunctions:
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
-            preload_data=False,
         )
 
         # Choose index mapping to non-zero time and node.
@@ -613,36 +610,3 @@ class TestSimpleWWMDatasetCoverage:
 
         with pytest.raises(ValueError, match="Unknown sample_weight_strategy"):
             du.compute_weights(ds.y, ds.targets, "invalid_strategy", 1.0)
-
-    def test_worker_init_fn_and_lazy_getitem_with_wrapped_index(self, simple_dataset_zarr, monkeypatch):
-        """Cover worker_init_fn slicing and lazy __getitem__ wrapped local index path."""
-        ds = SimpleWWMDataset(
-            data_dir=simple_dataset_zarr,
-            data_range=[1, 2],
-            features=["U10", "V10"],
-            targets=["sigWaveHeight"],
-            preload_data=False,
-        )
-
-        class _WorkerInfo:
-            id = 1
-            num_workers = 3
-
-        monkeypatch.setattr("torch.utils.data.get_worker_info", lambda: _WorkerInfo())
-        original_times = len(ds.ds.time)
-
-        ds.worker_init_fn(worker_id=1)
-
-        assert ds.worker_id == 1
-        assert ds.num_workers == 3
-        assert ds.worker_time_len is not None
-        assert len(ds.ds.time) < original_times
-
-        # Keep weights disabled so wrapped index path can be tested without bounds checks on weights[idx].
-        ds.weights = None
-        # Use an index beyond local worker span to trigger modulo wrapping.
-        wrapped_idx = len(ds) + 7
-        x, y = ds[wrapped_idx]
-
-        assert tuple(x.shape) == (2,)
-        assert tuple(y.shape) == (1,)
