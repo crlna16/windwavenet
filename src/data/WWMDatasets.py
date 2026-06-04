@@ -35,7 +35,7 @@ class SimpleWWMDataset(Dataset):
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the dataset.
 
@@ -127,7 +127,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the sequence dataset.
 
@@ -230,7 +230,7 @@ class GraphWWMDataset(GDataset):
         node_idx_csv: Optional[str] = None,
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
+        sample_weight_power: float = 1.0,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -488,7 +488,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         node_idx_csv: Optional[str] = None,
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
+        sample_weight_power: float = 1.0,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
