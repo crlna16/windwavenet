@@ -61,7 +61,9 @@ class MultiHeadGAT(nn.Module):
         self.rbf = GaussianRBF(n_rbf=n_rbf, low=0.0, high=1.0)
 
         # ---- Node encoder ----
-        self.node_encoder = nn.Linear(input_dim, hidden_dim)
+        self.node_encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim)
+        )
 
         # ---- Stage 2: Processing layers ----
         head_dim = hidden_dim // heads
@@ -86,7 +88,9 @@ class MultiHeadGAT(nn.Module):
             self.gat_norms.append(nn.LayerNorm(hidden_dim))
 
         # ---- Stage 3: Decoder ----
-        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.node_decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim)
+        )
 
     def forward(self, data) -> torch.Tensor:
         """Forward pass: encode → processing → decode.
@@ -128,4 +132,4 @@ class MultiHeadGAT(nn.Module):
             x = norm(x + x_residual)  # residual + LayerNorm
 
         # ---- Stage 3: Decode ----
-        return self.fc(x)
+        return self.node_decoder(x)
