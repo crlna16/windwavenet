@@ -16,7 +16,7 @@ class GaussianRBF(nn.Module):
     """Gaussian radial basis function expansion for scalar edge features.
 
     Expands a scalar input (e.g. edge_weight in [0, 1]) into a vector of
-    Gaussian basis responses.  Centres are fixed and uniformly spaced; widths
+    Gaussian basis responses.  centers are fixed and uniformly spaced; widths
     are fixed such that adjacent bases overlap at half-maximum.
 
     This gives downstream attention heads a rich representation of distance
@@ -26,8 +26,7 @@ class GaussianRBF(nn.Module):
 
     def __init__(self, n_rbf: int = 16, low: float = 0.0, high: float = 1.0):
         super().__init__()
-        centres = torch.linspace(low, high, n_rbf)
-        self.register_buffer("centres", centres)
+        self.centers = torch.linspace(low, high, n_rbf)
         # Width so that adjacent bases cross at ~0.5 height
         self.gamma = 0.5 / ((high - low) / n_rbf) ** 2
 
@@ -42,7 +41,7 @@ class GaussianRBF(nn.Module):
         """
         if x.dim() == 1:
             x = x.unsqueeze(-1)
-        return torch.exp(-self.gamma * (x - self.centres) ** 2)
+        return torch.exp(-self.gamma * (x - self.centers) ** 2)
 
 
 class DualPathGATVN(nn.Module):
@@ -97,7 +96,7 @@ class DualPathGATVN(nn.Module):
             num_lstm_layers: Number of stacked LSTM layers.
             num_layers: Number of dual-path processing layers.
             heads: Number of attention heads in the local GAT path.
-            n_rbf: Number of Gaussian RBF centres for distance encoding.
+            n_rbf: Number of Gaussian RBF centers for distance encoding.
             dropout: Dropout probability after each processing layer.
             attn_dropout: Dropout on GAT attention coefficients.
         """
@@ -124,7 +123,9 @@ class DualPathGATVN(nn.Module):
         self.vn_init = nn.Linear(lstm_hidden_dim, hidden_dim)
 
         # ---- Node encoder ----
-        self.node_encoder = nn.Linear(input_dim, hidden_dim)
+        self.node_encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, hidden_dim)
+        )
 
         # ---- Stage 2: Dual-path processing layers ----
         head_dim = hidden_dim // heads
@@ -173,7 +174,9 @@ class DualPathGATVN(nn.Module):
             self.fusion_gates.append(nn.Linear(2 * hidden_dim, hidden_dim))
 
         # ---- Stage 3: Decoder ----
-        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.node_decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim)
+        )
 
     def forward(self, data) -> torch.Tensor:
         """Forward pass: encode → dual-path processing → decode.
@@ -253,4 +256,4 @@ class DualPathGATVN(nn.Module):
             vn = gru(vn_agg, vn)
 
         # ---- Stage 3: Decode ----
-        return self.fc(x)
+        return self.node_decoder(x)

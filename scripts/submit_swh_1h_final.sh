@@ -6,10 +6,13 @@
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
+# DenseNet
+#uv run python src/train.py experiment=swh_1h_densenet
+
 # LSTM
-uv run python scripts/train.py experiment=swh_1h_lstm data.seq_len=48
-uv run python scripts/train.py experiment=swh_1h_lstm data.seq_len=24
-uv run python scripts/train.py experiment=swh_1h_lstm data.seq_len=12
-uv run python scripts/train.py experiment=swh_1h_lstm data.seq_len=6
-uv run python scripts/train.py experiment=swh_1h_lstm data.seq_len=3
-uv run python scripts/train.py experiment=swh_1h_lstm data.seq_len=2
+uv run python src/train.py experiment=swh_1h_lstm data.seq_len=48
+uv run python src/train.py experiment=swh_1h_lstm data.seq_len=24
+uv run python src/train.py experiment=swh_1h_lstm data.seq_len=12
+uv run python src/train.py experiment=swh_1h_lstm data.seq_len=6
+uv run python src/train.py experiment=swh_1h_lstm data.seq_len=3
+uv run python src/train.py experiment=swh_1h_lstm data.seq_len=2
