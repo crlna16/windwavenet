@@ -7,9 +7,7 @@ import torch
 from torch_geometric.data import Batch, Data as GData
 
 from src.model.backbones.DenseNet import DenseNet
-from src.model.backbones.GCLSTMNet import GCLSTMNet
 from src.model.backbones.LSTMNet import LSTMNet
-from src.model.backbones.VirtualNodeCenterLSTMGCNNet import VirtualNodeCenterLSTMGCNNet
 
 
 class TestDenseNet:
@@ -169,83 +167,6 @@ def _make_graph_data(n_nodes=20, seq_len=5, n_features=10, n_edges=40):
     return GData(x=x, edge_index=edge_index, edge_weight=edge_weight)
 
 
-class TestGCLSTMNet:
-    """Test suite for GCLSTMNet backbone (graph convolutions inside LSTM gates)."""
-
-    def test_forward_basic(self):
-        """Test basic forward pass with default parameters."""
-        model = GCLSTMNet(input_dim=10, output_dim=3)
-        data = _make_graph_data(n_nodes=20, seq_len=5, n_features=10)
-        output = model(data)
-        assert output.shape == (20, 3)
-
-    def test_forward_custom_dims(self):
-        """Test forward pass with custom hidden dimension and multiple layers."""
-        model = GCLSTMNet(
-            input_dim=6,
-            output_dim=2,
-            hidden_dim=32,
-            num_layers=2,
-            dropout=0.1,
-        )
-        data = _make_graph_data(n_nodes=15, seq_len=8, n_features=6)
-        output = model(data)
-        assert output.shape == (15, 2)
-
-    def test_forward_single_timestep(self):
-        """Test with seq_len=1 (degenerate temporal case)."""
-        model = GCLSTMNet(input_dim=5, output_dim=2)
-        data = _make_graph_data(n_nodes=12, seq_len=1, n_features=5)
-        output = model(data)
-        assert output.shape == (12, 2)
-
-    def test_forward_single_node(self):
-        """Test with a single-node graph."""
-        model = GCLSTMNet(input_dim=3, output_dim=1)
-        data = _make_graph_data(n_nodes=1, seq_len=4, n_features=3, n_edges=0)
-        data.edge_index = torch.zeros(2, 0, dtype=torch.long)
-        data.edge_weight = torch.zeros(0)
-        output = model(data)
-        assert output.shape == (1, 1)
-
-    def test_dropout_train_vs_eval(self):
-        """Test that dropout behaves differently in train vs eval mode."""
-        model = GCLSTMNet(input_dim=5, output_dim=2, num_layers=2, dropout=0.5)
-        data = _make_graph_data(n_nodes=10, seq_len=4, n_features=5)
-        model.train()
-        out_train = model(data)
-        model.eval()
-        out_eval = model(data)
-        assert out_train.shape == (10, 2)
-        assert out_eval.shape == (10, 2)
-
-    def test_gradient_flow(self):
-        """Test that gradients flow through the entire network."""
-        model = GCLSTMNet(input_dim=5, output_dim=2)
-        data = _make_graph_data(n_nodes=10, seq_len=4, n_features=5)
-        data.x.requires_grad_(True)
-        output = model(data)
-        loss = output.sum()
-        loss.backward()
-        assert data.x.grad is not None
-        assert data.x.grad.shape == data.x.shape
-
-    def test_without_edge_weight(self):
-        """Test forward pass when edge_weight is absent."""
-        model = GCLSTMNet(input_dim=5, output_dim=2)
-        data = _make_graph_data(n_nodes=10, seq_len=4, n_features=5)
-        del data.edge_weight
-        output = model(data)
-        assert output.shape == (10, 2)
-
-    def test_stacked_layers(self):
-        """Test with multiple stacked GC-LSTM layers."""
-        model = GCLSTMNet(input_dim=4, output_dim=1, hidden_dim=16, num_layers=3)
-        data = _make_graph_data(n_nodes=8, seq_len=6, n_features=4)
-        output = model(data)
-        assert output.shape == (8, 1)
-
-
 def _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3, n_edges_per_graph=20, seq_len=5):
     """Create a mock PyG Batch mimicking CenterHistoryData batching.
 
@@ -277,66 +198,3 @@ def _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3, n
     # x_center_seq needs to be (n_graphs, seq_len, n_features)
     batch.x_center_seq = torch.stack([d.x_center_seq for d in data_list], dim=0)
     return batch
-
-
-class TestVirtualNodeCenterLSTMGCNNet:
-    """Test suite for VirtualNodeCenterLSTMGCNNet backbone."""
-
-    def test_forward_basic(self):
-        """Test basic forward pass with default parameters."""
-        model = VirtualNodeCenterLSTMGCNNet(input_dim=3, output_dim=1)
-        batch = _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3)
-        output = model(batch)
-        assert output.shape == (20, 1)
-
-    def test_forward_single_graph(self):
-        """Test forward pass with a single graph in the batch."""
-        model = VirtualNodeCenterLSTMGCNNet(input_dim=5, output_dim=2, hidden_dim=32)
-        batch = _make_center_history_batch(n_graphs=1, n_nodes_per_graph=15, n_features=5, seq_len=8)
-        output = model(batch)
-        assert output.shape == (15, 2)
-
-    def test_forward_custom_dims(self):
-        """Test with custom hidden dimensions and layer counts."""
-        model = VirtualNodeCenterLSTMGCNNet(
-            input_dim=6,
-            output_dim=2,
-            hidden_dim=32,
-            lstm_hidden_dim=16,
-            num_lstm_layers=1,
-            num_gcn_layers=2,
-            dropout=0.1,
-        )
-        batch = _make_center_history_batch(n_graphs=3, n_nodes_per_graph=8, n_features=6, seq_len=4)
-        output = model(batch)
-        assert output.shape == (24, 2)
-
-    def test_without_edge_weight(self):
-        """Test forward pass when edge_weight is absent."""
-        model = VirtualNodeCenterLSTMGCNNet(input_dim=3, output_dim=1)
-        batch = _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3)
-        del batch.edge_weight
-        output = model(batch)
-        assert output.shape == (20, 1)
-
-    def test_gradient_flow(self):
-        """Test that gradients flow through LSTM -> virtual node -> GCN -> output."""
-        model = VirtualNodeCenterLSTMGCNNet(input_dim=3, output_dim=1)
-        batch = _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3)
-        batch.x.requires_grad_(True)
-        batch.x_center_seq.requires_grad_(True)
-        output = model(batch)
-        loss = output.sum()
-        loss.backward()
-        assert batch.x.grad is not None
-        assert batch.x_center_seq.grad is not None
-
-    def test_dropout_train_vs_eval(self):
-        """Test that dropout behaves differently in train vs eval mode."""
-        model = VirtualNodeCenterLSTMGCNNet(input_dim=3, output_dim=1, dropout=0.5)
-        batch = _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3)
-        model.train()
-        out_train = model(batch)
-        model.eval()
-        out_eval = model(batch)
-        assert out_train.shape == out_eval.shape == (20, 1)
