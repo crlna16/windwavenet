@@ -36,7 +36,7 @@ data:
   edge_weight_scale: 20000.0
 
 model:
-  _target_: src.model.WWMEmulator.WWMEmulator
+  _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
 
   target_names: ${data.targets}
 

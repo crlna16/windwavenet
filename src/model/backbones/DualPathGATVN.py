@@ -26,7 +26,9 @@ class GaussianRBF(nn.Module):
 
     def __init__(self, n_rbf: int = 16, low: float = 0.0, high: float = 1.0):
         super().__init__()
-        self.centers = torch.linspace(low, high, n_rbf)
+        centers = torch.linspace(low, high, n_rbf)
+        self.register_buffer("centers", centers)  # so it is on the correct device
+
         # Width so that adjacent bases cross at ~0.5 height
         self.gamma = 0.5 / ((high - low) / n_rbf) ** 2
 

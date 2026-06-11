@@ -45,6 +45,6 @@
 #uv run src/train.py --config-name=train_gcn_lstm_center_vn experiment=gcn_1h model.backbone._target_=src.model.backbones.CrossAttnVirtualNodeGCN.CrossAttnVirtualNodeGCN data.edge_weight_scale=7500.0 model.backbone.dropout=0.25 model.backbone.hidden_dim=512 model.backbone.lstm_hidden_dim=64 model.backbone.num_gcn_layers=4 model.backbone.num_lstm_layers=3 model.focal_gamma=0.35 callbacks.early_stopping.patience=5 model.scheduler.patience=2 "data.train_days=[1, 90]" trainer.enable_progress_bar=false test=false predict=false data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml data.node_idx_csv=/work/ka1176/caroline/gitlab/wave-wind-model-emulator/src/data/node_selection/node_idx_closest_center_10000.csv data.seq_len=48 data.batch_size=256 'ckpt_path="./logs/train_gcn_lstm_center_vn/runs/2026-05-19_14-38-52/wwm-emulator-hourly/144os7dr/checkpoints/last.ckpt"' logger.wandb.id="144os7dr"
 
 #uv run src/train.py --config-name=train_dual_path_gat_vn experiment=gcn_1h trainer.devices=1 logger.wandb.id="ijomh6ep" 'ckpt_path="logs/train_dual_path_gat_vn/runs/2026-06-04_11-12-20/wwm-emulator-hourly/ijomh6ep/checkpoints/last.ckpt"'
-uv run src/train.py --config-name=train_multihead_gat experiment=gcn_1h trainer.devices=2
+#uv run src/train.py --config-name=train_multihead_gat experiment=gcn_1h trainer.devices=2
 
 #uv run src/train.py --config-name=train_gat_epd experiment=gcn_1h data.sample_weight_strategy="z_score" data.sample_weight_power=20.0 trainer.devices=2 data.batch_size=256
