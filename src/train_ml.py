@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Training script for classical ML models (XGBoost, RandomForest, etc.)."""
+"""Training script for XGBoost model."""
 
 from pathlib import Path
 from typing import Any, Dict, Tuple

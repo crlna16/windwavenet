@@ -20,12 +20,13 @@ class DummyEstimator:
         self.fit_calls = 0
         self.last_fit_kwargs = None
 
-    def fit(self, X, y, sample_weight=None, eval_set=None, verbose=True):
+    def fit(self, X, y, sample_weight=None, eval_set=None, verbose=True, callbacks=None):
         self.fit_calls += 1
         self.last_fit_kwargs = {
             "sample_weight": sample_weight,
             "eval_set": eval_set,
             "verbose": verbose,
+            "callbacks": callbacks,
         }
         return self
 
@@ -92,6 +93,7 @@ def test_fit_passes_eval_set_and_sample_weight(two_target_data):
     assert model.last_fit_kwargs["sample_weight"] is sample_weight
     assert model.last_fit_kwargs["eval_set"] == [(X_val, y_val)]
     assert model.last_fit_kwargs["verbose"] is True
+    assert model.last_fit_kwargs["callbacks"] is None
     assert "train/loss" in metrics
     assert "val/loss" in metrics
     assert "train/rmse_a" in metrics
@@ -107,8 +109,21 @@ def test_fit_without_validation_sets_eval_set_none(two_target_data):
     metrics = wrapper.fit(X_train=X_train, y_train=y_train)
 
     assert model.last_fit_kwargs["eval_set"] is None
+    assert model.last_fit_kwargs["callbacks"] is None
     assert "train/loss" in metrics
     assert "val/loss" not in metrics
+
+
+def test_fit_passes_callbacks_to_model(two_target_data):
+    X_train, y_train = two_target_data
+    sentinel = object()
+
+    model = DummyEstimator(n_outputs=2)
+    wrapper = MLModelWrapper(model=model, target_names=["a", "b"], callbacks=[sentinel])
+
+    wrapper.fit(X_train=X_train, y_train=y_train)
+
+    assert model.last_fit_kwargs["callbacks"] == [sentinel]
 
 
 def test_predict_delegates_to_model(two_target_data):

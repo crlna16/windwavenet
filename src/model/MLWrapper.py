@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional
 
 import joblib
 import numpy as np
+import xgboost
 from lightning_utilities.core.rank_zero import rank_zero_only
-from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_squared_error
 
 from src.utils.pylogger import RankedLogger
@@ -22,22 +22,22 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class MLModelWrapper:
-    """Wrapper for classical ML models (XGBoost, RandomForest, etc.) to work with Hydra config.
+    """Wrapper for XGBoost to work with Hydra config.
 
     This provides a similar interface to the Lightning models for consistency.
     """
 
     def __init__(
         self,
-        model: BaseEstimator,
+        model: xgboost.XGBRegressor,
         target_names: List[str],
         target_bins: Optional[Dict[str, List[float]]] = None,
         callbacks: Optional[List[Any]] = None,
     ) -> None:
-        """Initialize the ML model wrapper.
+        """Initialize the XGBoost model wrapper.
 
         Args:
-            model: Scikit-learn compatible model (XGBoost, RandomForest, etc.)
+            model: XGBoost regressor
             target_names: List of target variable names
             target_bins: Optional dict mapping target names to bin edges for binned metrics
             callbacks: Optional list of callbacks (e.g., WandB callback for XGBoost)
@@ -86,6 +86,7 @@ class MLModelWrapper:
             sample_weight=sample_weight,
             eval_set=eval_set,
             verbose=True,
+            callbacks=self.callbacks if self.callbacks else None,
         )
 
         log.info("Training complete")
