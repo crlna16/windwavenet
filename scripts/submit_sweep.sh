@@ -27,4 +27,5 @@
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/rw45p0mc
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/2pc9i8vw
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/qhb8xukn
-uv run wandb agent wwm-emulator/wwm-emulator-hourly/wy7aegad
+#uv run wandb agent wwm-emulator/wwm-emulator-hourly/wy7aegad
+uv run wandb agent wwm-emulator/wwm-emulator-hourly/67na936m

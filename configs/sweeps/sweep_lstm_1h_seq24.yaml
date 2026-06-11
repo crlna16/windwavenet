@@ -1,10 +1,10 @@
 program: src/train.py
 project: wwm-emulator-hourly
 entity: wwm-emulator
-method: bayes
+method: random #bayes
 metric:
   goal: minimize
-  name: val/best_loss
+  name: val/best_rmse_sigWaveHeight
 command:
   - ${env}
   - python
@@ -14,58 +14,44 @@ command:
   - experiment=lstm_1h
   - callbacks.early_stopping.patience=3
   - model.scheduler.patience=2
-  - data.preload_data=true
   - data.train_days=[1, 90]
   - trainer.enable_progress_bar=false
   - data.scaling_config=src/data/scaling/scale_2020_JFM_hourly.yaml
   - data.node_idx_csv=/work/ka1176/caroline/gitlab/wave-wind-model-emulator/src/data/node_selection/node_idx_closest_center_10000.csv
   - test=false
+  - data.seq_len=24
+  - model.optimizer.lr=0.0007
+  - model.backbone.bidirectional=false
+  - data.sample_weight_power=20.0
+  - model.backbone.dropout=0.7
 parameters:
-  # Sequence length - how much history to use
-  data.seq_len:
-    distribution: categorical
-    values:
-      - 1
-      - 2
-      - 4
-      - 6
-      - 12
-      - 24
-      - 48
 
   # LSTM architecture parameters
   model.backbone.hidden_dim:
     distribution: categorical
     values:
+      - 8
+      - 16
       - 32
       - 64
       - 128
       - 256
       - 512
+      - 1024
+      - 2048
 
   model.backbone.num_layers:
     distribution: int_uniform
     min: 1
-    max: 4
+    max: 8
 
-  model.backbone.dropout:
-    distribution: uniform
-    min: 0.0
-    max: 0.9
+#  model.backbone.dropout:
+#    distribution: uniform
+#    min: 0.0
+#    max: 0.9
 
-  model.backbone.bidirectional:
-    distribution: categorical
-    values:
-      - true
-      - false
 
-  # Optimizer parameters
-  model.optimizer.lr:
-    distribution: log_uniform_values
-    min: 0.00001
-    max: 0.001
-
-  trainer.val_check_interval:
-    distribution: uniform
-    min: 0.01
-    max: 1.0
+#  data.sample_weight_power:
+#    distribution: uniform
+#    min: 0.0
+#    max: 100.0

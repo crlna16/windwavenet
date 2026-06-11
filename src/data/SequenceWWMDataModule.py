@@ -35,8 +35,6 @@ class SequenceWWMDataModule(BaseWWMDataModule):
         persistent_workers: bool = False,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = True,
     ) -> None:
         """Initialize the Sequence WWM DataModule.
 
@@ -57,8 +55,6 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             persistent_workers: If True, workers are not shut down after each epoch.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
-            subsample_prob: Optional probability threshold for subsampling training data.
-            preload_data: If True, preload data in memory for fast access.
         """
         # Store seq_len before calling super().__init__ since it uses save_hyperparameters
         self.seq_len = seq_len
@@ -78,8 +74,6 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             persistent_workers=persistent_workers,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
         )
 
     def _create_dataset(
@@ -88,8 +82,6 @@ class SequenceWWMDataModule(BaseWWMDataModule):
         node_idx_csv: Optional[str],
         sample_weight_strategy: Optional[str],
         sample_weight_power: Optional[float],
-        subsample_prob: Optional[float],
-        preload_data: bool,
     ) -> Dataset:
         """Create a SequenceWWMDataset instance.
 
@@ -98,8 +90,6 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
-            subsample_prob: Optional probability threshold for subsampling.
-            preload_data: If True, preload data in memory.
 
         Returns:
             A SequenceWWMDataset instance.
@@ -114,6 +104,4 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             node_idx_csv=node_idx_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
         )

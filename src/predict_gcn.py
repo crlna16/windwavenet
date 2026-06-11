@@ -10,8 +10,7 @@ via greedy set cover.  For each time step, each sub-graph is processed
 independently by the trained model and the per-node predictions are
 assembled into a full-domain array.  The output format matches predict.py.
 
-Supports both single-step backbones (GCNFullNet, GCNEncProcDec) and
-sequence backbones (GCLSTMNet) that require ``seq_len`` consecutive
+Supports both single-step backbones and sequence backbones that require ``seq_len`` consecutive
 time steps as input.
 
 Usage example::
@@ -54,9 +53,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     """Predict over the full mesh domain using a trained graph model.
 
-    Supports GCNFullNet, GCNEncProcDec, and GCLSTMNet backbones.
-    Sequence models (``data.seq_len > 1``) receive a window of consecutive
-    time steps; single-step models receive one time step at a time.
+    Supports graph model backbones with and without history on the center node.
 
     Args:
         cfg: Hydra configuration.
@@ -190,8 +187,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     X_all = np.stack([ds[f].values for f in features], axis=-1).astype(np.float32)
     log.info(f"Feature array shape: {X_all.shape}")
 
-    # 5c. Sequence length for temporal models (GCLSTMNet).  Non-sequence
-    #     backbones (GCNFullNet, GCNEncProcDec) default to seq_len=1.
+    # 5c. Sequence length for temporal models
     seq_len: int = int(cfg.data.get("seq_len", 1))
     log.info(f"Sequence length: {seq_len}")
 
@@ -201,7 +197,6 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
 
     # 5e. Center-history mode: only the center node of each partition receives
     #     temporal history; all other nodes get current-time features only.
-    #     Used with the VirtualNodeCenterLSTMGCNNet backbone.
     center_history_only: bool = bool(cfg.data.get("center_history_only", False))
     if center_history_only:
         log.info("Center-history mode enabled: only center nodes receive temporal sequences.")

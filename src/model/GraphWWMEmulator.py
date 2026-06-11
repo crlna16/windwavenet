@@ -57,6 +57,12 @@ class GraphWWMEmulator(WWMEmulator):
 
         per_sample_loss = self.criterion(preds, y)
 
+        # Graph-level z-score sample weights: broadcast from (batch_size, n_targets)
+        # to (total_nodes, n_targets) using the batch membership vector.
+        sample_weight = getattr(batch, "sample_weight", None)
+        if sample_weight is not None:
+            per_sample_loss = per_sample_loss * sample_weight[batch.batch]
+
         # Focal-style regression: weight each sample's MSE by |error|^gamma
         # so that large-error (rare/extreme) samples contribute more.
         if self.focal_gamma is not None and self.focal_gamma > 0.0:

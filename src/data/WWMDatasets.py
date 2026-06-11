@@ -35,9 +35,7 @@ class SimpleWWMDataset(Dataset):
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = True,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the dataset.
 
@@ -52,11 +50,6 @@ class SimpleWWMDataset(Dataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
-            subsample_prob: Optional probability threshold for subsampling based on z_score.
-                If provided, samples are retained with probability derived from their z_score.
-                Higher z_score (outliers) have higher retention probability.
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily in __getitem__.
-                With multiple workers, each worker slices the time axis to avoid shared Zarr chunks.
         """
         super().__init__()
 
@@ -68,8 +61,6 @@ class SimpleWWMDataset(Dataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
-        self.subsample_prob = subsample_prob
-        self.preload_data = preload_data
 
         # Store parameters for worker initialization
         self.worker_id = None
@@ -81,17 +72,12 @@ class SimpleWWMDataset(Dataset):
         self.ds = du.filter_nodes(self.ds, self.node_idx_csv)
         self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
-        self.X, self.y = du.load_and_preload_data(self.ds, self.features, self.targets, self.preload_data)
 
-        # Apply subsampling if requested (only works with preloaded data)
-        if self.subsample_prob is not None:
-            if self.preload_data:
-                self.X, self.y = du.subsample_by_zscore(self.X, self.y, self.subsample_prob)
-            else:
-                log.warning("Subsampling (subsample_prob) requires preload_data=True. Skipping subsampling.")
+        self.X = du.retrieve_data(self.ds, self.features)
+        self.y = du.retrieve_data(self.ds, self.targets)
 
         # Compute weights (only works with preloaded data)
-        if self.sample_weight_strategy is not None and self.preload_data:
+        if self.sample_weight_strategy is not None:
             self.weights = du.compute_weights(
                 self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
             )
@@ -99,7 +85,7 @@ class SimpleWWMDataset(Dataset):
             self.weights = None
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
-        log.info(f"Dataset initialized with {num_samples} samples. Preload data: {self.preload_data}.")
+        log.info(f"Dataset initialized with {num_samples} samples.")
 
     def __len__(self) -> int:
         """Return the number of samples in the (possibly worker-sliced) dataset.
@@ -109,48 +95,6 @@ class SimpleWWMDataset(Dataset):
         """
         return len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
 
-    def worker_init_fn(self, worker_id: int) -> None:
-        """Initialize a worker by slicing the dataset across the time dimension.
-
-        Called after the dataset is pickled to the worker process. The dataset
-        (self.ds) is already preprocessed; we just split it across workers.
-
-        This allows lazy loading (preload_data=False) to work with multiple workers
-        by having each worker load only its portion of the time axis.
-
-        Args:
-            worker_id: Worker ID assigned by DataLoader
-        """
-        import torch.utils.data
-
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:
-            # Single-process loading
-            return
-
-        self.worker_id = worker_info.id
-        self.num_workers = worker_info.num_workers
-
-        # Split the already-preprocessed dataset across workers
-        total_times = len(self.ds.time)
-        times_per_worker = total_times // self.num_workers
-        start_time = self.worker_id * times_per_worker
-
-        if self.worker_id == self.num_workers - 1:
-            # Last worker takes remaining samples
-            end_time = total_times
-        else:
-            end_time = start_time + times_per_worker
-
-        # Filter dataset to this worker's samples
-        self.ds = self.ds.isel(time=slice(start_time, end_time))
-        self.worker_time_len = end_time - start_time
-
-        log.info(
-            f"Worker {self.worker_id}/{self.num_workers}: handling time indices [{start_time}:{end_time}] "
-            f"({end_time - start_time}/{total_times})"
-        )
-
     def __getitem__(self, idx: int) -> Tuple:
         """Get a single sample from the dataset.
 
@@ -159,38 +103,11 @@ class SimpleWWMDataset(Dataset):
 
         Returns:
             Tuple of (features, targets, weights) as PyTorch tensors if weights are computed,
-            otherwise (features, targets). In lazy mode with multiple workers, the index
-            is wrapped to the worker-local time slice.
+            otherwise (features, targets).
         """
-        if self.preload_data:
-            if self.weights is not None:
-                return self.X[idx], self.y[idx], self.weights[idx]
-            return self.X[idx], self.y[idx]
-
-        # Lazy loading mode: load both features and targets from dataset
-        # Indexing follows the stacked order: time is the slow axis, node is the fast axis.
-        local_idx = idx
-
-        n_nodes = self.n_nodes
-        if self.worker_time_len is not None:
-            local_total = self.worker_time_len * n_nodes
-            local_idx = local_idx % local_total
-
-        local_t_idx = local_idx // n_nodes
-        local_x_idx = local_idx % n_nodes
-
-        sample_data = self.ds.isel(time=local_t_idx, nSCHISM_hgrid_node=local_x_idx)
-
-        xa = sample_data[self.features].to_dataarray()
-        x = torch.from_numpy(xa.values)
-
-        ya = sample_data[self.targets].to_dataarray()
-        y = torch.from_numpy(ya.values)
-
-        # Weights are not supported in lazy loading mode
         if self.weights is not None:
-            return x, y, self.weights[idx]
-        return x, y
+            return self.X[idx], self.y[idx], self.weights[idx]
+        return self.X[idx], self.y[idx]
 
 
 class SequenceWWMDataset(SimpleWWMDataset):
@@ -210,9 +127,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = True,
+        sample_weight_power: float = 1.0,
     ) -> None:
         """Initialize the sequence dataset.
 
@@ -226,8 +141,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
-            subsample_prob: Optional probability threshold for subsampling.
-            preload_data: If True, preload data in memory for fast access.
         """
         self.seq_len = seq_len
 
@@ -241,8 +154,6 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv=node_idx_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
         )
 
         # Store time and node dimensions for sequence indexing
@@ -258,12 +169,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
         self.n_valid_times = self.n_time - self.seq_len + 1
 
         # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
-        if self.preload_data and self.X is not None:
-            n_features = self.X.shape[1]
-            n_targets = self.y.shape[1]
-            self.X = self.X.view(self.n_time, self.n_nodes, n_features)
-            self.y = self.y.view(self.n_time, self.n_nodes, n_targets)
-            log.info(f"Reshaped data for sequence access: X={tuple(self.X.shape)}, y={tuple(self.y.shape)}")
+        n_features = self.X.shape[1]
+        n_targets = self.y.shape[1]
+        self.X = self.X.view(self.n_time, self.n_nodes, n_features)
+        self.y = self.y.view(self.n_time, self.n_nodes, n_targets)
+        log.info(f"Reshaped data for sequence access: X={tuple(self.X.shape)}, y={tuple(self.y.shape)}")
 
         log.info(
             f"SequenceWWMDataset initialized with seq_len={seq_len}, "
@@ -293,28 +203,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
         time_start = idx // self.n_nodes
         node_idx = idx % self.n_nodes
 
-        if self.preload_data:
-            # X: sequence from time_start to time_start + seq_len
-            X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
+        # X: sequence from time_start to time_start + seq_len
+        X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
 
-            # y: target at last step in the sequence
-            y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
-
-            return X_seq, y_target
-
-        # Lazy loading mode
-        time_indices = list(range(time_start, time_start + self.seq_len))
-        node = self.ds.nSCHISM_hgrid_node.values[node_idx]
-
-        sample_data = self.ds.isel(time=time_indices).sel(nSCHISM_hgrid_node=node)
-
-        # Features for sequence
-        xa = sample_data[self.features].to_dataarray()
-        X_seq = torch.from_numpy(xa.values.T)  # (seq_len, n_features)
-
-        # Target at last step in sequence
-        ya = sample_data[self.targets].to_dataarray()
-        y_target = torch.from_numpy(ya.values[:, -1])  # (n_targets,)
+        # y: target at last step in the sequence
+        y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
 
         return X_seq, y_target
 
@@ -337,9 +230,7 @@ class GraphWWMDataset(GDataset):
         node_idx_csv: Optional[str] = None,
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = False,
+        sample_weight_power: float = 1.0,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -364,9 +255,6 @@ class GraphWWMDataset(GDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of targets).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
-            subsample_prob: Optional probability threshold for subsampling based on z_score.
-                Must be None for graph datasets.
-            preload_data: If True, preload X/y in memory. If False, load X/y lazily.
             max_radius: Maximum Euclidean distance (meters) from center node for
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
@@ -382,15 +270,11 @@ class GraphWWMDataset(GDataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
-        self.preload_data = preload_data
         self.graph_features = [str(f) for f in graph_features]
         self.max_radius = max_radius
         self.max_nodes = max_nodes
         self.max_links = max_links
         self.edge_weight_scale = edge_weight_scale
-
-        if subsample_prob is not None:
-            raise ValueError(f"Subsample probability must be None for graph datasets. Found {subsample_prob}")
 
         # --- Pipeline: open, preprocess (keep graph vars), scale ---
         self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
@@ -463,15 +347,11 @@ class GraphWWMDataset(GDataset):
         )
 
         # Now that graph_features are gone, preload node features if requested
-        if self.preload_data:
-            self.X = du.retrieve_data(self.ds, self.features)
-            self.y = du.retrieve_data(self.ds, self.targets)
-        else:
-            self.X = None
-            self.y = None
+        self.X = du.retrieve_data(self.ds, self.features)
+        self.y = du.retrieve_data(self.ds, self.targets)
 
         # Compute weights (only works with preloaded data)
-        if self.sample_weight_strategy is not None and self.preload_data:
+        if self.sample_weight_strategy is not None:
             self.weights = du.compute_weights(
                 self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
             )
@@ -527,7 +407,7 @@ class GraphWWMDataset(GDataset):
             return torch.from_numpy(values).float()
         return torch.from_numpy(values.T).float()
 
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
         """Construct a graph sample.
 
         Args:
@@ -535,18 +415,33 @@ class GraphWWMDataset(GDataset):
             center_node_pos: 0-indexed positional index of the center node.
 
         Returns:
-            torch_geometric.data.Data with attributes:
+            WWMGraphData with attributes:
                 - x: (n_subgraph_nodes, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
+                - sample_weight: (n_targets,) center-node z-score weight, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
         target_nodes = subgraph_nodes
         y = self._extract_targets(time_idx, target_nodes)
-        return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
+
+        sample_weight = None
+        if self.weights is not None:
+            center_global_idx = subgraph_nodes[center_local_idx]
+            flat_idx = time_idx * self.n_nodes + int(center_global_idx)
+            sample_weight = self.weights[flat_idx]  # (n_targets,)
+
+        return WWMGraphData(
+            x=x,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            y=y,
+            center_idx=center_local_idx,
+            sample_weight=sample_weight,
+        )
 
     def __len__(self) -> int:
         """Return the total number of samples (center_nodes * time_steps)."""
@@ -593,9 +488,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         node_idx_csv: Optional[str] = None,
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
-        sample_weight_power: Optional[float] = 1.0,
-        subsample_prob: Optional[float] = None,
-        preload_data: bool = False,
+        sample_weight_power: float = 1.0,
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -615,8 +508,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
-            subsample_prob: Must be None for graph datasets.
-            preload_data: If True, preload X/y in memory.
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
             max_links: Maximum number of BFS hops from center node.
@@ -636,8 +527,6 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv=boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
-            subsample_prob=subsample_prob,
-            preload_data=preload_data,
             max_radius=max_radius,
             max_nodes=max_nodes,
             max_links=max_links,
@@ -703,7 +592,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         center_pos = self.center_nodes[idx % self.n_center_nodes]
         return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
 
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> GData:
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
         """Construct a sequence graph sample.
 
         Args:
@@ -711,7 +600,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             center_node_pos: 0-indexed positional index of the center node.
 
         Returns:
-            torch_geometric.data.Data with attributes:
+            WWMGraphData with attributes:
                 - x: (n_subgraph_nodes, seq_len, n_features) node feature tensor
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
@@ -723,23 +612,36 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         target_time = time_idx + self.seq_len - 1
         target_nodes = subgraph_nodes
         y = self._extract_targets(target_time, target_nodes)
-        return GData(x=x, edge_index=edge_index, edge_weight=edge_weight, y=y, center_idx=center_local_idx)
+
+        sample_weight = None
+        if self.weights is not None:
+            center_global_idx = subgraph_nodes[center_local_idx]
+            flat_idx = target_time * self.n_nodes + int(center_global_idx)
+            sample_weight = self.weights[flat_idx]  # (n_targets,)
+
+        return WWMGraphData(
+            x=x,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            y=y,
+            center_idx=center_local_idx,
+            sample_weight=sample_weight,
+        )
 
 
-class CenterHistoryData(GData):
-    """PyG Data subclass with correct batching for center-only temporal features.
+class WWMGraphData(GData):
+    """PyG Data subclass for WWM graph samples.
 
-    ``x_center_seq`` is a *graph-level* attribute of shape
-    ``(seq_len, n_features)`` for a single graph.  When batched via
-    ``Batch.from_data_list``, it should stack along a **new** batch
-    dimension (like ``y_global``) instead of being concatenated along
-    the node dimension.  Returning ``None`` from ``__cat_dim__``
-    achieves exactly that, producing shape ``(batch_size, seq_len, n_features)``.
+    Handles batching of graph-level attributes by stacking them along a new
+    batch dimension instead of concatenating along the node dimension.  Any
+    attribute listed in ``_GRAPH_LEVEL_KEYS`` gets this treatment.
     """
 
+    _GRAPH_LEVEL_KEYS = {"x_center_seq", "sample_weight"}
+
     def __cat_dim__(self, key: str, value, *args, **kwargs):
-        if key == "x_center_seq":
-            return None  # stack along a new batch dimension
+        if key in self._GRAPH_LEVEL_KEYS:
+            return None  # stack → (batch_size, ...)
         return super().__cat_dim__(key, value, *args, **kwargs)
 
 
@@ -752,7 +654,7 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
     center history with an LSTM and current features with a GCN.
     """
 
-    def construct_graph(self, time_idx: int, center_node_pos: int) -> CenterHistoryData:
+    def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
         """Construct a center-history graph sample.
 
         Args:
@@ -760,13 +662,14 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
             center_node_pos: 0-indexed positional index of the center node.
 
         Returns:
-            CenterHistoryData with attributes:
+            WWMGraphData with attributes:
                 - x: (n_subgraph_nodes, n_features) current-time node features
                 - x_center_seq: (seq_len, n_features) center node temporal history
                 - edge_index: (2, n_edges) edge index tensor
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: (n_subgraph_nodes, n_targets) targets at last time step
                 - center_idx: local index of center node in x
+                - sample_weight: (n_targets,) center-node z-score weight, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
 
@@ -785,11 +688,19 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # Targets at the last time step for all subgraph nodes
         y = self._extract_targets(present_time, subgraph_nodes)
 
-        return CenterHistoryData(
+        # Graph-level sample weight from center node's precomputed z-score weight
+        # self.weights shape: (n_times * n_nodes, n_targets), stacked time-major
+        sample_weight = None
+        if self.weights is not None:
+            flat_idx = present_time * self.n_nodes + int(center_global_idx)
+            sample_weight = self.weights[flat_idx]  # (n_targets,)
+
+        return WWMGraphData(
             x=x,
             x_center_seq=x_center_seq,
             edge_index=edge_index,
             edge_weight=edge_weight,
             y=y,
             center_idx=center_local_idx,
+            sample_weight=sample_weight,
         )

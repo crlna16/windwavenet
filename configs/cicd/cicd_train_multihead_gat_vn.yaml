@@ -12,9 +12,9 @@ defaults:
 ## General settings
 ## ----------------
 task_name: "cicd"
-experiment_name: "cicd_train_gcn_target"
+experiment_name: "cicd_train_multihead_gat_vn"
 
-tags: ["cicd", "gcn"]
+tags: ["cicd", "multihead_gat_vn"]
 
 train: True
 test: True
@@ -22,7 +22,7 @@ ckpt_path: null
 seed: null
 
 ## ----------------------------------
-## Configuration for gcn CI/CD
+## Configuration for MultiHeadGATVN CI/CD
 ## ----------------------------------
 data:
   _target_: src.data.GraphWWMDataModule.GraphWWMDataModule
@@ -43,9 +43,10 @@ data:
   batch_size: 2
   num_workers: 0
   pin_memory: false
-  preload_data: true
   sample_weight_strategy: null
   sample_weight_power: 1.0
+  max_nodes: 20
+  edge_weight_scale: 1000.0
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
@@ -54,12 +55,15 @@ model:
   target_bins: null
 
   backbone:
-    _target_: src.model.backbones.GCNFullNet.GCNFullNet
-    input_dim: 3   # must match len(data.features)
-    output_dim: 1  # must match len(data.targets)
+    _target_: src.model.backbones.MultiHeadGATVN.MultiHeadGATVN
+    input_dim: 3         # must match len(data.features)
+    output_dim: 1        # must match len(data.targets)
     hidden_dim: 128
     num_layers: 3
+    heads: 4             # attention heads (hidden_dim must be divisible)
+    n_rbf: 16            # Gaussian RBF centres for distance encoding
     dropout: 0.1
+    attn_dropout: 0.1
 
   optimizer:
     _target_: torch.optim.AdamW
@@ -99,12 +103,6 @@ callbacks:
   early_stopping:
     _target_: lightning.pytorch.callbacks.EarlyStopping
     monitor: val/loss
-    patience: 5
-    mode: "min"
-
-  model_summary:
-    _target_: lightning.pytorch.callbacks.RichModelSummary
-    max_depth: -1
 
 paths:
   root_dir: ${hydra:runtime.cwd}

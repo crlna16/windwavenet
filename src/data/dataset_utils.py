@@ -295,31 +295,6 @@ def retrieve_data(dataset: xr.Dataset, variables: List[str]) -> torch.Tensor:
     return tensor
 
 
-def load_and_preload_data(
-    ds: xr.Dataset,
-    features: List[str],
-    targets: List[str],
-    preload_data: bool,
-) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
-    """Optionally preload features and targets into tensors.
-
-    Args:
-        ds: xarray Dataset.
-        features: Feature variable names.
-        targets: Target variable names.
-        preload_data: Whether to actually load.
-
-    Returns:
-        ``(X, y)`` tensors, or ``(None, None)`` when *preload_data* is ``False``.
-    """
-    if preload_data:
-        X = retrieve_data(ds, features)
-        y = retrieve_data(ds, targets)
-        return X, y
-    log.info("Lazy loading enabled: features and targets will be loaded on-demand")
-    return None, None
-
-
 # ---------------------------------------------------------------------------
 # Node indices
 # ---------------------------------------------------------------------------
@@ -355,7 +330,7 @@ def load_node_indices(csv_path: str) -> np.ndarray:
 def compute_weights(
     y: torch.Tensor,
     targets: List[str],
-    strategy: Optional[str],
+    strategy: str = "z_score",
     power: float = 1.0,
 ) -> Optional[torch.Tensor]:
     """Compute and normalise per-sample weights.
@@ -365,7 +340,7 @@ def compute_weights(
     Args:
         y: Target tensor of shape ``(n_samples, n_targets)``.
         targets: Target variable names (for logging).
-        strategy: ``None`` or ``"z_score"``.
+        strategy: ``"z_score"``.
         power: Exponent controlling weighting intensity.
 
     Returns:
@@ -374,9 +349,6 @@ def compute_weights(
     Raises:
         ValueError: If *strategy* is not recognised.
     """
-    if strategy is None:
-        log.info("No sample weight strategy specified, skipping weight computation")
-        return None
 
     log.info(f"Computing sample weights with strategy '{strategy}'...")
 
@@ -402,52 +374,6 @@ def compute_weights(
     weights = weights.float()
     log.info(f"Sample weights computed and normalized for {n_samples} samples")
     return weights
-
-
-def subsample_by_zscore(
-    X: Optional[torch.Tensor],
-    y: torch.Tensor,
-    subsample_prob: float,
-) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
-    """Subsample based on z-score-derived retention probabilities.
-
-    Samples with higher absolute z-scores (outliers) are more likely to be
-    retained. Retention probability: ``p = 1 - exp(-z² / 2)``, scaled so the
-    expected retention rate equals *subsample_prob*.
-
-    Args:
-        X: Feature tensor ``(n_samples, n_features)`` or ``None``.
-        y: Target tensor ``(n_samples, n_targets)``.
-        subsample_prob: Target retention rate.
-
-    Returns:
-        ``(X, y)`` after subsampling. ``X`` may be ``None`` if the input was.
-    """
-    log.info(f"Subsampling dataset based on z-score with target rate {subsample_prob}...")
-
-    n_samples_before = len(y)
-
-    z_scores = (y - torch.mean(y, dim=0)) / torch.std(y, dim=0)
-    max_abs_z = torch.abs(z_scores).max(dim=1)[0]
-
-    retention_probs = 1.0 - torch.exp(-(max_abs_z**2) / 2.0)
-
-    if retention_probs.mean() > 0:
-        retention_probs = retention_probs * (subsample_prob / retention_probs.mean())
-        retention_probs = torch.clamp(retention_probs, 0.0, 1.0)
-
-    random_vals = torch.rand(n_samples_before)
-    keep_mask = random_vals < retention_probs
-
-    if X is not None:
-        X = X[keep_mask]
-    y = y[keep_mask]
-
-    n_samples_after = len(y)
-    retention_rate = n_samples_after / n_samples_before * 100
-    log.info(f"Subsampling complete: kept {n_samples_after}/{n_samples_before} samples ({retention_rate:.2f}%)")
-
-    return X, y
 
 
 # ---------------------------------------------------------------------------

@@ -65,14 +65,6 @@ data:
 
   sample_weight_power: 1.0 # Exponent for controlling sample weight intensity
 
-  # Optional: subsample training data based on z_score probability
-  # If set (e.g., 0.5), samples with higher z_scores (outliers) are more likely to be retained
-  # Only applied to training dataset, not validation or test
-  subsample_prob: null # Set to value between 0 and 1 to enable subsampling (e.g., 0.3)
-
-  # Preload training features in memory (targets are always preloaded)
-  preload_data: true
-
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
 
