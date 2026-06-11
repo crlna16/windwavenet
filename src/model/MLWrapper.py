@@ -86,7 +86,7 @@ class MLModelWrapper:
             sample_weight=sample_weight,
             eval_set=eval_set,
             verbose=True,
-            callbacks=self.callbacks if self.callbacks else None,
+            # callbacks=self.callbacks if self.callbacks else None,
         )
 
         log.info("Training complete")
