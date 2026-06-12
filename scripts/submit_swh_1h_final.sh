@@ -2,7 +2,7 @@
 #SBATCH -A ka1176
 #SBATCH -p gpu
 #SBATCH --mem=0
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:3
 #SBATCH --exclusive
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
@@ -31,6 +31,7 @@
 # Multi-Head GAT VN
 # RUNNING uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false
 # RUNNING uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false model.backbone.dropout=0.1 model.backbone.attn_dropout=0.2
+uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=3 test=false model.backbone.dropout=0.1 model.backbone.attn_dropout=0.2 data.max_nodes=50
 
 # Multi-Head GAT LSTM VN
-uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=2 test=false
+# RUNNING uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=2 test=false
