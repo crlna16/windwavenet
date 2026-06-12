@@ -48,11 +48,11 @@ model:
     input_dim: 7         # must match len(data.features)
     output_dim: 1        # must match len(data.targets)
     hidden_dim: 64
-    num_layers: 2
+    num_layers: 9
     heads: 16            # attention heads (hidden_dim must be divisible)
     n_rbf: 16            # Gaussian RBF centres for distance encoding
-    dropout: 0.1
-    attn_dropout: 0.2
+    dropout: 0.6
+    attn_dropout: 0.5
 
   optimizer:
     lr: 0.0007
