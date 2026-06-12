@@ -5,7 +5,7 @@ predict: false
 experiment_name: "swh_1h_multi-head-gat-vn"
 
 data:
-  _target_: src.data.GraphWWMDataModule.GraphWWMDataModule
+  _target_: src.data.CenterHistoryGraphWWMDataModule.CenterHistoryGraphWWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
   train_days: [1, 90]
   val_days: [305, 334]
@@ -34,6 +34,7 @@ data:
   max_nodes: 500
   max_links: 1000000
   edge_weight_scale: 20000.0
+  seq_len: 24
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator

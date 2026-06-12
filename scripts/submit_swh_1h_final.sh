@@ -30,4 +30,7 @@
 
 # Multi-Head GAT VN
 # RUNNING uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false
-uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false model.backbone.dropout=0.1 model.backbone.attn_dropout=0.2
+# RUNNING uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false model.backbone.dropout=0.1 model.backbone.attn_dropout=0.2
+
+# Multi-Head GAT LSTM VN
+uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=2 test=false
