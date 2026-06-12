@@ -66,7 +66,7 @@ model:
   focal_gamma: null
 
   backbone:
-    _target_: src.model.backbones.DualPathGATVN.DualPathGATVN
+    _target_: src.model.backbones.MultiHeadGATLSTMVN.MultiHeadGATLSTMVN
     input_dim: 3         # must match len(data.features)
     output_dim: 1        # must match len(data.targets)
     hidden_dim: 128

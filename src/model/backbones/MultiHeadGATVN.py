@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATv2Conv, global_add_pool, global_mean_pool
 from torch_geometric.utils import softmax as pyg_softmax
 
-from .DualPathGATVN import GaussianRBF
+from .MultiHeadGATLSTMVN import GaussianRBF
 
 
 class MultiHeadGATVN(nn.Module):
@@ -19,7 +19,7 @@ class MultiHeadGATVN(nn.Module):
 
     Combines the multi-head GAT spatial reasoning of :class:`MultiHeadGAT`
     with the virtual-node global communication mechanism of
-    :class:`DualPathGATVN`, using only the current time step's features
+    :class:`MultiHeadGATLSTMVN`, using only the current time step's features
     (no temporal history or LSTM).
 
     **Local path** — Multi-head GATv2 attention over the mesh edge set with

@@ -29,5 +29,5 @@
 # DONE uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=2 data.max_nodes=5000 data.batch_size=26 +trainer.num_nodes=1 test=false predict=false
 
 # Multi-Head GAT VN
-uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false
-#uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false model.backbone.dropout=0.1 model.backbone.attn_dropout=0.2
+# RUNNING uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false
+uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false model.backbone.dropout=0.1 model.backbone.attn_dropout=0.2
