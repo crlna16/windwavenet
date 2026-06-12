@@ -68,7 +68,6 @@ def test_init_sets_expected_attributes():
     assert wrapper.target_names == ["a", "b"]
     assert wrapper.num_targets == 2
     assert wrapper.target_bins == {}
-    assert wrapper.callbacks == []
 
 
 def test_fit_passes_eval_set_and_sample_weight(two_target_data):

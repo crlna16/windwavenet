@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional
 
 import joblib
 import numpy as np
+import xgboost
 from lightning_utilities.core.rank_zero import rank_zero_only
-from sklearn.base import BaseEstimator
 from sklearn.metrics import mean_squared_error
 
 from src.utils.pylogger import RankedLogger
@@ -22,36 +22,31 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class MLModelWrapper:
-    """Wrapper for classical ML models (XGBoost, RandomForest, etc.) to work with Hydra config.
+    """Wrapper for XGBoost to work with Hydra config.
 
     This provides a similar interface to the Lightning models for consistency.
     """
 
     def __init__(
         self,
-        model: BaseEstimator,
+        model: xgboost.XGBRegressor,
         target_names: List[str],
         target_bins: Optional[Dict[str, List[float]]] = None,
-        callbacks: Optional[List[Any]] = None,
     ) -> None:
-        """Initialize the ML model wrapper.
+        """Initialize the XGBoost model wrapper.
 
         Args:
-            model: Scikit-learn compatible model (XGBoost, RandomForest, etc.)
+            model: XGBoost regressor
             target_names: List of target variable names
             target_bins: Optional dict mapping target names to bin edges for binned metrics
-            callbacks: Optional list of callbacks (e.g., WandB callback for XGBoost)
         """
         self.model = model
         self.target_names = target_names
         self.target_bins = target_bins if target_bins is not None else {}
         self.num_targets = len(target_names)
-        self.callbacks = callbacks if callbacks is not None else []
 
         log.info(f"Initialized ML model: {type(model).__name__}")
         log.info(f"Target names: {target_names}")
-        if self.callbacks:
-            log.info(f"Callbacks: {[type(cb).__name__ for cb in self.callbacks]}")
 
     def fit(
         self,

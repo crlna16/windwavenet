@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Training script for classical ML models (XGBoost, RandomForest, etc.)."""
+"""Training script for XGBoost model."""
 
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -13,7 +13,6 @@ import numpy as np
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
 import wandb
-from wandb.integration.xgboost import WandbCallback
 
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import (
@@ -70,14 +69,12 @@ def train_ml(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.logger:
         log.info("Initializing WandB...")
         wandb_run = wandb.init(**cfg.logger.wandb, config=dict(cfg))
-        callbacks = [WandbCallback(log_model=False)]
     else:
         wandb_run = None
-        callbacks = None
 
     # Instantiate ML model
     log.info(f"Instantiating ML model <{cfg.model._target_}>")
-    ml_model = hydra.utils.instantiate(cfg.model, callbacks=callbacks)
+    ml_model = hydra.utils.instantiate(cfg.model)
 
     log.info("Starting training...")
     train_metrics = ml_model.fit(X_train, y_train, X_val=X_val, y_val=y_val, sample_weight=weights_train)
