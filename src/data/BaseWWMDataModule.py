@@ -138,13 +138,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 sample_weight_power=None,
             )
 
-            self.ds_test = self._create_dataset(
-                data_range=self.test_days,
-                node_idx_csv=self.node_idx_csv,
-                sample_weight_strategy=None,
-                sample_weight_power=None,
-            )
-
         elif stage == "test":
             # Test on all nodes for full evaluation
             self.ds_test = self._create_dataset(
