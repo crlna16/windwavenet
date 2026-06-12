@@ -47,4 +47,5 @@
 #uv run src/train.py --config-name=train_dual_path_gat_vn experiment=gcn_1h trainer.devices=1 logger.wandb.id="ijomh6ep" 'ckpt_path="logs/train_dual_path_gat_vn/runs/2026-06-04_11-12-20/wwm-emulator-hourly/ijomh6ep/checkpoints/last.ckpt"'
 #uv run src/train.py --config-name=train_multihead_gat experiment=gcn_1h trainer.devices=2
 
+
 #uv run src/train.py --config-name=train_gat_epd experiment=gcn_1h data.sample_weight_strategy="z_score" data.sample_weight_power=20.0 trainer.devices=2 data.batch_size=256
