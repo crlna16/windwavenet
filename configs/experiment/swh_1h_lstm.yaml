@@ -56,5 +56,4 @@ trainer:
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-
-tags: ["swh-1h", "lstm"]
+    tags: ["swh-1h", "lstm"]

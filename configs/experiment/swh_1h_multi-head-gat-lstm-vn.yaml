@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "swh_1h_multi-head-gat-vn"
+experiment_name: "swh_1h_multi-head-gat-lstm-vn"
 
 data:
   _target_: src.data.CenterHistoryGraphWWMDataModule.CenterHistoryGraphWWMDataModule
@@ -69,5 +69,4 @@ trainer:
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-
-tags: ["swh-1h", "multi-head-gat-vn"]
+    tags: ["swh-1h", "multi-head-gat-lstm-vn"]
