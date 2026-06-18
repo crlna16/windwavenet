@@ -189,6 +189,9 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         if self.ds_train is None:
             self.setup(stage=stage)
 
+        if self.ds_test is None:
+            self.setup(stage="test")
+
         def _extract(ds):
             X = ds.X.cpu().numpy()
             y = ds.y.cpu().numpy()
