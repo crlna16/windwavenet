@@ -22,7 +22,7 @@ ckpt_path: null
 seed: null
 
 ## ----------------------------------
-## Configuration for DualPathGATVN CI/CD
+## Configuration for MultiHeadGATLSTMVN CI/CD
 ## ----------------------------------
 data:
   _target_: src.data.CenterHistoryGraphWWMDataModule.CenterHistoryGraphWWMDataModule
@@ -56,7 +56,7 @@ model:
   target_bins: null
 
   backbone:
-    _target_: src.model.backbones.DualPathGATVN.DualPathGATVN
+    _target_: src.model.backbones.MultiHeadGATLSTMVN.MultiHeadGATLSTMVN
     input_dim: 3         # must match len(data.features)
     output_dim: 1        # must match len(data.targets)
     hidden_dim: 128

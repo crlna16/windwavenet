@@ -138,13 +138,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 sample_weight_power=None,
             )
 
-            self.ds_test = self._create_dataset(
-                data_range=self.test_days,
-                node_idx_csv=self.node_idx_csv,
-                sample_weight_strategy=None,
-                sample_weight_power=None,
-            )
-
         elif stage == "test":
             # Test on all nodes for full evaluation
             self.ds_test = self._create_dataset(
@@ -195,6 +188,9 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         """
         if self.ds_train is None:
             self.setup(stage=stage)
+
+        if self.ds_test is None:
+            self.setup(stage="test")
 
         def _extract(ds):
             X = ds.X.cpu().numpy()

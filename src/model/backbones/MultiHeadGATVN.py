@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATv2Conv, global_add_pool, global_mean_pool
 from torch_geometric.utils import softmax as pyg_softmax
 
-from .DualPathGATVN import GaussianRBF
+from .MultiHeadGATLSTMVN import GaussianRBF
 
 
 class MultiHeadGATVN(nn.Module):
@@ -19,7 +19,7 @@ class MultiHeadGATVN(nn.Module):
 
     Combines the multi-head GAT spatial reasoning of :class:`MultiHeadGAT`
     with the virtual-node global communication mechanism of
-    :class:`DualPathGATVN`, using only the current time step's features
+    :class:`MultiHeadGATLSTMVN`, using only the current time step's features
     (no temporal history or LSTM).
 
     **Local path** — Multi-head GATv2 attention over the mesh edge set with
@@ -101,7 +101,7 @@ class MultiHeadGATVN(nn.Module):
         # Fusion gates
         self.fusion_gates = nn.ModuleList()
 
-        for _ in range(num_layers):
+        for i in range(num_layers):
             # Local: GATv2 with RBF edge features
             self.gat_convs.append(
                 GATv2Conv(
@@ -120,12 +120,12 @@ class MultiHeadGATVN(nn.Module):
             self.inject_gates.append(nn.Linear(2 * hidden_dim, hidden_dim))
             self.inject_projs.append(nn.Linear(hidden_dim, hidden_dim))
 
-            # Global: attention-weighted collection
-            self.collect_queries.append(nn.Linear(hidden_dim, hidden_dim))
-            self.collect_keys.append(nn.Linear(hidden_dim, hidden_dim))
-
-            # Global: recurrent VN update (GRU cell)
-            self.vn_grus.append(nn.GRUCell(hidden_dim, hidden_dim))
+            # Global: attention-weighted collection and recurrent update
+            # Only needed for layers that feed a subsequent injection step.
+            if i < num_layers - 1:
+                self.collect_queries.append(nn.Linear(hidden_dim, hidden_dim))
+                self.collect_keys.append(nn.Linear(hidden_dim, hidden_dim))
+                self.vn_grus.append(nn.GRUCell(hidden_dim, hidden_dim))
 
             # Fusion: gate to combine local + global per node
             self.fusion_gates.append(nn.Linear(2 * hidden_dim, hidden_dim))
@@ -167,15 +167,14 @@ class MultiHeadGATVN(nn.Module):
         vn = self.vn_init(global_mean_pool(x, batch))  # (batch_size, hidden_dim)
 
         # ---- Stage 2: Dual-path processing ----
-        for gat, norm, gate_lin, proj_lin, q_lin, k_lin, gru, fuse_lin in zip(
-            self.gat_convs,
-            self.gat_norms,
-            self.inject_gates,
-            self.inject_projs,
-            self.collect_queries,
-            self.collect_keys,
-            self.vn_grus,
-            self.fusion_gates,
+        for i, (gat, norm, gate_lin, proj_lin, fuse_lin) in enumerate(
+            zip(
+                self.gat_convs,
+                self.gat_norms,
+                self.inject_gates,
+                self.inject_projs,
+                self.fusion_gates,
+            )
         ):
             x_residual = x
 
@@ -195,15 +194,15 @@ class MultiHeadGATVN(nn.Module):
             alpha = torch.sigmoid(fuse_lin(fusion_input))
             x = alpha * x_local + (1.0 - alpha) * x_global
 
-            # --- Global path: attention-weighted collection ---
-            q = q_lin(vn)[batch]  # (total_nodes, hidden_dim)
-            k = k_lin(x)  # (total_nodes, hidden_dim)
-            scores = (q * k).sum(dim=-1) * self._scale
-            attn = pyg_softmax(scores, batch)
-            vn_agg = global_add_pool(x * attn.unsqueeze(-1), batch)  # (batch_size, hidden_dim)
-
-            # --- Global path: recurrent VN update ---
-            vn = gru(vn_agg, vn)
+            # --- Global path: attention-weighted collection + recurrent update ---
+            # Skipped in the last layer: the updated VN would never be consumed.
+            if i < len(self.collect_queries):
+                q = self.collect_queries[i](vn)[batch]  # (total_nodes, hidden_dim)
+                k = self.collect_keys[i](x)  # (total_nodes, hidden_dim)
+                scores = (q * k).sum(dim=-1) * self._scale
+                attn = pyg_softmax(scores, batch)
+                vn_agg = global_add_pool(x * attn.unsqueeze(-1), batch)  # (batch_size, hidden_dim)
+                vn = self.vn_grus[i](vn_agg, vn)
 
         # ---- Stage 3: Decode ----
         return self.node_decoder(x)

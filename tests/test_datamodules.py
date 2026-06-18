@@ -71,7 +71,6 @@ class TestWWMDataModule:
 
         assert dm.ds_train is not None
         assert dm.ds_val is not None
-        assert dm.ds_test is not None
 
     def test_setup_test_creates_dataset(self, cicd_data_path):
         """Test that setup with stage='test' creates test dataset."""
@@ -227,7 +226,6 @@ class TestSequenceWWMDataModule:
 
         assert dm.ds_train is not None
         assert dm.ds_val is not None
-        assert dm.ds_test is not None
 
         # Check that datasets have seq_len attribute
         assert hasattr(dm.ds_train, "seq_len")

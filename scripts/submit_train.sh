@@ -49,3 +49,13 @@
 
 
 #uv run src/train.py --config-name=train_gat_epd experiment=gcn_1h data.sample_weight_strategy="z_score" data.sample_weight_power=20.0 trainer.devices=2 data.batch_size=256
+
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=0.0
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=1.0
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=5.0
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=10.0
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=20.0
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=50.0
+#uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=100.0
+
+uv run src/train.py experiment=swh_mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly"
