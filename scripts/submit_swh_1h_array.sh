@@ -6,7 +6,7 @@
 #SBATCH --exclusive
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%A_%a.out
-#SBATCH --array=0-28
+#SBATCH --array=0-31
 
 # how to call
 # sbatch --array=15-18 scripts/submit_swh_1h_array.sh
@@ -47,6 +47,10 @@ COMMANDS=(
     "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=4 test=false data.seq_len=3"
     "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=4 test=false data.seq_len=12"
     "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=4 test=false data.seq_len=48"
+    # (29-31)
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=4 test=false data.seq_len=6"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=4 test=false data.seq_len=6 data.max_nodes=250"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml trainer.devices=4 test=false data.seq_len=6 data.max_nodes=50"
 )
 
 eval "${COMMANDS[$SLURM_ARRAY_TASK_ID]}"

@@ -33,7 +33,7 @@ from torch_geometric.data import Batch, Data as GData
 
 from src.data import dataset_utils as du
 from src.data import graph_utils as gu
-from src.data.WWMDatasets import CenterHistoryData
+from src.data.WWMDatasets import CenterHistoryDataGraphWWMDataset
 from src.utils.pylogger import RankedLogger
 from src.utils.instantiators import instantiate_loggers
 from src.utils.utils import get_bin_mask, print_config_tree
@@ -244,7 +244,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
                         center_global = subgraph_nodes[center_local_idx]
                         x_center_seq = torch.from_numpy(X_window[:, center_global, :].copy())  # (seq_len, n_features)
                         data_list.append(
-                            CenterHistoryData(
+                            CenterHistoryDataGraphWWMDataset(
                                 x=x,
                                 x_center_seq=x_center_seq,
                                 edge_index=edge_index,
