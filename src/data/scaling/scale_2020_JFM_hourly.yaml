@@ -30,6 +30,9 @@ peakPeriod:
 meanWavePeriod:
   mean: 5.330238
   std: 1.5788294
+prev_meanWavePeriod:
+  mean: 5.330238
+  std: 1.5788294
 TM10:
   mean: 5.254476
   std: 1.6329303
