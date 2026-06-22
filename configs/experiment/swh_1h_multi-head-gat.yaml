@@ -66,4 +66,4 @@ trainer:
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-    tags: ["swh-1h", "multi-head-gat"]
+    tags: ["swh-1h", "gat"]
