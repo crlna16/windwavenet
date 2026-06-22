@@ -97,6 +97,42 @@ def compute_prevT(dataset: xr.Dataset, features: List[str]) -> xr.Dataset:
     return dataset
 
 
+def compute_sincos(dataset: xr.Dataset, variables: List[str]) -> xr.Dataset:
+    """Compute ``sin_var`` and ``cos_var`` for variables prefixed with ``sin_`` or ``cos_``.
+
+    Interprets the base variable as an angle in **degrees** and applies
+    ``np.sin`` / ``np.cos`` after converting to radians.  This is the
+    recommended encoding for circular quantities such as ``meanWaveDirection``
+    to avoid the discontinuity at 0°/360°.
+
+    Example for ``meanWaveDirection``::
+
+        ds["sin_meanWaveDirection"] = sin(radians(ds["meanWaveDirection"]))
+        ds["cos_meanWaveDirection"] = cos(radians(ds["meanWaveDirection"]))
+
+    Call this **before** :func:`compute_prevT` so that prefixed variables like
+    ``prev_sin_meanWaveDirection`` are created automatically by time-shifting.
+
+    Args:
+        dataset: xarray Dataset containing the data.
+        variables: List of variable names.  Only names starting with ``sin_``
+            or ``cos_`` are processed; all others are ignored.
+
+    Returns:
+        Dataset with sin/cos variables added (unscaled, in [-1, 1]).
+    """
+    for var in variables:
+        if var.startswith("sin_"):
+            base_var = var[len("sin_") :]
+            dataset[var] = np.sin(np.radians(dataset[base_var]))
+            log.info(f"Added variable {var} = sin(radians({base_var}))")
+        elif var.startswith("cos_"):
+            base_var = var[len("cos_") :]
+            dataset[var] = np.cos(np.radians(dataset[base_var]))
+            log.info(f"Added variable {var} = cos(radians({base_var}))")
+    return dataset
+
+
 def compute_deltaT(dataset: xr.Dataset, targets: List[str]) -> xr.Dataset:
     """Compute ``delta_target = target(t) - target(t-1)`` for targets prefixed with ``delta_``.
 
@@ -163,10 +199,19 @@ def preprocess_variables(
     Returns:
         Tuple of ``(dataset, n_nodes)``.
     """
+    ds = compute_sincos(ds, features + targets)
     ds = compute_prevT(ds, features)
     ds = compute_deltaT(ds, targets)
     selected_targets = targets + [tt.replace("delta_", "") for tt in targets]
     keep = features + selected_targets
+    # Keep the original angle variable for any sin/cos target pair so that
+    # circular metrics can be computed against the true angle at eval time.
+    for t in targets:
+        for prefix in ("sin_", "cos_"):
+            if t.startswith(prefix):
+                base_var = t[len(prefix) :]
+                if base_var in ds and base_var not in keep:
+                    keep.append(base_var)
     if extra_keep_vars:
         keep = keep + list(extra_keep_vars)
     ds = select_variables(ds, keep)
@@ -426,6 +471,24 @@ def reconstruct_from_delta(
     return reconstructed, dataset
 
 
+def reconstruct_from_sincos(
+    sin_predictions: np.ndarray,
+    cos_predictions: np.ndarray,
+) -> np.ndarray:
+    """Reconstruct an angle in degrees from sin/cos component predictions.
+
+    Uses ``np.degrees(np.arctan2(sin, cos)) % 360`` to map back to [0, 360).
+
+    Args:
+        sin_predictions: Predicted sin component (any shape).
+        cos_predictions: Predicted cos component (same shape).
+
+    Returns:
+        Angle in degrees, in the range [0, 360).
+    """
+    return np.degrees(np.arctan2(sin_predictions, cos_predictions)) % 360.0
+
+
 # ---------------------------------------------------------------------------
 # Prediction post-processing
 # ---------------------------------------------------------------------------
@@ -493,6 +556,10 @@ def build_prediction_dataset(
     """
     data_vars: Dict[str, object] = {}
 
+    # Collect raw (possibly unscaled) predictions per target name first,
+    # so that sin/cos pairs can be detected and reconstructed together.
+    raw_preds: Dict[str, np.ndarray] = {}
+
     for i, target_name in enumerate(target_names):
         target_preds = predictions[:, :, i]  # (n_time, n_nodes)
 
@@ -511,6 +578,20 @@ def build_prediction_dataset(
         else:
             target_preds = unscale_predictions(target_preds, target_name, features, scaling_params)
             data_vars[target_name] = (["time", "nSCHISM_hgrid_node"], target_preds)
+            raw_preds[target_name] = target_preds
+
+    # Reconstruct angle (degrees) for any sin/cos target pairs present.
+    # E.g. if both "sin_meanWaveDirection" and "cos_meanWaveDirection" are in
+    # target_names, reconstruct "meanWaveDirection" via atan2.
+    sin_targets = {n[len("sin_") :]: n for n in raw_preds if n.startswith("sin_")}
+    cos_targets = {n[len("cos_") :]: n for n in raw_preds if n.startswith("cos_")}
+    for base_var in sin_targets:
+        if base_var in cos_targets:
+            sin_name = sin_targets[base_var]
+            cos_name = cos_targets[base_var]
+            log.info(f"Reconstructing {base_var} from {sin_name} and {cos_name} via atan2")
+            reconstructed_angle = reconstruct_from_sincos(raw_preds[sin_name], raw_preds[cos_name])
+            data_vars[base_var] = (["time", "nSCHISM_hgrid_node"], reconstructed_angle)
 
     output_target_names = [tn.replace("delta_", "") for tn in target_names]
 

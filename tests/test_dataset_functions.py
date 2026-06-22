@@ -610,3 +610,118 @@ class TestSimpleWWMDatasetCoverage:
 
         with pytest.raises(ValueError, match="Unknown sample_weight_strategy"):
             du.compute_weights(ds.y, ds.targets, "invalid_strategy", 1.0)
+
+
+class TestComputeSincos:
+    """Test suite for compute_sincos and reconstruct_from_sincos."""
+
+    @pytest.fixture
+    def angle_dataset(self):
+        """Synthetic dataset with a meanWaveDirection variable."""
+        angles_deg = np.array(
+            [
+                [0.0, 90.0, 180.0],  # t=0
+                [270.0, 45.0, 360.0],  # t=1
+            ]
+        )
+        return xr.Dataset(
+            {"meanWaveDirection": (["time", "nSCHISM_hgrid_node"], angles_deg)},
+            coords={"time": [0, 1], "nSCHISM_hgrid_node": [0, 1, 2]},
+        )
+
+    def test_sin_variable_created(self, angle_dataset):
+        """sin_meanWaveDirection is added to the dataset."""
+        ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection"])
+        assert "sin_meanWaveDirection" in ds
+
+    def test_cos_variable_created(self, angle_dataset):
+        """cos_meanWaveDirection is added to the dataset."""
+        ds = du.compute_sincos(angle_dataset, ["cos_meanWaveDirection"])
+        assert "cos_meanWaveDirection" in ds
+
+    def test_sin_values_correct(self, angle_dataset):
+        """sin(0°)=0, sin(90°)=1, sin(180°)=0, sin(270°)=-1."""
+        ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection"])
+        sin_vals = ds["sin_meanWaveDirection"].values
+        expected = np.sin(np.radians(angle_dataset["meanWaveDirection"].values))
+        np.testing.assert_allclose(sin_vals, expected, atol=1e-6)
+
+    def test_cos_values_correct(self, angle_dataset):
+        """cos(0°)=1, cos(90°)=0, cos(180°)=-1, cos(270°)=0."""
+        ds = du.compute_sincos(angle_dataset, ["cos_meanWaveDirection"])
+        cos_vals = ds["cos_meanWaveDirection"].values
+        expected = np.cos(np.radians(angle_dataset["meanWaveDirection"].values))
+        np.testing.assert_allclose(cos_vals, expected, atol=1e-6)
+
+    def test_0_and_360_give_same_sincos(self, angle_dataset):
+        """0° and 360° should produce the same sin/cos values."""
+        ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "cos_meanWaveDirection"])
+        # t=0, node=0 is 0°; t=1, node=2 is 360°
+        np.testing.assert_allclose(
+            ds["sin_meanWaveDirection"].values[0, 0],
+            ds["sin_meanWaveDirection"].values[1, 2],
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            ds["cos_meanWaveDirection"].values[0, 0],
+            ds["cos_meanWaveDirection"].values[1, 2],
+            atol=1e-6,
+        )
+
+    def test_non_sincos_vars_ignored(self, angle_dataset):
+        """Variables not prefixed with sin_/cos_ are left unchanged."""
+        ds = du.compute_sincos(angle_dataset, ["meanWaveDirection", "windSpeedX"])
+        # meanWaveDirection was already there; nothing new should be added
+        assert set(ds.data_vars) == {"meanWaveDirection"}
+
+    def test_original_var_preserved(self, angle_dataset):
+        """The original angle variable is not removed by compute_sincos."""
+        ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "cos_meanWaveDirection"])
+        assert "meanWaveDirection" in ds
+
+    def test_prev_sincos_created_by_compute_prevT(self, angle_dataset):
+        """After compute_sincos, compute_prevT correctly shifts sin_/cos_ variables."""
+        ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "prev_sin_meanWaveDirection"])
+        ds = du.compute_prevT(ds, ["prev_sin_meanWaveDirection"])
+        assert "prev_sin_meanWaveDirection" in ds
+        # t=1 prev should equal t=0 sin
+        np.testing.assert_allclose(
+            ds["prev_sin_meanWaveDirection"].values[1],
+            ds["sin_meanWaveDirection"].values[0],
+            atol=1e-6,
+        )
+
+
+class TestReconstructFromSincos:
+    """Test suite for reconstruct_from_sincos."""
+
+    def test_cardinal_angles(self):
+        """Roundtrip for 0°, 90°, 180°, 270°."""
+        angles = np.array([0.0, 90.0, 180.0, 270.0])
+        sin_vals = np.sin(np.radians(angles))
+        cos_vals = np.cos(np.radians(angles))
+        reconstructed = du.reconstruct_from_sincos(sin_vals, cos_vals)
+        np.testing.assert_allclose(reconstructed, angles, atol=1e-5)
+
+    def test_arbitrary_angles_roundtrip(self):
+        """Roundtrip for a range of angles."""
+        angles = np.array([0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0, 359.0])
+        sin_vals = np.sin(np.radians(angles))
+        cos_vals = np.cos(np.radians(angles))
+        reconstructed = du.reconstruct_from_sincos(sin_vals, cos_vals)
+        np.testing.assert_allclose(reconstructed, angles, atol=1e-4)
+
+    def test_output_in_0_360(self):
+        """Output is always in [0, 360)."""
+        sin_vals = np.array([-1.0, 0.0, 1.0, 0.0])
+        cos_vals = np.array([0.0, 1.0, 0.0, -1.0])
+        reconstructed = du.reconstruct_from_sincos(sin_vals, cos_vals)
+        assert np.all(reconstructed >= 0.0)
+        assert np.all(reconstructed < 360.0)
+
+    def test_360_maps_to_0(self):
+        """360° and 0° give the same sin/cos, so reconstruction returns 0°."""
+        sin_360 = np.sin(np.radians(360.0))
+        cos_360 = np.cos(np.radians(360.0))
+        reconstructed = du.reconstruct_from_sincos(np.array([sin_360]), np.array([cos_360]))
+        np.testing.assert_allclose(reconstructed[0], 0.0, atol=1e-5)

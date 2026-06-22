@@ -11,6 +11,8 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
+import torch
+
 import warnings
 
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
@@ -44,6 +46,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
+
+    torch.autograd.set_detect_anomaly(True)
 
     log.info("Printing config tree with Rich <cfg.extras.print_config=True>")
     print_config_tree(cfg, resolve=True, save_to_file=True)

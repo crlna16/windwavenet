@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
+import numpy as np
 
 from src.model.WWMEmulator import WWMEmulator
 from src.model.backbones.DenseNet import DenseNet
@@ -293,3 +294,80 @@ class TestWWMEmulatorWithLSTM:
         total_loss, per_var_losses, preds, targets = emulator.model_step(batch)
         assert preds.shape == (8, 2)
         assert total_loss.ndim == 0
+
+
+class TestUnitCircleConstraint:
+    """Test suite for the unit_circle paired output constraint."""
+
+    @pytest.fixture
+    def mock_optimizer(self):
+        return lambda params: torch.optim.Adam(params, lr=0.001)
+
+    def test_unit_circle_normalizes_to_unit_circle(self, mock_optimizer):
+        """sin/cos pair is projected onto the unit circle."""
+        backbone = DenseNet(input_dim=2, output_dim=2)
+        emulator = WWMEmulator(
+            backbone=backbone,
+            target_names=["sin_meanWaveDirection", "cos_meanWaveDirection"],
+            optimizer=mock_optimizer,
+            output_constraints={
+                "sin_meanWaveDirection": "unit_circle",
+                "cos_meanWaveDirection": "unit_circle",
+            },
+        )
+        # Feed a non-unit-norm pair (3, 4) — norm = 5, expected output (0.6, 0.8)
+        preds = torch.tensor([[3.0, 4.0]])
+        constrained = emulator._apply_output_constraints(preds)
+        np.testing.assert_allclose(constrained[0, 0].item(), 0.6, atol=1e-5)
+        np.testing.assert_allclose(constrained[0, 1].item(), 0.8, atol=1e-5)
+
+    def test_unit_circle_output_has_unit_norm(self, mock_optimizer):
+        """For arbitrary inputs, constrained sin²+cos² == 1."""
+        backbone = DenseNet(input_dim=2, output_dim=2)
+        emulator = WWMEmulator(
+            backbone=backbone,
+            target_names=["sin_meanWaveDirection", "cos_meanWaveDirection"],
+            optimizer=mock_optimizer,
+            output_constraints={
+                "sin_meanWaveDirection": "unit_circle",
+                "cos_meanWaveDirection": "unit_circle",
+            },
+        )
+        preds = torch.tensor([[3.0, 4.0], [-1.0, 2.0], [0.0, 5.0]])
+        constrained = emulator._apply_output_constraints(preds)
+        norms = (constrained[:, 0] ** 2 + constrained[:, 1] ** 2).sqrt()
+        np.testing.assert_allclose(norms.detach().numpy(), np.ones(3), atol=1e-5)
+
+    def test_unit_circle_with_mixed_constraints(self, mock_optimizer):
+        """semipositive constraint on sigWaveHeight is unaffected by unit_circle logic."""
+        backbone = DenseNet(input_dim=3, output_dim=3)
+        emulator = WWMEmulator(
+            backbone=backbone,
+            target_names=["sigWaveHeight", "sin_meanWaveDirection", "cos_meanWaveDirection"],
+            optimizer=mock_optimizer,
+            output_constraints={
+                "sigWaveHeight": "semipositive",
+                "sin_meanWaveDirection": "unit_circle",
+                "cos_meanWaveDirection": "unit_circle",
+            },
+        )
+        preds = torch.tensor([[-2.0, 3.0, 4.0]])  # sigWaveHeight<0 should clamp to 0
+        constrained = emulator._apply_output_constraints(preds)
+        # sigWaveHeight: relu(-2) = 0
+        assert constrained[0, 0].item() == pytest.approx(0.0)
+        # sin/cos: (3,4) -> (0.6, 0.8)
+        np.testing.assert_allclose(constrained[0, 1].item(), 0.6, atol=1e-5)
+        np.testing.assert_allclose(constrained[0, 2].item(), 0.8, atol=1e-5)
+
+    def test_unit_circle_no_partner_leaves_unchanged(self, mock_optimizer):
+        """If only sin_ has unit_circle but no matching cos_, channel is left as-is."""
+        backbone = DenseNet(input_dim=1, output_dim=1)
+        emulator = WWMEmulator(
+            backbone=backbone,
+            target_names=["sin_meanWaveDirection"],
+            optimizer=mock_optimizer,
+            output_constraints={"sin_meanWaveDirection": "unit_circle"},
+        )
+        preds = torch.tensor([[3.0]])
+        constrained = emulator._apply_output_constraints(preds)
+        assert constrained[0, 0].item() == pytest.approx(3.0)

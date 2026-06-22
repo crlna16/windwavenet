@@ -238,6 +238,41 @@ def get_bin_mask(
         return (values >= bins[bin_idx - 1]) & (values < bins[bin_idx])
 
 
+def circular_mae(pred_deg: np.ndarray, truth_deg: np.ndarray) -> float:
+    """Mean absolute error for circular quantities given in degrees.
+
+    Accounts for wrap-around at 0°/360° by taking the minimum of the direct
+    angular difference and its complement.
+
+    Args:
+        pred_deg: Predicted angles in degrees (any shape).
+        truth_deg: Ground-truth angles in degrees (same shape).
+
+    Returns:
+        Scalar mean circular absolute error in degrees.
+    """
+    diff = np.abs(pred_deg - truth_deg) % 360.0
+    diff = np.where(diff > 180.0, 360.0 - diff, diff)
+    return float(np.mean(diff))
+
+
+def circular_rmse(pred_deg: np.ndarray, truth_deg: np.ndarray) -> float:
+    """Root mean squared error for circular quantities given in degrees.
+
+    Accounts for wrap-around at 0°/360°.
+
+    Args:
+        pred_deg: Predicted angles in degrees (any shape).
+        truth_deg: Ground-truth angles in degrees (same shape).
+
+    Returns:
+        Scalar circular RMSE in degrees.
+    """
+    diff = np.abs(pred_deg - truth_deg) % 360.0
+    diff = np.where(diff > 180.0, 360.0 - diff, diff)
+    return float(np.sqrt(np.mean(diff**2)))
+
+
 def generate_predictions_ml(
     ml_model,
     datamodule,

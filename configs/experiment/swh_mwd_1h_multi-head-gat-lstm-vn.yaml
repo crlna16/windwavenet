@@ -66,8 +66,8 @@ model:
 
   output_constraints:
     sigWaveHeight: semipositive
-    sin_meanWaveDirection: unit_circle
-    cos_meanWaveDirection: unit_circle
+    #sin_meanWaveDirection: unit_circle
+    #cos_meanWaveDirection: unit_circle
 
 trainer:
   devices: 1

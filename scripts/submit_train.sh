@@ -58,4 +58,4 @@
 #uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=50.0
 #uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=100.0
 
-uv run src/train.py experiment=swh_mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly"
+HYDRA_FULL_ERROR=1 uv run src/train.py experiment=swh_mwd_1h_multi-head-gat-vn test=false trainer.devices=2 logger.wandb.project="wwm-emulator-hourly" data.max_nodes=50 trainer.enable_progress_bar=true
