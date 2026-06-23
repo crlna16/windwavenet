@@ -87,8 +87,6 @@ class SimpleWWMDataset(Dataset):
                 self.targets,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
-                X=self.X,
-                features=self.features,
                 weight_variable=self.sample_weight_variable,
             )
         else:
@@ -375,8 +373,6 @@ class GraphWWMDataset(GDataset):
                 self.targets,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
-                X=self.X,
-                features=self.features,
                 weight_variable=self.sample_weight_variable,
             )
         else:
@@ -449,8 +445,7 @@ class GraphWWMDataset(GDataset):
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_node_features(time_idx, subgraph_nodes)
-        target_nodes = subgraph_nodes
-        y = self._extract_targets(time_idx, target_nodes)
+        y = self._extract_targets(time_idx, subgraph_nodes)
 
         sample_weight = None
         if self.weights is not None:
