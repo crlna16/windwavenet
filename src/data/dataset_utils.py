@@ -377,48 +377,77 @@ def compute_weights(
     targets: List[str],
     strategy: str = "z_score",
     power: float = 1.0,
+    X: Optional[torch.Tensor] = None,
+    features: Optional[List[str]] = None,
+    weight_variable: str = "sigWaveHeight",
 ) -> Optional[torch.Tensor]:
-    """Compute and normalise per-sample weights.
+    """Compute and normalise per-sample weights from a single reference variable.
 
-    Weights are normalised so that their mean equals 1.0.
+    A single scalar weight is computed per sample based on the z-score of
+    ``weight_variable``. The variable is looked up first in ``targets`` (using
+    ``y``), then in ``features`` (using ``X``).  Weights are normalised so that
+    their mean equals 1.0 and returned with shape ``(n_samples, 1)`` so they
+    broadcast uniformly over all targets in the loss.
 
     Args:
         y: Target tensor of shape ``(n_samples, n_targets)``.
-        targets: Target variable names (for logging).
+        targets: Target variable names.
         strategy: ``"z_score"``.
         power: Exponent controlling weighting intensity.
+        X: Feature tensor of shape ``(n_samples, n_features)``.  Required when
+            ``weight_variable`` is not found in ``targets``.
+        features: Feature variable names.  Required when ``weight_variable`` is
+            not found in ``targets``.
+        weight_variable: Name of the variable whose z-score drives the weights
+            (default: ``"sigWaveHeight"``).
 
     Returns:
-        Weight tensor of shape ``(n_samples, n_targets)``, or ``None``.
+        Weight tensor of shape ``(n_samples, 1)``, or ``None``.
 
     Raises:
-        ValueError: If *strategy* is not recognised.
+        ValueError: If *strategy* is not recognised or *weight_variable* cannot
+            be found.
     """
 
-    log.info(f"Computing sample weights with strategy '{strategy}'...")
+    log.info(f"Computing sample weights with strategy '{strategy}' using variable '{weight_variable}'...")
 
     n_samples = len(y)
-    n_targets = len(targets)
+
+    # Locate weight_variable in targets or features
+    if weight_variable in targets:
+        col_idx = targets.index(weight_variable)
+        data = y[:, col_idx]
+        log.info(f"Weight variable '{weight_variable}' found in targets at index {col_idx}.")
+    elif features is not None and weight_variable in features:
+        if X is None:
+            raise ValueError(
+                f"weight_variable '{weight_variable}' is in features but X was not provided to compute_weights."
+            )
+        col_idx = features.index(weight_variable)
+        data = X[:, col_idx]
+        log.info(f"Weight variable '{weight_variable}' found in features at index {col_idx}.")
+    else:
+        raise ValueError(
+            f"weight_variable '{weight_variable}' not found in targets {targets} "
+            f"or features {features}. Provide an exact variable name."
+        )
 
     if strategy == "z_score":
-        z_scores = (y - torch.mean(y)) / torch.std(y)
-        weights = 1.0 - torch.exp(-(z_scores**2) / torch.tensor(power))
+        z_scores = (data - data.mean()) / data.std()
+        weights = 1.0 - torch.exp(-(z_scores**2) / power)
     else:
         raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
 
-    # Normalise per target so mean == 1.0
-    for i in range(n_targets):
-        weight_sum = weights[:, i].sum()
-        weights[:, i] = weights[:, i] * (n_samples / weight_sum)
-        log.info(
-            f"Target {targets[i]}: normalized weights, "
-            f"(mean={weights[:, i].mean():.4f}, std={weights[:, i].std():.4f}, "
-            f"min={weights[:, i].min():.4f}, max={weights[:, i].max():.4f})"
-        )
+    # Normalise so mean == 1.0
+    weight_sum = weights.sum()
+    weights = weights * (n_samples / weight_sum)
+    log.info(
+        f"Sample weights normalised: mean={weights.mean():.4f}, std={weights.std():.4f}, "
+        f"min={weights.min():.4f}, max={weights.max():.4f}"
+    )
 
-    weights = weights.float()
-    log.info(f"Sample weights computed and normalized for {n_samples} samples")
-    return weights
+    # Return shape (n_samples, 1) so it broadcasts over all targets in the loss
+    return weights.float().unsqueeze(-1)
 
 
 # ---------------------------------------------------------------------------

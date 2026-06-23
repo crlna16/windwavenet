@@ -39,6 +39,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         persistent_workers: bool = False,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
+        sample_weight_variable: str = "sigWaveHeight",
     ) -> None:
         """Initialize the base WWM DataModule.
 
@@ -58,6 +59,8 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             persistent_workers: If True, workers are not shut down after each epoch.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
+            sample_weight_variable: Variable whose z-score drives sample weights
+                (default: 'sigWaveHeight'). Looked up in targets first, then features.
         """
         super().__init__()
 
@@ -80,6 +83,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
+        self.sample_weight_variable = sample_weight_variable
 
         self.ds_train: Optional[Dataset] = None
         self.ds_val: Optional[Dataset] = None
@@ -98,6 +102,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         node_idx_csv: Optional[str],
         sample_weight_strategy: Optional[str],
         sample_weight_power: Optional[float],
+        sample_weight_variable: str,
     ) -> Dataset:
         """Create a dataset instance. Subclasses must implement this.
 
@@ -106,6 +111,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
+            sample_weight_variable: Variable whose z-score drives sample weights.
 
         Returns:
             A Dataset instance.
@@ -129,6 +135,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=self.sample_weight_strategy,
                 sample_weight_power=self.sample_weight_power,
+                sample_weight_variable=self.sample_weight_variable,
             )
 
             self.ds_val = self._create_dataset(
@@ -136,6 +143,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=self.node_idx_csv,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
+                sample_weight_variable=self.sample_weight_variable,
             )
 
         elif stage == "test":
@@ -145,6 +153,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=None,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
+                sample_weight_variable=self.sample_weight_variable,
             )
 
         elif stage == "predict":
@@ -154,6 +163,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 node_idx_csv=None,
                 sample_weight_strategy=None,
                 sample_weight_power=None,
+                sample_weight_variable=self.sample_weight_variable,
             )
 
         elif stage == "validate":
