@@ -158,7 +158,8 @@ class WWMEmulator(L.LightningModule):
         if not self.output_constraints:
             return preds
 
-        preds = preds.clone()
+        # Build result tensor element-by-element to avoid in-place operations
+        result = []
 
         # Track which indices have already been handled by the unit_circle pair logic.
         handled: set = set()
@@ -171,6 +172,7 @@ class WWMEmulator(L.LightningModule):
                 continue
             constraint = self.output_constraints.get(name)
             if constraint is None:
+                result.append(preds[:, i].unsqueeze(-1))
                 continue
 
             if constraint == "unit_circle":
@@ -191,16 +193,20 @@ class WWMEmulator(L.LightningModule):
                 ):
                     j = name_to_idx[partner]
                     norm = torch.sqrt(preds[:, i] ** 2 + preds[:, j] ** 2).clamp(min=1e-8)
-                    preds[:, i] = preds[:, i] / norm
-                    preds[:, j] = preds[:, j] / norm
+                    sin_normalized = preds[:, i] / norm
+                    cos_normalized = preds[:, j] / norm
+                    result.append(sin_normalized.unsqueeze(-1))
+                    result.append(cos_normalized.unsqueeze(-1))
                     handled.add(i)
                     handled.add(j)
+                else:
+                    result.append(preds[:, i].unsqueeze(-1))
                 # If no valid partner found, fall through and leave channel unchanged.
             else:
                 constraint_fn = self.CONSTRAINT_FUNCTIONS[constraint]
-                preds[:, i] = constraint_fn(preds[:, i])
+                result.append(constraint_fn(preds[:, i]).unsqueeze(-1))
 
-        return preds
+        return torch.cat(result, dim=-1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
