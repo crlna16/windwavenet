@@ -62,7 +62,7 @@ data:
   pin_memory: true
   # Set persistent_workers to avoid recreating workers each epoch
   # Only works with num_workers > 0
-  persistent_workers: true
+  persistent_workers: false
 
   # Optional: sample weighting strategy for imbalanced regression
   # Options: null (no weighting), 'z_score'

@@ -362,15 +362,12 @@ class GraphWWMDataset(GDataset):
             errors="ignore",
         )
 
-        # Now that graph_features are gone, preload node features if requested
-        self.X = du.retrieve_data(self.ds, self.features)
-        self.y = du.retrieve_data(self.ds, self.targets)
-
-        # Compute weights (only works with preloaded data)
+        # Compute weights from the single weight variable only (avoids loading all targets)
         if self.sample_weight_strategy is not None:
+            y_w = du.retrieve_data(self.ds, [self.sample_weight_variable])
             self.weights = du.compute_weights(
-                self.y,
-                self.targets,
+                y_w,
+                [self.sample_weight_variable],
                 self.sample_weight_strategy,
                 self.sample_weight_power,
                 weight_variable=self.sample_weight_variable,
