@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -375,6 +376,20 @@ class GraphWWMDataset(GDataset):
         else:
             self.weights = None
 
+        # Preload target variables into RAM to avoid repeated slow zarr reads during
+        # training.  zarr chunk layouts for some variables (e.g. meanWavePeriod,
+        # sin/cos_meanWaveDirection) can make scattered-node isel calls very expensive.
+        # Shape: (n_time, n_nodes, n_targets) as float32.
+        log.info(f"Preloading {len(self.targets)} target variable(s) into RAM...")
+        _t_pre = time.perf_counter()
+        _tgt_da = self.ds[self.targets].to_array(dim="variable")  # (n_targets, n_time, n_nodes)
+        self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
+        log.info(
+            f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
+            f"cache shape {tuple(self._targets_ram.shape)} "
+            f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
+        )
+
         # Precompute number of time steps as a plain int.
         # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
         # must not traverse attribute chains like self.ds.time at call time.
@@ -416,6 +431,10 @@ class GraphWWMDataset(GDataset):
             Tensor of targets. Shape is (n_targets,) for a single node
             or (n_nodes, n_targets) for multiple nodes.
         """
+        # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        if hasattr(self, "_targets_ram"):
+            return self._targets_ram[time_idx][node_indices]
+
         sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=node_indices)
         y_da = sample[self.targets].to_dataarray(dim="variable")
         values = y_da.values.copy()
@@ -441,6 +460,7 @@ class GraphWWMDataset(GDataset):
                 - sample_weight: (n_targets,) center-node z-score weight, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
+
         x = self._extract_node_features(time_idx, subgraph_nodes)
         y = self._extract_targets(time_idx, subgraph_nodes)
 
