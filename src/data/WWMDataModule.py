@@ -24,6 +24,7 @@ class WWMDataModule(BaseWWMDataModule):
         node_idx_csv: Optional[str],
         sample_weight_strategy: Optional[str],
         sample_weight_power: Optional[float],
+        sample_weight_variable: str = "sigWaveHeight",
     ) -> Dataset:
         """Create a SimpleWWMDataset instance.
 
@@ -32,6 +33,7 @@ class WWMDataModule(BaseWWMDataModule):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
+            sample_weight_variable: Variable whose z-score drives sample weights.
 
         Returns:
             A SimpleWWMDataset instance.
@@ -45,4 +47,5 @@ class WWMDataModule(BaseWWMDataModule):
             node_idx_csv=node_idx_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
+            sample_weight_variable=sample_weight_variable,
         )

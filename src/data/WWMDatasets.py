@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -36,6 +37,7 @@ class SimpleWWMDataset(Dataset):
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
+        sample_weight_variable: str = "sigWaveHeight",
     ) -> None:
         """Initialize the dataset.
 
@@ -48,8 +50,10 @@ class SimpleWWMDataset(Dataset):
             node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
                 containing node indices to keep. If None, keep all nodes.
             sample_weight_strategy: Strategy for computing per-sample weights.
-                Options: None (no weighting), 'z_score' (weight by z-score of targets).
+                Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
+            sample_weight_variable: Variable whose z-score drives sample weights
+                (default: 'sigWaveHeight'). Looked up in targets first, then features.
         """
         super().__init__()
 
@@ -61,6 +65,7 @@ class SimpleWWMDataset(Dataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
+        self.sample_weight_variable = sample_weight_variable
 
         # Store parameters for worker initialization
         self.worker_id = None
@@ -79,7 +84,11 @@ class SimpleWWMDataset(Dataset):
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None:
             self.weights = du.compute_weights(
-                self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
+                self.y,
+                self.targets,
+                self.sample_weight_strategy,
+                self.sample_weight_power,
+                weight_variable=self.sample_weight_variable,
             )
         else:
             self.weights = None
@@ -128,6 +137,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         node_idx_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
+        sample_weight_variable: str = "sigWaveHeight",
     ) -> None:
         """Initialize the sequence dataset.
 
@@ -141,6 +151,8 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv: Optional CSV file with node indices to keep.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
+            sample_weight_variable: Variable whose z-score drives sample weights
+                (default: 'sigWaveHeight'). Looked up in targets first, then features.
         """
         self.seq_len = seq_len
 
@@ -154,6 +166,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
             node_idx_csv=node_idx_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
+            sample_weight_variable=sample_weight_variable,
         )
 
         # Store time and node dimensions for sequence indexing
@@ -231,6 +244,7 @@ class GraphWWMDataset(GDataset):
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
+        sample_weight_variable: str = "sigWaveHeight",
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -253,8 +267,10 @@ class GraphWWMDataset(GDataset):
                 listing open-sea boundary nodes to exclude from the graph. All edges
                 connecting to these nodes are removed.
             sample_weight_strategy: Strategy for computing per-sample weights.
-                Options: None (no weighting), 'z_score' (weight by z-score of targets).
+                Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
+            sample_weight_variable: Variable whose z-score drives sample weights
+                (default: 'sigWaveHeight'). Looked up in targets first, then features.
             max_radius: Maximum Euclidean distance (meters) from center node for
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
@@ -270,6 +286,7 @@ class GraphWWMDataset(GDataset):
         self.scaling_config = scaling_config
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
+        self.sample_weight_variable = sample_weight_variable
         self.graph_features = [str(f) for f in graph_features]
         self.max_radius = max_radius
         self.max_nodes = max_nodes
@@ -346,17 +363,32 @@ class GraphWWMDataset(GDataset):
             errors="ignore",
         )
 
-        # Now that graph_features are gone, preload node features if requested
-        self.X = du.retrieve_data(self.ds, self.features)
-        self.y = du.retrieve_data(self.ds, self.targets)
-
-        # Compute weights (only works with preloaded data)
+        # Compute weights from the single weight variable only (avoids loading all targets)
         if self.sample_weight_strategy is not None:
+            y_w = du.retrieve_data(self.ds, [self.sample_weight_variable])
             self.weights = du.compute_weights(
-                self.y, self.targets, self.sample_weight_strategy, self.sample_weight_power
+                y_w,
+                [self.sample_weight_variable],
+                self.sample_weight_strategy,
+                self.sample_weight_power,
+                weight_variable=self.sample_weight_variable,
             )
         else:
             self.weights = None
+
+        # Preload target variables into RAM to avoid repeated slow zarr reads during
+        # training.  zarr chunk layouts for some variables (e.g. meanWavePeriod,
+        # sin/cos_meanWaveDirection) can make scattered-node isel calls very expensive.
+        # Shape: (n_time, n_nodes, n_targets) as float32.
+        log.info(f"Preloading {len(self.targets)} target variable(s) into RAM...")
+        _t_pre = time.perf_counter()
+        _tgt_da = self.ds[self.targets].to_array(dim="variable")  # (n_targets, n_time, n_nodes)
+        self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
+        log.info(
+            f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
+            f"cache shape {tuple(self._targets_ram.shape)} "
+            f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
+        )
 
         # Precompute number of time steps as a plain int.
         # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
@@ -399,6 +431,10 @@ class GraphWWMDataset(GDataset):
             Tensor of targets. Shape is (n_targets,) for a single node
             or (n_nodes, n_targets) for multiple nodes.
         """
+        # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        if hasattr(self, "_targets_ram"):
+            return self._targets_ram[time_idx][node_indices]
+
         sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=node_indices)
         y_da = sample[self.targets].to_dataarray(dim="variable")
         values = y_da.values.copy()
@@ -424,9 +460,9 @@ class GraphWWMDataset(GDataset):
                 - sample_weight: (n_targets,) center-node z-score weight, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
+
         x = self._extract_node_features(time_idx, subgraph_nodes)
-        target_nodes = subgraph_nodes
-        y = self._extract_targets(time_idx, target_nodes)
+        y = self._extract_targets(time_idx, subgraph_nodes)
 
         sample_weight = None
         if self.weights is not None:
@@ -489,6 +525,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
+        sample_weight_variable: str = "sigWaveHeight",
         max_radius: float = 10000.0,
         max_nodes: int = 1000,
         max_links: int = 10,
@@ -508,6 +545,8 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
+            sample_weight_variable: Variable whose z-score drives sample weights
+                (default: 'sigWaveHeight'). Looked up in targets first, then features.
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
             max_links: Maximum number of BFS hops from center node.
@@ -527,6 +566,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             boundary_nodes_csv=boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
+            sample_weight_variable=sample_weight_variable,
             max_radius=max_radius,
             max_nodes=max_nodes,
             max_links=max_links,

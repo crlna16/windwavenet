@@ -1,0 +1,108 @@
+# @package _global_
+
+defaults:
+  - _self_ # put this here so following configs overwrite the defaults below
+
+  # experiment configs drive model architecture and data fields
+  # e.g. python src/predict_gcn.py experiment=swh_1h_multi-head-gat-vn
+  - experiment: null
+
+  # config for hyperparameter optimization
+  - hparams_search: null
+
+  # optional local config for machine/user specific settings
+  - optional local: default
+
+  # debugging config
+  - debug: null
+
+
+## ----------------
+## General settings
+## ----------------
+task_name: "predict_gcn"
+
+tags: ["prediction"]
+
+# path to checkpoint; must be provided on the command line
+ckpt_path: null
+
+seed: null
+
+# set to true to compute RMSE / MAE / bias on the test set after inference
+test_metrics: true
+
+# number of sub-graphs packed into a single PyG Batch per forward pass
+batch_size_graphs: 32
+
+
+## ------------------------------------
+## Default data configuration
+## (overridden by experiment configs)
+## ------------------------------------
+data: null
+
+## ------------------------------------
+## Default model configuration
+## (overridden by experiment configs)
+## ------------------------------------
+model:
+  _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
+  target_names: ${data.targets}
+  loss_weights: null
+  target_bins: null
+  output_constraints: null
+
+  backbone: null
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 0.0001
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    _partial_: true
+    mode: min
+    factor: 0.5
+    patience: 5
+
+
+logger:
+  wandb:
+    _target_: lightning.pytorch.loggers.wandb.WandbLogger
+    save_dir: ${paths.output_dir}
+    offline: false
+    project: wwm-emulator-hourly-final
+    id: null
+
+
+paths:
+  root_dir: ${hydra:runtime.cwd}
+
+  # path to output directory, created dynamically by hydra
+  # path generation pattern is specified in `configs/hydra/default.yaml`
+  # use it to store all files generated during the run, like ckpts and metrics
+  output_dir: ${hydra:runtime.output_dir}
+
+  # path to working directory
+  work_dir: ${hydra:runtime.cwd}
+
+hydra: # https://hydra.cc/docs/configure_hydra/intro/
+  # enable color logging
+  defaults:
+    - override hydra_logging: colorlog
+    - override job_logging: colorlog
+
+  # output directory, generated dynamically on each run
+  run:
+    dir: ${paths.root_dir}/logs/${task_name}/${experiment_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  sweep:
+    dir: ${paths.root_dir}/logs/${task_name}/${experiment_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+
+  job_logging:
+    handlers:
+      file:
+        # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
+        filename: ${hydra.runtime.output_dir}/${task_name}_${experiment_name}.log

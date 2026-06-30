@@ -47,6 +47,7 @@ data:
   sample_weight_power: 1.0
   max_nodes: 20
   edge_weight_scale: 1000.0
+  sample_weight_variable: sigWaveHeight
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator

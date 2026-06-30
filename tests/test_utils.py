@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from src.utils.utils import get_bin_mask, get_metric_value
+from src.utils.utils import get_bin_mask, get_metric_value, circular_mae, circular_rmse
 
 
 class TestGetBinMask:
@@ -135,3 +135,50 @@ class TestGetMetricValue:
         value = get_metric_value(metric_dict, "val/loss")
         assert isinstance(value, float)
         assert value == pytest.approx(0.123456789)
+
+
+class TestCircularMetrics:
+    """Test suite for circular_mae and circular_rmse."""
+
+    def test_circular_mae_no_wraparound(self):
+        """Standard angular difference without wraparound."""
+        pred = np.array([90.0])
+        truth = np.array([80.0])
+        assert circular_mae(pred, truth) == pytest.approx(10.0)
+
+    def test_circular_mae_wraparound(self):
+        """1° vs 359° should give MAE of 2°, not 358°."""
+        pred = np.array([1.0])
+        truth = np.array([359.0])
+        assert circular_mae(pred, truth) == pytest.approx(2.0)
+
+    def test_circular_mae_zero_is_360(self):
+        """0° and 360° are the same direction."""
+        pred = np.array([0.0])
+        truth = np.array([360.0])
+        assert circular_mae(pred, truth) == pytest.approx(0.0, abs=1e-5)
+
+    def test_circular_mae_180_degrees(self):
+        """Exactly opposite directions give MAE of 180°."""
+        pred = np.array([0.0])
+        truth = np.array([180.0])
+        assert circular_mae(pred, truth) == pytest.approx(180.0)
+
+    def test_circular_mae_perfect_prediction(self):
+        """Perfect prediction gives zero error."""
+        angles = np.array([0.0, 45.0, 90.0, 180.0, 270.0, 359.0])
+        assert circular_mae(angles, angles) == pytest.approx(0.0, abs=1e-5)
+
+    def test_circular_rmse_wraparound(self):
+        """1° vs 359° should give RMSE of 2°, not 358°."""
+        pred = np.array([1.0])
+        truth = np.array([359.0])
+        assert circular_rmse(pred, truth) == pytest.approx(2.0)
+
+    def test_circular_rmse_multiple_samples(self):
+        """RMSE over multiple samples with one wraparound case."""
+        # errors: 10°, 2° (via wraparound)  →  RMSE = sqrt((100 + 4) / 2) = sqrt(52)
+        pred = np.array([90.0, 1.0])
+        truth = np.array([80.0, 359.0])
+        expected = np.sqrt((10.0**2 + 2.0**2) / 2)
+        assert circular_rmse(pred, truth) == pytest.approx(expected)

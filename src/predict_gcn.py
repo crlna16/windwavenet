@@ -48,7 +48,7 @@ from src.data import graph_utils as gu
 from src.data.WWMDatasets import WWMGraphData
 from src.utils.pylogger import RankedLogger
 from src.utils.instantiators import instantiate_loggers
-from src.utils.utils import get_bin_mask, print_config_tree
+from src.utils.utils import get_bin_mask, print_config_tree, circular_mae, circular_rmse
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -360,6 +360,30 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
                 rmse_bin = float(np.sqrt(np.mean((pred[mask] - truth[mask]) ** 2)))
                 metrics[f"test/rmse_{target_name}_{bin_label}"] = rmse_bin
                 log.info(f"  {target_name} {bin_label}:  RMSE={rmse_bin:.6f}  (n={int(mask.sum())})")
+
+        # Circular metrics for sin/cos target pairs (e.g. sin_meanWaveDirection + cos_meanWaveDirection).
+        # Reconstructs the angle via atan2 and computes circular MAE/RMSE against the original
+        # angle variable kept in ds by preprocess_variables.
+        target_name_to_idx = {n: i for i, n in enumerate(targets)}
+        sin_targets = {n[len("sin_") :]: n for n in targets if n.startswith("sin_")}
+        cos_targets = {n[len("cos_") :]: n for n in targets if n.startswith("cos_")}
+        for base_var in sin_targets:
+            if base_var not in cos_targets:
+                continue
+            sin_name = sin_targets[base_var]
+            cos_name = cos_targets[base_var]
+            sin_pred = all_predictions[:, :, target_name_to_idx[sin_name]][valid_mask]
+            cos_pred = all_predictions[:, :, target_name_to_idx[cos_name]][valid_mask]
+            angle_pred = np.degrees(np.arctan2(sin_pred, cos_pred)) % 360.0
+            if base_var in ds:
+                angle_truth = ds[base_var].values[valid_mask].astype(np.float32)
+                c_mae = circular_mae(angle_pred, angle_truth)
+                c_rmse = circular_rmse(angle_pred, angle_truth)
+                metrics[f"test/circular_mae_{base_var}"] = c_mae
+                metrics[f"test/circular_rmse_{base_var}"] = c_rmse
+                log.info(f"  {base_var} (reconstructed):  circular RMSE={c_rmse:.4f}°  circular MAE={c_mae:.4f}°")
+            else:
+                log.warning(f"  Cannot compute circular metrics for {base_var}: not found in dataset.")
 
         # Log to wandb if a logger is configured
         loggers = instantiate_loggers(cfg.get("logger"))
