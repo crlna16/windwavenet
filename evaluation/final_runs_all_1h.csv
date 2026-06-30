@@ -1,0 +1,16 @@
+run, id, backbone, sequence length, graph nodes, predictions
+fine-universe-71, ucf0lwmp, densenet, 0, 0, 25967550
+denim-sunset-71, 9bsyvfh6, lstm, 3, 0, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_19-41-18/predictions.nc
+hopeful-lake-70, o4zgpyxn, lstm, 6, 0, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_19-41-18/predictions.nc
+feasible-silence-73, cs3k5sd7, lstm, 12, 0,
+desert-water-75, 8kvtqq9v, lstm, 24, 0,
+absurd-sound-74, 9jg5gjtp, lstm, 48, 0,
+likely-cosmos-89, 89lo49ce, gat-vn, 0, 50,
+happy-flower-91, 40ijyt36, gat-vn, 0, 250,
+golden-snowball-89, clilfc91, gat-vn, 0, 500,
+stellar-shadow-97, 3z6pvxt8, lstm-gat-vn, 6, 50,
+solar-wildflower-96, g6r8gliu, lstm-gat-vn, 6, 250,
+eternal-water-95, ne5nhxkm, lstm-gat-vn, 6, 500,
+fresh-feather-93, 38tds33a, lstm-gat-vn, 48, 50,
+zesty-mountain-92, 5drgmwb0, lstm-gat-vn, 48, 250,
+upbeat-breeze-94, qgxfz6dx, lstm-gat-vn, 48, 500, 25967326
