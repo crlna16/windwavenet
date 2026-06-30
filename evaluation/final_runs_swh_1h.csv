@@ -1,10 +1,16 @@
 run, id, backbone, sequence length, graph nodes, predictions
 apricot-monkey-35, vlu7fztd, densenet, None, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict/runs/2026-06-30_14-05-11/predictions.nc
 crisp-durian-37, she1j3a6, lstm, 3, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-18-01/predictions.nc
-restful-wood-38, psddgmra, lstm, 6, None, 25963515_2
-iconic-bush-39, famt9uco, lstm, 12, None, 25963476_3
-polar-dust-40, rncpe3y2, lstm, 24, None, 25963476_4
-pretty-bee-41, gnghqhwv, lstm, 48, None, 25963476_5
-crimson-galaxy-47, rdlv9mns, gat-vn, None, 50, 25963666_6
-lemon-deluge-68, yoh4zask, gat-vn, None, 250, 25963666_7
-celestial-fire-67,  gr3xp6ql, gat-vn, None, 500, 25963666_8
+restful-wood-38, psddgmra, lstm, 6, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-44-43/predictions.nc
+iconic-bush-39, famt9uco, lstm, 12, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-43-09/predictions.nc
+polar-dust-40, rncpe3y2, lstm, 24, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-44-10/predictions.nc
+pretty-bee-41, gnghqhwv, lstm, 48, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-44-10/predictions.nc
+crimson-galaxy-47, rdlv9mns, gat-vn, None, 50, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-vn/runs/2026-06-30_15-01-53/predictions.nc
+lemon-deluge-68, yoh4zask, gat-vn, None, 250, 25963750_7
+celestial-fire-67,  gr3xp6ql, gat-vn, None, 500, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-vn/runs/2026-06-30_17-52-26/predictions.nc
+efficient-snowball-66, jgk32o4k, lstm-gat-vn, 6, 50, 25966917_9
+valiant-dust-64, m8bav13r, lstm-gat-vn, 6, 250, 25966917_10
+smart-elevator-65, jg59ucn3, lstm-gat-vn, 6, 500, 25966917_11
+different-glitter-60, t2likicm, lstm-gat-vn, 48, 50, 25966917_12
+absurd-thunder-56, 97vhjpjp, lstm-gat-vn, 48, 250, 25966917_13
+fluent-dragon-63, 69n8g8mm, lstm-gat-vn, 48, 500, 25966917_14
