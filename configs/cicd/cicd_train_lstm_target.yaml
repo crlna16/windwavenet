@@ -44,6 +44,7 @@ data:
   pin_memory: false
   sample_weight_strategy: null
   sample_weight_power: 1.0
+  sample_weight_variable: sigWaveHeight
 
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
