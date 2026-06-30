@@ -1,0 +1,7 @@
+run, id, backbone, sequence length, graph nodes, predictions
+apricot-monkey-35, vlu7fztd, densenet, None, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict/runs/2026-06-30_14-05-11/predictions.nc
+crisp-durian-37, she1j3a6, lstm, 3, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-18-01/predictions.nc
+restful-wood-38, psddgmra, lstm, 6, None, 25963515_2
+iconic-bush-39, famt9uco, lstm, 12, None, 25963476_3
+polar-dust-40, rncpe3y2, lstm, 24, None, 25963476_4
+pretty-bee-41, gnghqhwv, lstm, 48, None, 25963476_5
