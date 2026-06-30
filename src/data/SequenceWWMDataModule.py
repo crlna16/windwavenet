@@ -29,6 +29,7 @@ class SequenceWWMDataModule(BaseWWMDataModule):
         seq_len: int,
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -50,6 +51,8 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             scaling_config: Path to YAML file containing mean and std for each variable.
             node_idx_csv: Optional CSV file with node indices to keep for train/val.
                 Test uses all nodes (node_idx_csv=None) for full evaluation.
+            boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
+                These nodes are discarded in all stages.
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
@@ -71,6 +74,7 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             targets=targets,
             scaling_config=scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=boundary_nodes_csv,
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
@@ -108,6 +112,7 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             seq_len=self.seq_len,
             scaling_config=self.scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=self.boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             sample_weight_variable=sample_weight_variable,

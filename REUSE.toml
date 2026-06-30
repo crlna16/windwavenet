@@ -41,6 +41,11 @@ SPDX-FileCopyrightText = "2025-2026 Hereon"
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
+path = "evaluation/*.csv"
+SPDX-FileCopyrightText = "2025-2026 Hereon"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
 path = "tests/cicd_data/cicd.zarr/**/*"
 SPDX-FileCopyrightText = "2025-2026 Hereon"
 SPDX-License-Identifier = "MIT"

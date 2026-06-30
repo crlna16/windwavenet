@@ -70,6 +70,27 @@ def filter_nodes(ds: xr.Dataset, node_idx_csv: Optional[str]) -> xr.Dataset:
     return ds
 
 
+def exclude_boundary_nodes(ds: xr.Dataset, boundary_nodes_csv: Optional[str]) -> xr.Dataset:
+    """Exclude open-sea boundary nodes from the dataset.
+
+    Args:
+        ds: xarray Dataset to filter.
+        boundary_nodes_csv: Path to CSV with a ``nSCHISM_hgrid_node`` column
+            listing nodes to exclude, or ``None``.
+
+    Returns:
+        Dataset with boundary nodes removed (or the original if *boundary_nodes_csv* is ``None``).
+    """
+    if boundary_nodes_csv is not None:
+        boundary_ids = load_node_indices(boundary_nodes_csv)
+        all_ids = ds.nSCHISM_hgrid_node.values
+        keep_ids = all_ids[~np.isin(all_ids, boundary_ids)]
+        n_removed = len(all_ids) - len(keep_ids)
+        ds = ds.sel(nSCHISM_hgrid_node=keep_ids)
+        log.info(f"Excluded {n_removed} boundary nodes; {len(keep_ids)} nodes remaining.")
+    return ds
+
+
 # ---------------------------------------------------------------------------
 # Variable preprocessing
 # ---------------------------------------------------------------------------

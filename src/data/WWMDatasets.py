@@ -35,6 +35,7 @@ class SimpleWWMDataset(Dataset):
         targets: List[str],
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
@@ -49,6 +50,8 @@ class SimpleWWMDataset(Dataset):
             scaling_config: Path to YAML file containing mean and std for each variable.
             node_idx_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
                 containing node indices to keep. If None, keep all nodes.
+            boundary_nodes_csv: Optional CSV file with a column named 'nSCHISM_hgrid_node'
+                listing open-sea boundary nodes to discard.
             sample_weight_strategy: Strategy for computing per-sample weights.
                 Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
@@ -75,6 +78,7 @@ class SimpleWWMDataset(Dataset):
         # --- Pipeline: open, filter, preprocess, scale, load ---
         self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
         self.ds = du.filter_nodes(self.ds, self.node_idx_csv)
+        self.ds = du.exclude_boundary_nodes(self.ds, boundary_nodes_csv)
         self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
@@ -135,6 +139,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
         seq_len: int,
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
@@ -164,6 +169,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
             targets=targets,
             scaling_config=scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             sample_weight_variable=sample_weight_variable,

@@ -46,7 +46,6 @@ class CenterHistoryGraphWWMDataModule(BaseWWMDataModule):
     ) -> None:
         self.seq_len = seq_len
         self.graph_features = graph_features
-        self.boundary_nodes_csv = boundary_nodes_csv
         self.max_radius = max_radius
         self.max_nodes = max_nodes
         self.max_links = max_links
@@ -61,6 +60,7 @@ class CenterHistoryGraphWWMDataModule(BaseWWMDataModule):
             targets=targets,
             scaling_config=scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=boundary_nodes_csv,
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
