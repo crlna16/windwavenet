@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A ka1176
-#SBATCH -p gpu
+#SBATCH -p vader
 #SBATCH --mem=200G
 #SBATCH --gres=gpu:1
 #SBATCH --time=08:00:00
@@ -32,5 +32,8 @@ COMMANDS=(
     "uv run python src/predict_gcn.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=48 'ckpt_path=\"./logs/train/swh_1h_multi-head-gat-vn/runs/2026-06-13_03-09-01/wwm-emulator-hourly-final/97vhjpjp/checkpoints/epoch=9-step=103590.ckpt\"' 'logger.wandb.id=97vhjpjp'"
     "uv run python src/predict_gcn.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.seq_len=48 'ckpt_path=\"./logs/train/swh_1h_multi-head-gat-vn/runs/2026-06-13_08-07-43/wwm-emulator-hourly-final/69n8g8mm/checkpoints/epoch=2-step=31077.ckpt\"' 'logger.wandb.id=69n8g8mm'"
 )
+
+# Stagger job starts by 1 minute per array index to avoid simultaneous output-dir creation.
+sleep $((SLURM_ARRAY_TASK_ID * 60))
 
 eval "${COMMANDS[$SLURM_ARRAY_TASK_ID]}"
