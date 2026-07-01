@@ -334,7 +334,7 @@ def plot_binned_scores(
 
 def plot_spatial_error(
     ds: xr.Dataset,
-    experiment: str,
+    experiment,
     variable: str,
     time_indices,
     metric: str = "rmse",
@@ -344,13 +344,16 @@ def plot_spatial_error(
     fig: plt.Figure = None,
 ) -> plt.Figure:
     """
-    Spatial heatmap of RMSE or bias for one experiment against ground truth,
-    interpolated onto a regular grid and drawn on a Cartopy map.
+    Spatial heatmap of RMSE or bias for one or more experiments against ground
+    truth, interpolated onto a regular grid and drawn on a Cartopy map.
+
+    When multiple experiments are provided all subplots share a common
+    vmin/vmax.  Subplots are arranged in rows of at most 3 columns.
 
     Args:
         ds: Dataset returned by open_experiments.
-        experiment: Experiment key to evaluate (must be a value on the
-            'experiment' dimension, not 'ground_truth').
+        experiment: A single experiment key or a list of experiment keys
+            (must be values on the 'experiment' dimension, not 'ground_truth').
         variable: Variable name to evaluate.
         time_indices: Single integer or list of integers passed to isel(time=…).
             The metric is aggregated over all selected time steps.
@@ -361,14 +364,15 @@ def plot_spatial_error(
             50 000 – 60 000 and resolution=1 000, the x-axis gets 10 bins.
             Default is 10 000.
         x_range: Optional (x_min, x_max) tuple to restrict the plotted domain
-            (in the same units as SCHISM_hgrid_node_x, typically degrees lon).
+            (in the same units as SCHISM_hgrid_node_x).
         y_range: Optional (y_min, y_max) tuple to restrict the plotted domain
-            (in the same units as SCHISM_hgrid_node_y, typically degrees lat).
-        fig: Optional existing Figure to draw on.  A new figure is created if
-            not provided.
+            (in the same units as SCHISM_hgrid_node_y).
+        fig: Optional existing Figure to draw on (only used for a single
+            experiment).  A new figure is always created for multiple
+            experiments.
 
     Returns:
-        The matplotlib Figure with the plot.
+        The matplotlib Figure with the plot(s).
     """
     try:
         import cartopy.crs as ccrs
@@ -383,23 +387,16 @@ def plot_spatial_error(
     if metric not in ("rmse", "bias"):
         raise ValueError(f"metric must be 'rmse' or 'bias', got '{metric}'.")
 
-    # Normalise time_indices so we always work with a list.
+    # Normalise inputs to lists.
+    if isinstance(experiment, str):
+        experiments = [experiment]
+    else:
+        experiments = list(experiment)
+
     if np.isscalar(time_indices):
         time_indices = [time_indices]
 
-    # --- Compute per-node error -------------------------------------------
-    pred = ds[variable].sel(experiment=experiment).isel(time=time_indices).values  # (n_time, n_nodes)
-    gt = ds[variable].sel(experiment="ground_truth").isel(time=time_indices).values  # (n_time, n_nodes)
-    error = pred - gt  # (n_time, n_nodes)
-
-    if metric == "rmse":
-        node_error = np.sqrt(np.nanmean(error**2, axis=0))  # (n_nodes,)
-    else:
-        node_error = np.nanmean(error, axis=0)  # (n_nodes,)
-
-    # --- Node positions ------------------------------------------------------
-    # After xr.concat along "experiment", the spatial coordinates may carry an
-    # extra experiment dimension.  Squeeze it out to get a plain 1-D array.
+    # --- Node positions (shared across experiments) --------------------------
     node_x_da = ds["SCHISM_hgrid_node_x"]
     if "experiment" in node_x_da.dims:
         node_x_da = node_x_da.isel(experiment=0)
@@ -410,7 +407,7 @@ def plot_spatial_error(
         node_y_da = node_y_da.isel(experiment=0)
     node_y = node_y_da.values
 
-    # Optionally restrict to a sub-domain.
+    # Optional sub-domain mask (same for all experiments).
     mask = np.ones(len(node_x), dtype=bool)
     if x_range is not None:
         mask &= (node_x >= x_range[0]) & (node_x <= x_range[1])
@@ -419,57 +416,83 @@ def plot_spatial_error(
 
     node_x = node_x[mask]
     node_y = node_y[mask]
-    node_error = node_error[mask]
 
-    # --- Interpolate to regular grid -----------------------------------------
+    # Regular grid (shared across experiments).
     nx = max(2, int(np.ceil((node_x.max() - node_x.min()) / resolution)))
     ny = max(2, int(np.ceil((node_y.max() - node_y.min()) / resolution)))
     xi = np.linspace(node_x.min(), node_x.max(), nx)
     yi = np.linspace(node_y.min(), node_y.max(), ny)
     xi_grid, yi_grid = np.meshgrid(xi, yi)
-    zi = griddata((node_x, node_y), node_error, (xi_grid, yi_grid), method="linear")
 
-    # --- Colormap ------------------------------------------------------------
+    gt = ds[variable].sel(experiment="ground_truth").isel(time=time_indices).values  # (n_time, n_nodes)
+
+    # --- Compute per-experiment interpolated grids ---------------------------
+    grids = []
+    for exp in experiments:
+        pred = ds[variable].sel(experiment=exp).isel(time=time_indices).values
+        error = pred - gt
+
+        if metric == "rmse":
+            node_error = np.sqrt(np.nanmean(error**2, axis=0))[mask]
+        else:
+            node_error = np.nanmean(error, axis=0)[mask]
+
+        zi = griddata((node_x, node_y), node_error, (xi_grid, yi_grid), method="linear")
+        grids.append(zi)
+
+    # --- Common color range --------------------------------------------------
     if metric == "rmse":
         cmap = "YlOrRd"
         vmin = 0.0
-        vmax = float(np.nanmax(zi))
-    else:  # bias — symmetric around zero
+        vmax = float(max(np.nanmax(z) for z in grids))
+    else:
         cmap = "RdBu_r"
-        max_abs = float(np.nanmax(np.abs(zi)))
+        max_abs = float(max(np.nanmax(np.abs(z)) for z in grids))
         vmin, vmax = -max_abs, max_abs
 
-    # --- Cartopy map ---------------------------------------------------------
-    # projection = ccrs.PlateCarree()
-    # projection = ccrs.RotatedPole(pole_longitude=-118.0, pole_latitude=22.0, central_rotated_longitude=0.0)
+    # --- Layout --------------------------------------------------------------
+    n_exp = len(experiments)
+    ncols = min(n_exp, 3)
+    nrows = int(np.ceil(n_exp / ncols))
     projection = ccrs.Orthographic(central_longitude=4.5, central_latitude=53.5)
-    if fig is None:
-        fig, ax = plt.subplots(subplot_kw={"projection": projection}, figsize=(10, 8))
+
+    if n_exp == 1 and fig is not None:
+        axes = [fig.gca()]
     else:
-        ax = fig.gca()
+        fig, axes_arr = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(6 * ncols, 6 * nrows),
+            subplot_kw={"projection": projection},
+            squeeze=False,
+        )
+        axes = axes_arr.ravel().tolist()
 
-    pcm = ax.pcolormesh(
-        xi,
-        yi,
-        zi,
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        transform=ccrs.UTM(32),
-        zorder=1,
-    )
-    ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=2)
-    ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="black", zorder=3)
-    ax.coastlines(zorder=4)
-
-    if x_range is not None:
-        ax.set_xlim(x_range)
-    if y_range is not None:
-        ax.set_ylim(y_range)
-
-    plt.colorbar(pcm, ax=ax, label=f"{metric.upper()} ({variable})", shrink=0.7)
     n_steps = len(time_indices)
-    ax.set_title(f"{experiment} — {metric.upper()} of {variable} ({n_steps} time step{'s' if n_steps != 1 else ''})")
-    fig.tight_layout()
+    pcm = None
+    for ax, exp, zi in zip(axes, experiments, grids):
+        pcm = ax.pcolormesh(
+            xi,
+            yi,
+            zi,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            transform=ccrs.UTM(32),
+            zorder=1,
+        )
+        ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=2)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="black", zorder=3)
+        ax.coastlines(zorder=4)
+        ax.set_title(f"{exp}\n{metric.upper()} of {variable} ({n_steps} step{'s' if n_steps != 1 else ''})")
 
+    # Hide unused axes (when n_exp is not a multiple of ncols).
+    for ax in axes[n_exp:]:
+        ax.set_visible(False)
+
+    # Single shared colorbar.
+    if pcm is not None:
+        fig.colorbar(pcm, ax=axes[:n_exp], label=f"{metric.upper()} ({variable})", shrink=0.7)
+
+    fig.tight_layout()
     return fig
