@@ -18,7 +18,7 @@ COMMANDS=(
     "uv run python src/predict.py --config-name=predict_lstm experiment=swh_mwp_mwd_1h_lstm data.seq_len=6 'ckpt_path=\"./logs/train/swh_mwp_mwd_1h_lstm/runs/2026-06-26_14-01-49/wwm-emulator-hourly-final/o4zgpyxn/checkpoints/epoch=24-step=33025.ckpt\"' 'logger.wandb.id=o4zgpyxn'"
     "uv run python src/predict.py --config-name=predict_lstm experiment=swh_mwp_mwd_1h_lstm data.seq_len=12 'ckpt_path=\"./logs/train/swh_mwp_mwd_1h_lstm/runs/2026-06-26_14-16-59/wwm-emulator-hourly-final/cs3k5sd7/checkpoints/epoch=28-step=38222.ckpt\"' 'logger.wandb.id=cs3k5sd7'"
     "uv run python src/predict.py --config-name=predict_lstm experiment=swh_mwp_mwd_1h_lstm data.seq_len=24 'ckpt_path=\"./logs/train/swh_mwp_mwd_1h_lstm/runs/2026-06-26_14-27-20/wwm-emulator-hourly-final/8kvtqq9v/checkpoints/epoch=28-step=37990.ckpt\"' 'logger.wandb.id=8kvtqq9v'"
-    "uv run python src/predict.py --config-name=predict_lstm experiment=swh_mwp_mwd_1h_lstm data.seq_len=48 'ckpt_path=\"./logs/train/swh_mwp_mwd_1h_lstm/runs/2026-06-26_14-27-20/wwm-emulator-hourly-final/9jg5gjtp/checkpoints/epoch=32-step=42735.ckpt\"' 'logger.wandb.id='9jg5gjtp'"
+    "uv run python src/predict.py --config-name=predict_lstm experiment=swh_mwp_mwd_1h_lstm data.seq_len=48 'ckpt_path=\"./logs/train/swh_mwp_mwd_1h_lstm/runs/2026-06-26_14-27-20/wwm-emulator-hourly-final/9jg5gjtp/checkpoints/epoch=32-step=42735.ckpt\"' 'logger.wandb.id=9jg5gjtp'"
     # Multi-Head GAT ()
     # Multi-Head GAT VN (6-8)
     "uv run python src/predict_gcn.py experiment=swh_mwp_mwd_1h_multi-head-gat-vn.yaml data.max_nodes=50 'ckpt_path=\"./logs/train/swh_mwp_mwd_1h_multi-head-gat-vn/runs/2026-06-29_17-36-53/wwm-emulator-hourly-final/89lo49ce/checkpoints/epoch=8-step=127107.ckpt\"' 'logger.wandb.id=89lo49ce'"

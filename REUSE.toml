@@ -59,3 +59,8 @@ SPDX-License-Identifier = "MIT"
 path = "src/data/node_selection/*.csv"
 SPDX-FileCopyrightText = "2025-2026 Hereon"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "evaluation/**/*.ipynb"
+SPDX-FileCopyrightText = "2025-2026 Hereon"
+SPDX-License-Identifier = "MIT"
