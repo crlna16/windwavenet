@@ -16,26 +16,57 @@ import matplotlib.pyplot as plt
 from ..data import dataset_utils as du
 
 
+def _reconstruct_wave_direction(ds: xr.Dataset) -> xr.Dataset:
+    """Reconstruct meanWaveDirection from its sin/cos encoding, if present, and drop sin/cos.
+
+    Args:
+        ds: Dataset that may contain 'sin_meanWaveDirection' and 'cos_meanWaveDirection'.
+
+    Returns:
+        Dataset with 'meanWaveDirection' added and the sin/cos variables removed. Returned
+        unchanged if either sin/cos variable is missing.
+    """
+    if "sin_meanWaveDirection" in ds.data_vars and "cos_meanWaveDirection" in ds.data_vars:
+        ds["meanWaveDirection"] = (
+            np.degrees(np.arctan2(ds["sin_meanWaveDirection"], ds["cos_meanWaveDirection"])) % 360.0
+        )
+        ds = ds.drop_vars(["sin_meanWaveDirection", "cos_meanWaveDirection"])
+    return ds
+
+
 def open_experiments(
     experiments_csv: str,
     ground_truth: str = "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr",
     boundary_nodes_csv: Optional[str] = None,
+    chunks="auto",
 ) -> xr.Dataset:
     """
     Open all experiments from a csv table. The table must contain the column "predictions" with absolute paths to
     generated netcdf files.
 
+    All datasets are opened lazily as dask-backed arrays (rather than eagerly loaded, cached numpy
+    arrays), so no prediction/ground-truth data is actually read from disk until it is needed
+    (e.g. via `.values` or `.compute()` in downstream functions such as `compute_binned_scores`).
+
     Args:
         experiments_csv (str): path to csv with experiment table
         ground_truth (str): zarr directory with ground truth
         boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
+        chunks: Dask chunking passed to `xr.open_zarr`/`xr.open_dataset` to keep data lazy. Set to
+            `None` to disable dask and load eagerly instead.
 
-    Returns: Dataset with all predictions concatenated along a new dimension (experiment).
+    Returns: Dataset with all predictions concatenated along a new dimension (experiment). Data
+        variables remain dask-backed and lazy; nothing is loaded into memory until computed.
 
     """
 
-    ds_true = xr.open_zarr(ground_truth)
-    experiments = pd.read_csv(experiments_csv, skipinitialspace=True)
+    ds_true = xr.open_zarr(ground_truth, chunks=chunks)
+
+    # reconstruct meanWaveDirection from its sin/cos encoding, if present, and discard the sin/cos
+    # variables so downstream code only ever sees the plain angle variable
+    ds_true = _reconstruct_wave_direction(ds_true)
+
+    experiments = pd.read_csv(experiments_csv, skipinitialspace=True, comment="#")
 
     # construct a key exp_name from {backbone}-{seq_len}-{graph nodes}
     exp_names = [
@@ -50,7 +81,7 @@ def open_experiments(
         pred_path = row["predictions"]
         if pd.isna(pred_path) or not str(pred_path).strip():
             continue
-        ds_pred = xr.open_dataset(str(pred_path).strip(), engine="netcdf4")
+        ds_pred = xr.open_dataset(str(pred_path).strip(), engine="netcdf4", chunks=chunks)
         datasets.append(ds_pred)
         valid_exp_names.append(exp_name)
         print(f"Added {exp_name} from {pred_path} ({ds_pred.time.values[0]} - {ds_pred.time.values[-1]})")
@@ -71,6 +102,10 @@ def open_experiments(
 
     # concatenate everything along a new "experiment" dimension, identifiable by experiment names
     ds = xr.concat(datasets, dim=pd.Index(valid_exp_names, name="experiment"))
+
+    # reconstruct meanWaveDirection from its sin/cos encoding, if predictions were made in that
+    # encoding, so that pred_vars below lines up with ds_true (which also no longer has sin/cos)
+    ds = _reconstruct_wave_direction(ds)
 
     # drop all coordinates except the spatial and index ones
     keep_coords = {"SCHISM_hgrid_node_x", "SCHISM_hgrid_node_y", "time", "experiment"}
@@ -131,6 +166,71 @@ def compute_binned_scores(
             raise ValueError(f"Predictions for experiment '{exp}' contain NaN values for variable '{variable}'.")
 
         error = pred_flat - gt_flat
+
+        # overall scores
+        records.append(
+            {
+                "experiment": exp,
+                "bin": "overall",
+                "rmse": np.sqrt(np.mean(error**2)),
+                "bias": np.mean(error),
+            }
+        )
+
+        # per-bin scores
+        for interval in bin_labels.cat.categories:
+            mask = (bin_labels == interval).values
+            if mask.sum() == 0:
+                records.append({"experiment": exp, "bin": interval, "rmse": np.nan, "bias": np.nan})
+            else:
+                records.append(
+                    {
+                        "experiment": exp,
+                        "bin": interval,
+                        "rmse": np.sqrt(np.mean(error[mask] ** 2)),
+                        "bias": np.mean(error[mask]),
+                    }
+                )
+
+    return pd.DataFrame(records)
+
+
+def compute_binned_change_scores(
+    ds: xr.Dataset,
+    variable: str,
+    bins: list,
+) -> pd.DataFrame:
+    """
+    Compute RMSE and bias of the timestep-to-timestep change in a variable for each experiment
+    vs ground truth, overall and per bin of the ground-truth change.
+
+    Args:
+        ds: Dataset from open_experiments with 'experiment' dimension.
+        variable: Variable name to evaluate.
+        bins: Bin edges applied to the ground truth change values (variable diffed along time).
+
+    Returns:
+        DataFrame with columns [experiment, bin, rmse, bias].
+        'bin' is a pd.Interval for binned rows or the string 'overall'.
+    """
+    gt_change = ds[variable].sel(experiment="ground_truth").diff(dim="time")  # (time - 1, nSCHISM_hgrid_node)
+    gt_change_flat = gt_change.values.ravel()
+
+    if np.isnan(gt_change_flat).any():
+        raise ValueError(f"Ground truth change contains NaN values for variable '{variable}'.")
+
+    bin_labels = pd.cut(pd.Series(gt_change_flat), bins=bins)
+
+    experiments = [str(e) for e in ds.experiment.values if e != "ground_truth"]
+    records = []
+
+    for exp in experiments:
+        pred_change_flat = ds[variable].sel(experiment=exp).diff(dim="time").values.ravel()
+
+        if np.isnan(pred_change_flat).any():
+            raise ValueError(f"Predictions for experiment '{exp}' contain NaN values for variable '{variable}'.")
+
+        error = pred_change_flat - gt_change_flat
 
         # overall scores
         records.append(
