@@ -338,6 +338,7 @@ def plot_spatial_error(
     variable: str,
     time_indices,
     metric: str = "rmse",
+    unit: str = "m",
     resolution: float = 10000,
     x_range: Optional[tuple] = None,
     y_range: Optional[tuple] = None,
@@ -355,14 +356,15 @@ def plot_spatial_error(
         experiment: A single experiment key or a list of experiment keys
             (must be values on the 'experiment' dimension, not 'ground_truth').
         variable: Variable name to evaluate.
-        time_indices: Single integer or list of integers passed to isel(time=…).
+        time_indices: Either a single integer (one time step) or a
+            ``(start, end)`` tuple selecting ``ds.isel(time=slice(start, end))``.
             The metric is aggregated over all selected time steps.
         metric: 'rmse' or 'bias'.
+        unit: Optional unit string appended to the colorbar label and title,
+            default ``'m'``.
         resolution: Bin length in the same units as the node coordinates.
             The number of grid points along each axis is derived as
-            ``ceil((max - min) / resolution)``.  For example, if x spans
-            50 000 – 60 000 and resolution=1 000, the x-axis gets 10 bins.
-            Default is 10 000.
+            ``ceil((max - min) / resolution)``.  Default is 10 000.
         x_range: Optional (x_min, x_max) tuple to restrict the plotted domain
             (in the same units as SCHISM_hgrid_node_x).
         y_range: Optional (y_min, y_max) tuple to restrict the plotted domain
@@ -393,8 +395,16 @@ def plot_spatial_error(
     else:
         experiments = list(experiment)
 
+    # Normalise time_indices: scalar → single step, (start, end) → range.
     if np.isscalar(time_indices):
-        time_indices = [time_indices]
+        t_slice = [int(time_indices)]
+        t0_label = str(ds.time.isel(time=int(time_indices)).values)
+        t1_label = None
+    else:
+        t0, t1 = int(time_indices[0]), int(time_indices[1])
+        t_slice = slice(t0, t1)
+        t0_label = str(ds.time.isel(time=t0).values)
+        t1_label = str(ds.time.isel(time=t1 - 1).values)
 
     # --- Node positions (shared across experiments) --------------------------
     node_x_da = ds["SCHISM_hgrid_node_x"]
@@ -424,12 +434,12 @@ def plot_spatial_error(
     yi = np.linspace(node_y.min(), node_y.max(), ny)
     xi_grid, yi_grid = np.meshgrid(xi, yi)
 
-    gt = ds[variable].sel(experiment="ground_truth").isel(time=time_indices).values  # (n_time, n_nodes)
+    gt = ds[variable].sel(experiment="ground_truth").isel(time=t_slice).values  # (n_time, n_nodes)
 
     # --- Compute per-experiment interpolated grids ---------------------------
     grids = []
     for exp in experiments:
-        pred = ds[variable].sel(experiment=exp).isel(time=time_indices).values
+        pred = ds[variable].sel(experiment=exp).isel(time=t_slice).values
         error = pred - gt
 
         if metric == "rmse":
@@ -458,17 +468,19 @@ def plot_spatial_error(
 
     if n_exp == 1 and fig is not None:
         axes = [fig.gca()]
+        _own_fig = False
     else:
         fig, axes_arr = plt.subplots(
             nrows,
             ncols,
-            figsize=(6 * ncols, 6 * nrows),
+            figsize=(6 * ncols + 1, 6 * nrows),
             subplot_kw={"projection": projection},
             squeeze=False,
         )
         axes = axes_arr.ravel().tolist()
+        _own_fig = True
+        fig.subplots_adjust(top=0.88, right=0.87, hspace=0.35, wspace=0.1)
 
-    n_steps = len(time_indices)
     pcm = None
     for ax, exp, zi in zip(axes, experiments, grids):
         pcm = ax.pcolormesh(
@@ -484,15 +496,24 @@ def plot_spatial_error(
         ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=2)
         ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="black", zorder=3)
         ax.coastlines(zorder=4)
-        ax.set_title(f"{exp}\n{metric.upper()} of {variable} ({n_steps} step{'s' if n_steps != 1 else ''})")
+        ax.set_title(exp)
 
     # Hide unused axes (when n_exp is not a multiple of ncols).
     for ax in axes[n_exp:]:
         ax.set_visible(False)
 
-    # Single shared colorbar.
+    # Single shared colorbar in a dedicated strip on the right.
+    unit_str = f" ({unit})" if unit else ""
+    cbar_label = f"{metric.upper()} ({variable}){unit_str}"
     if pcm is not None:
-        fig.colorbar(pcm, ax=axes[:n_exp], label=f"{metric.upper()} ({variable})", shrink=0.7)
+        if _own_fig:
+            cbar_ax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
+        else:
+            cbar_ax = None
+        fig.colorbar(pcm, cax=cbar_ax, ax=None if cbar_ax else axes[:n_exp], label=cbar_label)
 
-    fig.tight_layout()
+    # Figure-wide title.
+    time_str = t0_label if t1_label is None else f"{t0_label} … {t1_label}"
+    fig.suptitle(f"{metric.upper()} ({variable}){unit_str}\n{time_str}", y=0.98)
+
     return fig

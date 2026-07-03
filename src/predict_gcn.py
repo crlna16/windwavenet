@@ -379,7 +379,8 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             cos_pred = all_predictions[:, :, target_name_to_idx[cos_name]][valid_mask]
             angle_pred = np.degrees(np.arctan2(sin_pred, cos_pred)) % 360.0
             if base_var in ds:
-                angle_truth = ds[base_var].values[valid_mask].astype(np.float32)
+                angle_truth_all = ds[base_var].isel(time=slice(time_start, None)).values.astype(np.float32)
+                angle_truth = angle_truth_all[valid_mask]
                 c_mae = circular_mae(angle_pred, angle_truth)
                 c_rmse = circular_rmse(angle_pred, angle_truth)
                 metrics[f"test/circular_mae_{base_var}"] = c_mae
