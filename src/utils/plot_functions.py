@@ -34,6 +34,22 @@ def _reconstruct_wave_direction(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
+def _circular_error(pred_deg, truth_deg):
+    """Signed angular difference ``pred - truth`` in degrees, wrapped to (-180, 180].
+
+    Accounts for the 0deg/360deg correspondence, so e.g. 359 vs 1 gives an error of
+    -2 rather than 358. The magnitude matches `src.utils.utils.circular_mae`/`circular_rmse`.
+
+    Args:
+        pred_deg: Predicted angles in degrees.
+        truth_deg: Ground-truth angles in degrees.
+
+    Returns:
+        Signed circular difference, same shape/type as the inputs.
+    """
+    return (pred_deg - truth_deg + 180.0) % 360.0 - 180.0
+
+
 def open_experiments(
     experiments_csv: str,
     ground_truth: str = "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr",
@@ -135,6 +151,7 @@ def compute_binned_scores(
     ds: xr.Dataset,
     variable: str,
     bins: list,
+    circular: bool = False,
 ) -> pd.DataFrame:
     """
     Compute RMSE and bias of each experiment vs ground truth, overall and per bin of the variable.
@@ -143,6 +160,9 @@ def compute_binned_scores(
         ds: Dataset from open_experiments with 'experiment' dimension.
         variable: Variable name to evaluate.
         bins: Bin edges applied to the ground truth values.
+        circular: If True, treat the variable as a circular quantity in degrees (e.g.
+            meanWaveDirection) and compute errors as the signed shortest-path angular
+            difference, wrapped at the 0deg/360deg boundary, instead of a plain subtraction.
 
     Returns:
         DataFrame with columns [experiment, bin, rmse, bias].
@@ -165,7 +185,7 @@ def compute_binned_scores(
         if np.isnan(pred_flat).any():
             raise ValueError(f"Predictions for experiment '{exp}' contain NaN values for variable '{variable}'.")
 
-        error = pred_flat - gt_flat
+        error = _circular_error(pred_flat, gt_flat) if circular else pred_flat - gt_flat
 
         # overall scores
         records.append(
@@ -199,6 +219,7 @@ def compute_binned_change_scores(
     ds: xr.Dataset,
     variable: str,
     bins: list,
+    circular: bool = False,
 ) -> pd.DataFrame:
     """
     Compute RMSE and bias of the timestep-to-timestep change in a variable for each experiment
@@ -208,12 +229,18 @@ def compute_binned_change_scores(
         ds: Dataset from open_experiments with 'experiment' dimension.
         variable: Variable name to evaluate.
         bins: Bin edges applied to the ground truth change values (variable diffed along time).
+        circular: If True, treat the variable as a circular quantity in degrees (e.g.
+            meanWaveDirection). Both the timestep-to-timestep change and the error between
+            predicted and true change are computed with the 0deg/360deg wraparound taken into
+            account, instead of a plain subtraction.
 
     Returns:
         DataFrame with columns [experiment, bin, rmse, bias].
         'bin' is a pd.Interval for binned rows or the string 'overall'.
     """
-    gt_change = ds[variable].sel(experiment="ground_truth").diff(dim="time")  # (time - 1, nSCHISM_hgrid_node)
+    gt_raw_change = ds[variable].sel(experiment="ground_truth").diff(dim="time")  # (time - 1, nSCHISM_hgrid_node)
+    # wrap the raw diff to (-180, 180] so e.g. 359 -> 1 is a change of +2, not -358
+    gt_change = ((gt_raw_change + 180.0) % 360.0 - 180.0) if circular else gt_raw_change
     gt_change_flat = gt_change.values.ravel()
 
     if np.isnan(gt_change_flat).any():
@@ -225,12 +252,14 @@ def compute_binned_change_scores(
     records = []
 
     for exp in experiments:
-        pred_change_flat = ds[variable].sel(experiment=exp).diff(dim="time").values.ravel()
+        pred_raw_change = ds[variable].sel(experiment=exp).diff(dim="time")
+        pred_change = ((pred_raw_change + 180.0) % 360.0 - 180.0) if circular else pred_raw_change
+        pred_change_flat = pred_change.values.ravel()
 
         if np.isnan(pred_change_flat).any():
             raise ValueError(f"Predictions for experiment '{exp}' contain NaN values for variable '{variable}'.")
 
-        error = pred_change_flat - gt_change_flat
+        error = _circular_error(pred_change_flat, gt_change_flat) if circular else pred_change_flat - gt_change_flat
 
         # overall scores
         records.append(
