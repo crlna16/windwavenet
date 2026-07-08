@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "shw_1h_lstm"
+experiment_name: "swh_1h_lstm"
 
 data:
   _target_: src.data.SequenceWWMDataModule.SequenceWWMDataModule

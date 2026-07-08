@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "shw_1h_densenet"
+experiment_name: "swh_1h_densenet"
 
 data:
   _target_: src.data.WWMDataModule.WWMDataModule

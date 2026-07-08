@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "shw_1h_densenet"
+experiment_name: "mwp_1h_densenet"
 
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
@@ -55,4 +55,4 @@ trainer:
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-    tags: ["mwp-1h", "lstm"]
+    tags: ["mwp-1h", "densenet"]

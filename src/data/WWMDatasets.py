@@ -465,7 +465,7 @@ class GraphWWMDataset(GDataset):
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
-                - sample_weight: (n_targets,) center-node z-score weight, or None
+                - sample_weight: (n_subgraph_nodes, 1) per-node z-score weights, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
 
@@ -474,9 +474,11 @@ class GraphWWMDataset(GDataset):
 
         sample_weight = None
         if self.weights is not None:
-            center_global_idx = subgraph_nodes[center_local_idx]
-            flat_idx = time_idx * self.n_nodes + int(center_global_idx)
-            sample_weight = self.weights[flat_idx]  # (n_targets,)
+            # Weights are stored flat over (time, node) with time as the slow axis.
+            # Every subgraph node gets its own weight so the loss on a node is
+            # driven by that node's z-score, not the center node's.
+            flat_idx = torch.as_tensor(time_idx * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
             x=x,
@@ -655,6 +657,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
+                - sample_weight: (n_subgraph_nodes, 1) per-node z-score weights, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_sequence_node_features(time_idx, subgraph_nodes)
@@ -664,9 +667,9 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
 
         sample_weight = None
         if self.weights is not None:
-            center_global_idx = subgraph_nodes[center_local_idx]
-            flat_idx = target_time * self.n_nodes + int(center_global_idx)
-            sample_weight = self.weights[flat_idx]  # (n_targets,)
+            # Per-node weights at the target time step (time-major flat layout).
+            flat_idx = torch.as_tensor(target_time * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
             x=x,
@@ -684,9 +687,13 @@ class WWMGraphData(GData):
     Handles batching of graph-level attributes by stacking them along a new
     batch dimension instead of concatenating along the node dimension.  Any
     attribute listed in ``_GRAPH_LEVEL_KEYS`` gets this treatment.
+
+    ``sample_weight`` is a node-level attribute of shape
+    ``(n_subgraph_nodes, 1)`` and is concatenated along the node dimension
+    like ``x`` and ``y``.
     """
 
-    _GRAPH_LEVEL_KEYS = {"x_center_seq", "sample_weight"}
+    _GRAPH_LEVEL_KEYS = {"x_center_seq"}
 
     def __cat_dim__(self, key: str, value, *args, **kwargs):
         if key in self._GRAPH_LEVEL_KEYS:
@@ -718,7 +725,7 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: (n_subgraph_nodes, n_targets) targets at last time step
                 - center_idx: local index of center node in x
-                - sample_weight: (n_targets,) center-node z-score weight, or None
+                - sample_weight: (n_subgraph_nodes, 1) per-node z-score weights, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
 
@@ -737,12 +744,12 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # Targets at the last time step for all subgraph nodes
         y = self._extract_targets(present_time, subgraph_nodes)
 
-        # Graph-level sample weight from center node's precomputed z-score weight
-        # self.weights shape: (n_times * n_nodes, n_targets), stacked time-major
+        # Per-node z-score weights at the present time step
+        # self.weights shape: (n_times * n_nodes, 1), stacked time-major
         sample_weight = None
         if self.weights is not None:
-            flat_idx = present_time * self.n_nodes + int(center_global_idx)
-            sample_weight = self.weights[flat_idx]  # (n_targets,)
+            flat_idx = torch.as_tensor(present_time * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
             x=x,

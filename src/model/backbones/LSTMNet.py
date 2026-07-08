@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: MIT
 
+import warnings
+
 import torch
 import torch.nn as nn
 
@@ -30,10 +32,19 @@ class LSTMNet(nn.Module):
             hidden_dim: Number of hidden units in LSTM (default: 128).
             num_layers: Number of stacked LSTM layers (default: 2).
             dropout: Dropout probability between LSTM layers (default: 0.1).
-                     Only applied if num_layers > 1.
+                     Only applied if num_layers > 1; with a single layer the
+                     value is ignored and a warning is emitted.
             bidirectional: If True, use bidirectional LSTM (default: False).
         """
         super().__init__()
+
+        if num_layers == 1 and dropout > 0.0:
+            warnings.warn(
+                f"LSTMNet: dropout={dropout} has NO effect with num_layers=1 — "
+                "nn.LSTM only applies dropout between stacked layers. "
+                "Set num_layers >= 2 or remove the dropout setting.",
+                stacklevel=2,
+            )
 
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers

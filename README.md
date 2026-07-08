@@ -62,26 +62,6 @@ the fly if not already present. Weights are applied to both the training and
 validation losses, so `val/loss` — the metric monitored for checkpointing and
 early stopping — reflects the weighted objective. RMSE metrics remain unweighted.
 
-## Subsampling
-
-Based on z-score and the retention probability formula
-```
-p(sample) = 1 - exp(-z^2 / 2)
-```
-
-Where `z` is the maximum absolute z-score across all target variables for that sample.
-
-- Samples near the mean (z ≈ 0) → low retention probability (~0)
-- Outliers (high |z|) → high retention probability (~1)
-- Probabilities are scaled so the maximum equals `subsample_prob`
-
-In your config file:
-```yaml
-data:
-  # ... other settings ...
-  subsample_prob: 0.3  # Keep up to 30% of samples, preferring outliers
-```
-
 ## Graph backbones: mesh edge encoding
 
 The GAT backbones (`MultiHeadGAT`, `MultiHeadGATVN`, `MultiHeadGATLSTMVN`)
