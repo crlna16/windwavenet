@@ -344,15 +344,15 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 5
         ds = SequenceWWMDataset(
             data_dir=mock_sequence_dataset,
-            data_range=[1, 2],  # 1 day = 24 samples
+            data_range=[1, 2],  # days 1-2 inclusive = 48 samples
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
         )
 
-        # After removing first timestep (for delta/prev), n_time = 23
-        # n_valid_times = 23 - 5 = 18
-        # Total samples = 18 * 5 nodes = 90
+        # After removing first timestep (for delta/prev), n_time = 47
+        # n_valid_times = 47 - 5 + 1 = 43
+        # Total samples = 43 * 5 nodes = 215
         # (exact number depends on data processing in SimpleWWMDataset)
         assert len(ds) > 0
 
@@ -426,13 +426,13 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 3
         ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
         )
 
-        # data_range=[1,2] keeps first day (24 samples); dataset drops first timestep -> 23
+        # data_range=[1,1] keeps day 1 inclusive (24 samples); dataset drops first timestep -> 23
         assert ds.n_time == 23
         assert ds.n_valid_times == 21
         assert len(ds) == 84  # 21 valid starts * 4 nodes
@@ -442,7 +442,7 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 3
         ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
@@ -465,14 +465,14 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 4
         preload_ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
         )
         lazy_ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,

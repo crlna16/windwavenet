@@ -35,6 +35,9 @@ log = RankedLogger(__name__, rank_zero_only=False)
 def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Dataset, int]:
     """Open a Zarr dataset and slice to the requested day range.
 
+    Both ends of the range are inclusive: ``[1, 2]`` selects days 1 and 2
+    (i.e. ``2 * samples_per_day`` time steps).
+
     Args:
         data_dir: Path to the Zarr store.
         data_range: Day range as ``[start_day, end_day]`` (1-indexed, inclusive).
@@ -47,7 +50,7 @@ def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Da
     samples_per_day = int(pd.Timedelta(days=1) / time_delta)
     log.info(f"Dataset has {samples_per_day} samples per day.")
     start_idx = (data_range[0] - 1) * samples_per_day
-    end_idx = (data_range[1] - 1) * samples_per_day
+    end_idx = data_range[1] * samples_per_day
     ds = ds.isel(time=slice(start_idx, end_idx))
     log.info(f"Loaded dataset with times ranging from {ds.time.values[0]} to {ds.time.values[-1]}.")
     return ds, samples_per_day
