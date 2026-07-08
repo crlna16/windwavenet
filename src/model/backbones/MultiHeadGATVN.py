@@ -15,23 +15,33 @@ from .MultiHeadGATLSTMVN import GaussianRBF
 
 
 class MultiHeadGATVN(nn.Module):
-    """Dual-path backbone: local distance-conditioned GAT + global virtual node.
+    """Dual-path backbone: local GAT over mesh edges + subgraph-wide virtual node.
 
     Combines the multi-head GAT spatial reasoning of :class:`MultiHeadGAT`
-    with the virtual-node global communication mechanism of
+    with the virtual-node communication mechanism of
     :class:`MultiHeadGATLSTMVN`, using only the current time step's features
     (no temporal history or LSTM).
 
-    **Local path** — Multi-head GATv2 attention over the mesh edge set with
-    distance-conditioned bias.  Edge weights (inverse-distance) are expanded
-    through Gaussian RBFs and passed as edge features to GATv2Conv.
+    **Local path** — Multi-head GATv2 attention over the mesh edge set.
+    Attention is strictly one-hop (direct mesh neighbours plus self), so the
+    local receptive field grows with ``num_layers``.  Edge lengths are encoded
+    as inverse-distance weights expanded through Gaussian RBFs and passed as
+    edge features to GATv2Conv; this tells attention how much physical space
+    each hop covers on the unstructured mesh, whose edge lengths vary by
+    orders of magnitude between coastal and offshore regions.  The encoding
+    is only informative if ``edge_weight_scale`` is comparable to typical
+    edge lengths (see :class:`MultiHeadGAT` and
+    :func:`src.data.graph_utils.compute_edge_weights`).
 
-    **Global path** — Cross-attention virtual node initialized from the
-    mean pooling of encoded current node features.  At each layer:
-      - *Gated injection*: each node receives global context from the VN
-        through a learned sigmoid gate.
+    **Global path** — A virtual node (VN) provides subgraph-wide context in a
+    single step, bypassing the one-hop limit of the local path.  Its scope is
+    the sampled subgraph around the center node, not the full domain.  The VN
+    is initialized from the mean pooling of encoded node features.  At each
+    layer:
+      - *Gated injection*: each node receives subgraph-wide context from the
+        VN through a learned sigmoid gate.
       - *Attention-weighted collection*: the VN queries attention over all
-        nodes and aggregates their embeddings.
+        subgraph nodes and aggregates their embeddings.
       - *Recurrent update*: a GRU cell updates the VN state across layers.
 
     **Fusion** — A learned gate per node combines the local and global
@@ -58,9 +68,10 @@ class MultiHeadGATVN(nn.Module):
             output_dim: Number of output features per node.
             hidden_dim: Hidden dimension shared across all components.
                 Must be divisible by ``heads``.
-            num_layers: Number of dual-path processing layers.
+            num_layers: Number of dual-path processing layers (sets the local
+                receptive field in hops).
             heads: Number of attention heads in the local GAT path.
-            n_rbf: Number of Gaussian RBF centres for distance encoding.
+            n_rbf: Number of Gaussian RBF centres for edge-length encoding.
             dropout: Dropout probability after each processing layer.
             attn_dropout: Dropout on GAT attention coefficients.
         """
@@ -154,7 +165,7 @@ class MultiHeadGATVN(nn.Module):
         edge_weight = getattr(data, "edge_weight", None)
         batch = data.batch
 
-        # ---- Distance encoding ----
+        # ---- Edge-length encoding ----
         if edge_weight is not None:
             edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
         else:
@@ -178,7 +189,7 @@ class MultiHeadGATVN(nn.Module):
         ):
             x_residual = x
 
-            # --- Local path: distance-conditioned GAT ---
+            # --- Local path: one-hop GAT with edge-length-conditioned attention ---
             x_local = gat(x, edge_index, edge_attr=edge_attr)
             x_local = F.elu(x_local)
             x_local = F.dropout(x_local, p=self.dropout, training=self.training)

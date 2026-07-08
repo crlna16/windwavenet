@@ -82,6 +82,37 @@ data:
   subsample_prob: 0.3  # Keep up to 30% of samples, preferring outliers
 ```
 
+## Graph backbones: mesh edge encoding
+
+The GAT backbones (`MultiHeadGAT`, `MultiHeadGATVN`, `MultiHeadGATLSTMVN`)
+attend over the SCHISM mesh edges. Attention is strictly **one-hop**: in each
+layer a node attends only to its direct mesh neighbours (and itself), so the
+spatial receptive field is `num_layers` hops. Context beyond that comes from
+stacking layers and, in the VN variants, from a virtual node that exchanges
+information with all nodes of the sampled subgraph in a single step.
+
+**Why encode edge lengths?** The mesh is unstructured: edge lengths vary by
+orders of magnitude between refined coastal areas and the coarse open sea.
+Without extra information, a hop across a 100 m coastal edge and a hop across
+a multi-km offshore edge would look identical to the network. Each edge is
+therefore assigned an inverse-distance weight
+
+```
+w = 1 / (1 + length / edge_weight_scale)
+```
+
+which is expanded through `n_rbf` Gaussian radial basis functions and passed
+as edge features to `GATv2Conv`, where they become per-head attention biases.
+This tells attention how much physical space each hop covers, so neighbours
+can be weighted by physical proximity rather than hop count alone.
+
+**Choosing `edge_weight_scale`** (data config): the value should be comparable
+to the typical (median) mesh edge length. An edge of exactly that length gets
+weight 0.5, and the weight distribution spreads over (0, 1) where the RBF
+centres live. If the scale is much larger than the mesh edges, all weights
+cluster near 1.0, most RBF features return near-zero constants, and the
+encoding carries no signal.
+
 ## Classical ML Integration
 
 This describes the integration for classical machine learning models (XGBoost, RandomForest, AdaBoost, LightGBM, etc.) with the Lightning/Hydra framework.

@@ -196,6 +196,13 @@ def compute_edge_weights(
     naturally receive weight 1.0.  Shorter edges get higher weights, encoding
     the idea that closer nodes influence each other more strongly.
 
+    The weights feed the Gaussian RBF edge encoding of the GAT backbones, so
+    *scale* should be comparable to the typical (e.g. median) mesh edge
+    length: that spreads the weights over (0, 1) and lets the RBF basis
+    resolve edge-length differences.  If *scale* is much larger than the mesh
+    edges, all weights cluster near 1.0 and the encoding degenerates to a
+    near-constant signal.
+
     Args:
         edge_index: ``(2, n_edges)`` tensor of *local* node indices.
         subgraph_nodes: Sorted array of *global* 0-indexed node positions
@@ -203,7 +210,8 @@ def compute_edge_weights(
         node_x: Full-domain node x-coordinates.
         node_y: Full-domain node y-coordinates.
         scale: Length scale (meters) controlling the decay rate.  An edge
-            whose length equals *scale* receives weight 0.5.
+            whose length equals *scale* receives weight 0.5.  Choose a value
+            comparable to the median mesh edge length (see above).
 
     Returns:
         ``(n_edges,)`` 1-D float tensor of edge weights (compatible with
