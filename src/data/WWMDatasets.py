@@ -254,9 +254,7 @@ class GraphWWMDataset(GDataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
-        max_radius: float = 10000.0,
         max_nodes: int = 1000,
-        max_links: int = 10,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the graph dataset.
@@ -281,10 +279,9 @@ class GraphWWMDataset(GDataset):
             sample_weight_variable: Variable whose z-score drives sample weights
                 (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
                 (derived on the fly if absent).
-            max_radius: Maximum Euclidean distance (meters) from center node for
-                including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
-            max_links: Maximum number of BFS hops from center node (default: 10).
+                The subgraph is the center node's ``max_nodes``-nearest mesh
+                neighbourhood in BFS (hop) order.
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights.  An edge whose Euclidean length equals this value
                 receives weight 0.5 (default: 1000.0).
@@ -298,9 +295,7 @@ class GraphWWMDataset(GDataset):
         self.sample_weight_power = sample_weight_power
         self.sample_weight_variable = sample_weight_variable
         self.graph_features = [str(f) for f in graph_features]
-        self.max_radius = max_radius
         self.max_nodes = max_nodes
-        self.max_links = max_links
         self.edge_weight_scale = edge_weight_scale
 
         # --- Pipeline: open, preprocess (keep graph vars), scale ---
@@ -349,11 +344,7 @@ class GraphWWMDataset(GDataset):
             subgraph_nodes, edge_index, center_local_idx = gu.build_subgraph(
                 center_pos=int(center_pos),
                 adjacency=self.adjacency,
-                node_x=self.node_x,
-                node_y=self.node_y,
-                max_radius=self.max_radius,
                 max_nodes=self.max_nodes,
-                max_links=self.max_links,
             )
             edge_weight = gu.compute_edge_weights(
                 edge_index,
@@ -536,9 +527,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
-        max_radius: float = 10000.0,
         max_nodes: int = 1000,
-        max_links: int = 10,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the sequence graph dataset.
@@ -558,9 +547,8 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_variable: Variable whose z-score drives sample weights
                 (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
                 (derived on the fly if absent).
-            max_radius: Maximum Euclidean distance (meters) from center node.
-            max_nodes: Maximum number of nodes in a subgraph.
-            max_links: Maximum number of BFS hops from center node.
+            max_nodes: Maximum number of nodes in a subgraph (BFS-nearest
+                mesh neighbourhood of the center node).
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights (default: 1000.0).
         """
@@ -578,9 +566,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             sample_weight_variable=sample_weight_variable,
-            max_radius=max_radius,
             max_nodes=max_nodes,
-            max_links=max_links,
             edge_weight_scale=edge_weight_scale,
         )
 

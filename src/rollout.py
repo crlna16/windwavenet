@@ -326,11 +326,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
         partitions = gu.partition_domain(
             n_nodes=n_nodes,
             adjacency=adjacency,
-            node_x=node_x,
-            node_y=node_y,
-            max_radius=float(cfg.data.max_radius),
             max_nodes=int(cfg.data.max_nodes),
-            max_links=int(cfg.data.max_links),
         )
         edge_weight_scale = float(cfg.data.edge_weight_scale)
         edge_weights = [

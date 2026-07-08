@@ -130,19 +130,13 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     # ------------------------------------------------------------------
     # 3.  Partition domain into covering sub-graphs
     # ------------------------------------------------------------------
-    max_radius: float = float(cfg.data.max_radius)
     max_nodes: int = int(cfg.data.max_nodes)
-    max_links: int = int(cfg.data.max_links)
 
-    log.info(f"Partitioning domain with max_radius={max_radius}, max_nodes={max_nodes}, max_links={max_links} ...")
+    log.info(f"Partitioning domain with max_nodes={max_nodes} ...")
     partitions = gu.partition_domain(
         n_nodes=n_nodes,
         adjacency=adjacency,
-        node_x=node_x,
-        node_y=node_y,
-        max_radius=max_radius,
         max_nodes=max_nodes,
-        max_links=max_links,
     )
 
     # Precompute edge weights for every partition
@@ -410,9 +404,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
             "n_partitions": len(partitions),
-            "max_radius": max_radius,
             "max_nodes": max_nodes,
-            "max_links": max_links,
         },
     )
 

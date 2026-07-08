@@ -30,9 +30,7 @@ data:
   num_workers: 8
   pin_memory: true
   persistent_workers: true
-  max_radius: 2000000.0
   max_nodes: 500
-  max_links: 1000000
   edge_weight_scale: 20000.0
   seq_len: 24
 

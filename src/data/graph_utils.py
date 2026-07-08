@@ -111,22 +111,18 @@ def build_adjacency(ds: xr.Dataset) -> Dict[int, List[int]]:
 def build_subgraph(
     center_pos: int,
     adjacency: Dict[int, List[int]],
-    node_x: np.ndarray,
-    node_y: np.ndarray,
-    max_radius: float,
     max_nodes: int,
-    max_links: int,
 ) -> Tuple[np.ndarray, torch.Tensor, int]:
     """BFS sub-graph expansion around a center node.
+
+    Nodes are collected in breadth-first order from the center until
+    ``max_nodes`` is reached, so the sub-graph is the center node's
+    ``max_nodes``-nearest mesh neighbourhood (in hop distance).
 
     Args:
         center_pos: 0-indexed position of the center node.
         adjacency: Dict of node -> neighbours.
-        node_x: Node x-coordinates array.
-        node_y: Node y-coordinates array.
-        max_radius: Maximum Euclidean distance from center (meters).
         max_nodes: Maximum number of nodes in the sub-graph.
-        max_links: Maximum BFS hop depth.
 
     Returns:
         Tuple ``(subgraph_nodes, edge_index, center_local_idx)`` where
@@ -135,24 +131,16 @@ def build_subgraph(
         self-loops), and *center_local_idx* is the position of the center
         within *subgraph_nodes*.
     """
-    cx, cy = node_x[center_pos], node_y[center_pos]
-
     visited = {center_pos}
-    queue: deque = deque([(center_pos, 0)])
+    queue: deque = deque([center_pos])
 
     while queue and len(visited) < max_nodes:
-        current, depth = queue.popleft()
-        if depth >= max_links:
-            continue
+        current = queue.popleft()
         for neighbour in adjacency.get(current, []):
             if neighbour in visited:
                 continue
-            dx = node_x[neighbour] - cx
-            dy = node_y[neighbour] - cy
-            if np.sqrt(dx * dx + dy * dy) >= max_radius:
-                continue
             visited.add(neighbour)
-            queue.append((neighbour, depth + 1))
+            queue.append(neighbour)
             if len(visited) >= max_nodes:
                 break
 
@@ -240,11 +228,7 @@ def compute_edge_weights(
 def partition_domain(
     n_nodes: int,
     adjacency: Dict[int, List[int]],
-    node_x: np.ndarray,
-    node_y: np.ndarray,
-    max_radius: float,
     max_nodes: int,
-    max_links: int,
 ) -> List[Tuple[int, np.ndarray, torch.Tensor, int]]:
     """Partition all mesh nodes into a covering set of BFS sub-graphs.
 
@@ -256,11 +240,7 @@ def partition_domain(
     Args:
         n_nodes: Total number of mesh nodes.
         adjacency: 0-indexed adjacency list.
-        node_x: Node x-coordinates.
-        node_y: Node y-coordinates.
-        max_radius: BFS radius constraint.
-        max_nodes: BFS node count cap.
-        max_links: BFS hop depth cap.
+        max_nodes: BFS node count cap per sub-graph.
 
     Returns:
         List of ``(center_pos, subgraph_nodes, edge_index, center_local_idx)``
@@ -276,11 +256,7 @@ def partition_domain(
         subgraph_nodes, edge_index, center_local_idx = build_subgraph(
             center_pos=node,
             adjacency=adjacency,
-            node_x=node_x,
-            node_y=node_y,
-            max_radius=max_radius,
             max_nodes=max_nodes,
-            max_links=max_links,
         )
 
         covered[subgraph_nodes] = True
