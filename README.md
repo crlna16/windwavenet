@@ -62,6 +62,43 @@ the fly if not already present. Weights are applied to both the training and
 validation losses, so `val/loss` — the metric monitored for checkpointing and
 early stopping — reflects the weighted objective. RMSE metrics remain unweighted.
 
+## Rollout evaluation (pseudo-coupled)
+
+`src/rollout.py` evaluates a trained checkpoint in the configuration it will
+face when coupled back to SCHISM: forcing features (wind, elevation,
+currents, ...) come from ground truth at every step — mimicking the external
+update by the host model — while every `prev_<target>` feature is fed back
+from the emulator's **own** prediction at the previous step. This measures
+how errors accumulate in the wave channel over lead time, which one-step
+(teacher-forced) test metrics cannot show.
+
+```bash
+python src/rollout.py experiment=swh_1h_densenet ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_multi-head-gat-lstm-vn ckpt_path=<ckpt>
+
+# limit the horizon to 48 steps
+python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt> rollout.steps=48
+```
+
+The model family (MLP / LSTM / graph) is detected from `data._target_`; pass
+the same experiment config the checkpoint was trained with. Graph models run
+over the full mesh using the same greedy domain partitioning as
+`predict_gcn.py`. Delta targets are not supported.
+
+Outputs in the Hydra run directory:
+
+- `rollout_metrics_lead.csv` — per-lead-time RMSE / MAE / bias per target,
+  a persistence baseline (initial state held constant), and per-bin RMSE
+  for configured `target_bins`. Plot RMSE vs. lead to see drift.
+- `rollout_predictions.nc` — full-domain predictions per rollout step
+  (disable with `rollout.save_predictions=false` if too large).
+
+If `data.boundary_nodes_csv` is set, boundary nodes keep ground-truth
+`prev_*` values (mimicking prescribed boundary conditions in the coupled
+setup) and are excluded from metrics.
+
 ## Graph backbones: mesh edge encoding
 
 The GAT backbones (`MultiHeadGAT`, `MultiHeadGATVN`, `MultiHeadGATLSTMVN`)

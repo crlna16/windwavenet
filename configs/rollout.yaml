@@ -1,0 +1,132 @@
+# @package _global_
+
+defaults:
+  - _self_ # put this here so following configs overwrite the defaults
+
+  # experiment configs allow for version control of specific hyperparameters
+  # pass the SAME experiment config the checkpoint was trained with,
+  # e.g. `python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt>`
+  - experiment: null
+
+  # optional local config for machine/user specific settings
+  - optional local: default
+
+## ----------------
+## General settings
+## ----------------
+task_name: "rollout" # determines output directory
+
+tags: ["rollout"]
+
+# stored weights for evaluation (required)
+ckpt_path: null
+
+# seed for random number generators in pytorch, numpy and python.random
+seed: null
+
+## ------------------------------------
+## Rollout settings
+## ------------------------------------
+rollout:
+  # Number of autoregressive steps (null = roll out over the full test range).
+  steps: null
+
+  # Nodes per forward pass for pointwise / sequence models.
+  node_chunk_size: 65536
+
+  # Sub-graphs per PyG batch for graph models.
+  batch_size_graphs: 32
+
+  # Keep ground truth in the prev_* features of boundary nodes (mimics
+  # prescribed boundary conditions in the coupled setup). Only has an
+  # effect when data.boundary_nodes_csv is set.
+  boundary_from_truth: true
+
+  # Save the full rollout prediction buffer as netCDF (can be large).
+  save_predictions: true
+
+## ------------------------------------
+## Default data / model configuration
+## (overridden by the experiment config)
+## ------------------------------------
+data:
+  _target_: src.data.WWMDataModule.WWMDataModule
+  data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
+  train_days: [1, 304]
+  val_days: [305, 334]
+  test_days: [335, 365]
+  features:
+    - windSpeedX
+    - windSpeedY
+    - prev_sigWaveHeight
+  targets:
+    - sigWaveHeight
+  scaling_config: src/data/scaling/scale_2020_hourly.yaml
+  node_idx_csv: null
+  batch_size: 2048
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  sample_weight_strategy: null
+  sample_weight_power: 1.0
+
+model:
+  _target_: src.model.WWMEmulator.WWMEmulator
+
+  target_names: ${data.targets}
+  loss_weights: null
+  target_bins: null
+  output_constraints: null
+
+  backbone: null
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true # required for hydra instantiate
+    lr: 0.0001
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    _partial_: true # required for hydra instantiate
+    mode: min
+    factor: 0.5
+    patience: 3
+
+# Present so experiment configs can override it; the rollout script itself
+# does not use a Lightning Trainer.
+trainer:
+  _target_: lightning.pytorch.trainer.Trainer
+  accelerator: auto
+  devices: auto
+
+logger:
+  wandb: # wandb.ai
+    _target_: lightning.pytorch.loggers.wandb.WandbLogger
+    save_dir: "${paths.output_dir}"
+    offline: False
+    id: null
+    project: simple-wwm-emulator
+    entity: wwm-emulator
+    log_model: False
+
+paths:
+  root_dir: ${hydra:runtime.cwd}
+  output_dir: ${hydra:runtime.output_dir}
+  work_dir: ${hydra:runtime.cwd}
+
+hydra: # https://hydra.cc/docs/configure_hydra/intro/
+  defaults:
+    - override hydra_logging: colorlog
+    - override job_logging: colorlog
+
+  run:
+    dir: ${paths.root_dir}/logs/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  sweep:
+    dir: ${paths.root_dir}/logs/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+
+  job_logging:
+    handlers:
+      file:
+        # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
+        filename: ${hydra.runtime.output_dir}/${task_name}.log
