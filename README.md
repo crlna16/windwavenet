@@ -53,7 +53,14 @@ data:
   # Sample weighting parameters
   sample_weight_strategy: null  # Options: null, 'z_score'
   sample_weight_power: 1.0      # Exponent for weight calculation
+  sample_weight_variable: sigWaveHeight  # Variable whose z-score drives the weights
 ```
+
+The weighting variable can be any variable present in the dataset, or a
+`delta_<var>` time difference (e.g. `delta_sigWaveHeight`), which is derived on
+the fly if not already present. Weights are applied to both the training and
+validation losses, so `val/loss` — the metric monitored for checkpointing and
+early stopping — reflects the weighted objective. RMSE metrics remain unweighted.
 
 ## Subsampling
 

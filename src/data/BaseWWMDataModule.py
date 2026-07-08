@@ -60,7 +60,8 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         super().__init__()
 
@@ -138,11 +139,14 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 sample_weight_variable=self.sample_weight_variable,
             )
 
+            # Validation uses the same weighting strategy as training so that
+            # val/loss (the checkpoint/early-stopping monitor) reflects the
+            # weighted training objective. RMSE metrics remain unweighted.
             self.ds_val = self._create_dataset(
                 data_range=self.val_days,
                 node_idx_csv=self.node_idx_csv,
-                sample_weight_strategy=None,
-                sample_weight_power=None,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
                 sample_weight_variable=self.sample_weight_variable,
             )
 

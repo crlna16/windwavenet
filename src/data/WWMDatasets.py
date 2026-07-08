@@ -53,7 +53,8 @@ class SimpleWWMDataset(Dataset):
                 Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         super().__init__()
 
@@ -83,12 +84,11 @@ class SimpleWWMDataset(Dataset):
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None:
+            weight_data = du.retrieve_weight_data(self.ds, self.sample_weight_variable)
             self.weights = du.compute_weights(
-                self.y,
-                self.targets,
+                weight_data,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
-                weight_variable=self.sample_weight_variable,
             )
         else:
             self.weights = None
@@ -152,7 +152,8 @@ class SequenceWWMDataset(SimpleWWMDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         self.seq_len = seq_len
 
@@ -208,9 +209,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
             idx: Index of the sample to retrieve.
 
         Returns:
-            Tuple of (X_seq, y_target) where:
+            Tuple of (X_seq, y_target, weight) as PyTorch tensors if weights are
+            computed, otherwise (X_seq, y_target), where:
                 - X_seq: (seq_len, n_features) tensor of input features
                 - y_target: (n_targets,) tensor of target at last step in sequence
+                - weight: (1,) sample weight at the target time step
         """
         # Map flat index to (time_start, node)
         time_start = idx // self.n_nodes
@@ -220,7 +223,13 @@ class SequenceWWMDataset(SimpleWWMDataset):
         X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
 
         # y: target at last step in the sequence
-        y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
+        target_time = time_start + self.seq_len - 1
+        y_target = self.y[target_time, node_idx, :]
+
+        if self.weights is not None:
+            # Weights are stored flat over (time, node) with time as the slow axis.
+            weight = self.weights[target_time * self.n_nodes + node_idx]
+            return X_seq, y_target, weight
 
         return X_seq, y_target
 
@@ -270,7 +279,8 @@ class GraphWWMDataset(GDataset):
                 Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
             max_radius: Maximum Euclidean distance (meters) from center node for
                 including neighbors in the subgraph (default: 10000.).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
@@ -365,13 +375,11 @@ class GraphWWMDataset(GDataset):
 
         # Compute weights from the single weight variable only (avoids loading all targets)
         if self.sample_weight_strategy is not None:
-            y_w = du.retrieve_data(self.ds, [self.sample_weight_variable])
+            weight_data = du.retrieve_weight_data(self.ds, self.sample_weight_variable)
             self.weights = du.compute_weights(
-                y_w,
-                [self.sample_weight_variable],
+                weight_data,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
-                weight_variable=self.sample_weight_variable,
             )
         else:
             self.weights = None
@@ -546,7 +554,8 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
             max_radius: Maximum Euclidean distance (meters) from center node.
             max_nodes: Maximum number of nodes in a subgraph.
             max_links: Maximum number of BFS hops from center node.

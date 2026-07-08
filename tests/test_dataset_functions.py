@@ -609,7 +609,7 @@ class TestSimpleWWMDatasetCoverage:
         )
 
         with pytest.raises(ValueError, match="Unknown sample_weight_strategy"):
-            du.compute_weights(ds.y, ds.targets, "invalid_strategy", 1.0)
+            du.compute_weights(ds.y[:, 0], "invalid_strategy", 1.0)
 
 
 class TestComputeSincos:

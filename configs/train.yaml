@@ -66,11 +66,15 @@ data:
 
   # Optional: sample weighting strategy for imbalanced regression
   # Options: null (no weighting), 'z_score'
+  # Note: weights are applied to both train and validation losses, so val/loss
+  # (the checkpoint / early-stopping monitor) reflects the weighted objective.
+  # RMSE metrics stay unweighted.
   sample_weight_strategy: null
 
   sample_weight_power: 1.0 # Exponent for controlling sample weight intensity
 
-  # Variable used to compute z-score sample weights (looked up in targets first, then features)
+  # Variable used to compute z-score sample weights. Any variable in the dataset,
+  # or 'delta_<var>' (e.g. delta_sigWaveHeight) derived on the fly if absent.
   sample_weight_variable: sigWaveHeight
 
 model:

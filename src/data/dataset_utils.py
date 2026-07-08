@@ -372,51 +372,78 @@ def load_node_indices(csv_path: str) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+def retrieve_weight_data(dataset: xr.Dataset, weight_variable: str) -> torch.Tensor:
+    """Extract the sample-weighting variable as a flat tensor.
+
+    The variable is looked up in the dataset directly.  If it is absent but
+    has the form ``delta_<var>`` and ``<var>`` is present, the time difference
+    is derived on the fly (its first time step is NaN; :func:`compute_weights`
+    assigns those samples zero weight).
+
+    Args:
+        dataset: xarray Dataset (after preprocessing).
+        weight_variable: Name of the weighting variable, e.g. ``sigWaveHeight``
+            or ``delta_sigWaveHeight``.
+
+    Returns:
+        Tensor of shape ``(n_samples,)`` with the same time-major sample
+        ordering as :func:`retrieve_data`.
+
+    Raises:
+        ValueError: If the variable is not in the dataset and cannot be derived.
+    """
+    if weight_variable not in dataset:
+        base_var = weight_variable[len("delta_") :] if weight_variable.startswith("delta_") else None
+        if base_var is None or base_var not in dataset:
+            raise ValueError(
+                f"weight_variable '{weight_variable}' not found in dataset and cannot be "
+                f"derived. Available variables: {list(dataset.data_vars)}"
+            )
+        log.info(f"Deriving weight variable '{weight_variable}' from '{base_var}' on the fly.")
+        dataset = compute_deltaT(dataset.copy(), [weight_variable])
+
+    return retrieve_data(dataset, [weight_variable])[:, 0]
+
+
 def compute_weights(
-    y: torch.Tensor,
-    targets: List[str],
+    data: torch.Tensor,
     strategy: str = "z_score",
     power: float = 1.0,
-    weight_variable: str = "sigWaveHeight",
 ) -> Optional[torch.Tensor]:
     """Compute and normalise per-sample weights from a single reference variable.
 
     A single scalar weight is computed per sample based on the z-score of
-    ``weight_variable``. The variable is looked up in ``targets`` (using
-    ``y``).  Weights are normalised so that
-    their mean equals 1.0 and returned with shape ``(n_samples, 1)`` so they
-    broadcast uniformly over all targets in the loss.
+    *data* (typically obtained via :func:`retrieve_weight_data`).  Weights are
+    normalised so that their mean equals 1.0 and returned with shape
+    ``(n_samples, 1)`` so they broadcast uniformly over all targets in the
+    loss.  NaN entries (e.g. the first time step of an on-the-fly delta
+    variable) receive zero weight.
 
     Args:
-        y: Target tensor of shape ``(n_samples, n_targets)``.
-        targets: Target variable names.
+        data: Weighting variable values, shape ``(n_samples,)`` or ``(n_samples, 1)``.
         strategy: ``"z_score"``.
         power: Exponent controlling weighting intensity.
-        weight_variable: Name of the variable whose z-score drives the weights
-            (default: ``"sigWaveHeight"``).
 
     Returns:
         Weight tensor of shape ``(n_samples, 1)``, or ``None``.
 
     Raises:
-        ValueError: If *strategy* is not recognised or *weight_variable* cannot
-            be found.
+        ValueError: If *strategy* is not recognised.
     """
 
-    log.info(f"Computing sample weights with strategy '{strategy}' using variable '{weight_variable}'...")
+    log.info(f"Computing sample weights with strategy '{strategy}'...")
 
-    n_samples = len(y)
-
-    # Locate weight_variable in targets or features
-    if weight_variable in targets:
-        col_idx = targets.index(weight_variable)
-        data = y[:, col_idx]
-        log.info(f"Weight variable '{weight_variable}' found in targets at index {col_idx}.")
-    else:
-        raise ValueError(f"weight_variable '{weight_variable}' not found in targets {targets}.")
+    data = data.reshape(-1)
+    n_samples = len(data)
 
     if strategy == "z_score":
-        z_scores = (data - data.mean()) / data.std()
+        valid = torch.isfinite(data)
+        if not bool(valid.all()):
+            log.info(f"Weight data contains {int((~valid).sum())} non-finite entries; they get zero weight.")
+        mean = data[valid].mean()
+        std = data[valid].std()
+        z_scores = torch.zeros_like(data)
+        z_scores[valid] = (data[valid] - mean) / std
         weights = 1.0 - torch.exp(-(z_scores**2) / power)
     else:
         raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
