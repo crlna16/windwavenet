@@ -112,6 +112,11 @@ model:
     mode: min
     factor: 0.5
     patience: 3
+    # After a reduction, wait before counting a new plateau so the lower LR
+    # has time to take effect before being reduced again.
+    cooldown: 2
+    # Stop reducing once the LR is too small to matter (~1/100 of typical initial LR).
+    min_lr: 1.0e-6
 
 trainer:
   _target_: lightning.pytorch.trainer.Trainer
@@ -155,7 +160,13 @@ callbacks:
   early_stopping:
     _target_: lightning.pytorch.callbacks.EarlyStopping
     monitor: val/loss
-    patience: 5
+    # Must be large enough to cover at least two full LR-reduction cycles of the
+    # plateau scheduler (patience 3 + cooldown 2 per cycle), plus a few epochs
+    # for the reduced LR to show an improvement. With patience 5 the halved LR
+    # only got 2 epochs before the run was stopped, so the scheduler never had
+    # a chance to act. ModelCheckpoint keeps the best epoch regardless, so a
+    # generous patience only costs compute, never checkpoint quality.
+    patience: 15
     mode: "min"
 
   model_summary:
