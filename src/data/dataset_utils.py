@@ -32,6 +32,72 @@ log = RankedLogger(__name__, rank_zero_only=False)
 # ---------------------------------------------------------------------------
 
 
+def normalize_day_ranges(data_range) -> List[List[int]]:
+    """Normalize a day-range specification to a list of ``[start, end]`` ranges.
+
+    Accepts either a single range ``[start, end]`` or a list of ranges
+    ``[[s1, e1], [s2, e2], ...]`` (all 1-indexed, inclusive).  Ranges must be
+    in ascending order and non-overlapping.
+
+    Args:
+        data_range: Day-range specification.
+
+    Returns:
+        List of ``[start, end]`` ranges.
+
+    Raises:
+        ValueError: If a range is malformed, out of order, or overlapping.
+    """
+    if len(data_range) == 0:
+        raise ValueError("Empty day-range specification.")
+
+    if hasattr(data_range[0], "__len__"):
+        raw_ranges = [list(r) for r in data_range]
+    else:
+        raw_ranges = [list(data_range)]
+
+    ranges: List[List[int]] = []
+    for r in raw_ranges:
+        if len(r) != 2:
+            raise ValueError(f"Invalid day range {r}: expected [start_day, end_day].")
+        start, end = int(r[0]), int(r[1])
+        if start < 1 or end < start:
+            raise ValueError(f"Invalid day range [{start}, {end}]: expected 1 <= start <= end.")
+        ranges.append([start, end])
+
+    for prev, nxt in zip(ranges, ranges[1:]):
+        if nxt[0] <= prev[1]:
+            raise ValueError(f"Day ranges must be ascending and non-overlapping: {prev} followed by {nxt}.")
+
+    return ranges
+
+
+def compute_valid_sequence_starts(range_lengths: List[int], seq_len: int) -> np.ndarray:
+    """Compute sequence window start indices that do not straddle range gaps.
+
+    Args:
+        range_lengths: Number of time steps per contiguous range, in the
+            order they are concatenated along the time axis.
+        seq_len: Window length in time steps.
+
+    Returns:
+        Array of valid start indices into the concatenated time axis.
+
+    Raises:
+        ValueError: If any range is shorter than *seq_len*.
+    """
+    starts: List[int] = []
+    offset = 0
+    for i, length in enumerate(range_lengths):
+        if length < seq_len:
+            raise ValueError(
+                f"Day range {i} has only {length} time steps after preprocessing; seq_len={seq_len} does not fit."
+            )
+        starts.extend(range(offset, offset + length - seq_len + 1))
+        offset += length
+    return np.asarray(starts, dtype=np.int64)
+
+
 def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Dataset, int]:
     """Open a Zarr dataset and slice to the requested day range.
 
@@ -189,6 +255,7 @@ def preprocess_variables(
     features: List[str],
     targets: List[str],
     extra_keep_vars: Optional[List[str]] = None,
+    derive_vars: Optional[List[str]] = None,
 ) -> Tuple[xr.Dataset, int]:
     """Compute derived variables, select relevant ones, and drop NaN timestep.
 
@@ -198,6 +265,11 @@ def preprocess_variables(
         targets: Target variable names.
         extra_keep_vars: Additional variable names to keep in the dataset
             (e.g. graph topology variables). Defaults to ``None``.
+        derive_vars: Additional variables to derive and keep (e.g. the
+            sample-weighting variable). ``delta_<var>`` entries are computed
+            here — i.e. per contiguous day range, so their first-step NaN is
+            dropped below and time differences never span range gaps. Plain
+            entries already in the dataset are simply kept.
 
     Returns:
         Tuple of ``(dataset, n_nodes)``.
@@ -215,12 +287,79 @@ def preprocess_variables(
                 base_var = t[len(prefix) :]
                 if base_var in ds and base_var not in keep:
                     keep.append(base_var)
+    if derive_vars:
+        for var in derive_vars:
+            if var in keep:
+                continue
+            if var not in ds and var.startswith("delta_"):
+                base_var = var[len("delta_") :]
+                if base_var in ds:
+                    ds = compute_deltaT(ds, [var])
+            if var in ds:
+                keep.append(var)
     if extra_keep_vars:
         keep = keep + list(extra_keep_vars)
     ds = select_variables(ds, keep)
     ds = remove_first_timestep_if_nan(ds)
     n_nodes = len(ds.nSCHISM_hgrid_node)
     return ds, n_nodes
+
+
+def open_and_preprocess_dataset(
+    data_dir: Path,
+    data_range,
+    features: List[str],
+    targets: List[str],
+    node_idx_csv: Optional[str] = None,
+    extra_keep_vars: Optional[List[str]] = None,
+    derive_vars: Optional[List[str]] = None,
+) -> Tuple[xr.Dataset, int, int, List[int]]:
+    """Open a Zarr store and slice + preprocess one or more day ranges.
+
+    Each contiguous range is preprocessed independently — time-shifted
+    variables (``prev_*``, ``delta_*``) never leak across the gap between
+    ranges, and each range loses its own first time step — then the ranges
+    are concatenated along the time axis.
+
+    Args:
+        data_dir: Path to the Zarr store.
+        data_range: A single ``[start_day, end_day]`` range or a list of
+            such ranges (1-indexed, inclusive, ascending, non-overlapping).
+        features: Feature variable names.
+        targets: Target variable names.
+        node_idx_csv: Optional CSV with node indices to keep.
+        extra_keep_vars: Additional variables to keep (e.g. graph topology).
+        derive_vars: Additional variables to derive per range and keep
+            (see :func:`preprocess_variables`).
+
+    Returns:
+        Tuple ``(dataset, samples_per_day, n_nodes, range_lengths)`` where
+        *range_lengths* holds the post-preprocessing number of time steps per
+        range — sequence datasets need it so windows do not straddle gaps.
+    """
+    ranges = normalize_day_ranges(data_range)
+
+    processed: List[xr.Dataset] = []
+    lengths: List[int] = []
+    samples_per_day = n_nodes = 0
+    for r in ranges:
+        ds_r, samples_per_day = open_and_slice_dataset(data_dir, r)
+        ds_r = filter_nodes(ds_r, node_idx_csv)
+        ds_r, n_nodes = preprocess_variables(
+            ds_r, features, targets, extra_keep_vars=extra_keep_vars, derive_vars=derive_vars
+        )
+        processed.append(ds_r)
+        lengths.append(ds_r.sizes["time"])
+
+    if len(processed) == 1:
+        ds = processed[0]
+    else:
+        # data_vars/coords "minimal" so static variables (mesh coordinates,
+        # edge topology without a time dim) are not broadcast along time.
+        ds = xr.concat(processed, dim="time", data_vars="minimal", coords="minimal", compat="override")
+        log.info(f"Concatenated {len(processed)} day ranges with {lengths} time steps each.")
+
+    return ds, samples_per_day, n_nodes, lengths
 
 
 # ---------------------------------------------------------------------------

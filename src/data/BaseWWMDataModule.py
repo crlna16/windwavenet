@@ -45,9 +45,11 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         Args:
             data_dir: Directory containing the Zarr dataset.
-            train_days: Day range for training as [start_day, end_day] inclusive.
-            val_days: Day range for validation as [start_day, end_day] inclusive.
-            test_days: Day range for testing as [start_day, end_day] inclusive.
+            train_days: Day range for training as [start_day, end_day] inclusive,
+                or a list of such ranges (e.g. [[1, 180], [244, 304]]) for
+                non-contiguous splits.
+            val_days: Day range(s) for validation, same format as train_days.
+            test_days: Day range(s) for testing, same format as train_days.
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.

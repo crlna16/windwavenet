@@ -267,7 +267,13 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
 
     features: List[str] = list(cfg.data.features)
     targets: List[str] = list(cfg.data.targets)
-    test_days: List[int] = list(cfg.data.test_days)
+    test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
+    if len(test_ranges) > 1:
+        raise NotImplementedError(
+            "The rollout is autoregressive and requires a contiguous test range; "
+            "run once per range instead, e.g. data.test_days=[212,242]."
+        )
+    test_days: List[int] = test_ranges[0]
 
     for t in targets:
         if t.startswith("delta_"):

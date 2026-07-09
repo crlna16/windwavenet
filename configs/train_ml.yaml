@@ -28,7 +28,8 @@ seed: 260801
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
-  # Day ranges are 1-indexed and inclusive on both ends.
+  # Day ranges are 1-indexed and inclusive on both ends. Non-contiguous
+  # splits are given as a list of ranges, e.g. [[1, 180], [244, 304]].
   train_days: [1, 304]
   val_days: [305, 334]
   test_days: [335, 365]

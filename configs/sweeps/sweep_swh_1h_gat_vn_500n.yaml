@@ -47,6 +47,14 @@ parameters:
     min: 0.01
     max: 100.0
 
+  # Weight by the level (tall waves) or the hour-to-hour change (rapid
+  # build-ups — where the models currently lose to persistence).
+  data.sample_weight_variable:
+    distribution: categorical
+    values:
+      - sigWaveHeight
+      - delta_sigWaveHeight
+
   model.backbone.hidden_dim:
     distribution: categorical
     values:

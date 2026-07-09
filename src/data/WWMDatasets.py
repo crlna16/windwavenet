@@ -43,7 +43,8 @@ class SimpleWWMDataset(Dataset):
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits (e.g., [[1, 10], [20, 30]]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -73,10 +74,16 @@ class SimpleWWMDataset(Dataset):
         self.num_workers = None
         self.worker_time_len = None
 
-        # --- Pipeline: open, filter, preprocess, scale, load ---
-        self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
-        self.ds = du.filter_nodes(self.ds, self.node_idx_csv)
-        self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
+        # --- Pipeline: open, slice + preprocess per contiguous range, scale, load ---
+        derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
+        self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(
+            self.data_dir,
+            self.data_range,
+            self.features,
+            self.targets,
+            node_idx_csv=self.node_idx_csv,
+            derive_vars=derive_vars,
+        )
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
         self.X = du.retrieve_data(self.ds, self.features)
@@ -143,7 +150,8 @@ class SequenceWWMDataset(SimpleWWMDataset):
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits (e.g., [[1, 10], [20, 30]]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             seq_len: Length of input sequences (number of time steps).
@@ -173,14 +181,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
         # Store time and node dimensions for sequence indexing
         self.n_time = len(self.ds.time)
 
-        # Validate seq_len
-        if self.n_time < self.seq_len:
-            raise ValueError(
-                f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({self.n_time})"
-            )
-
-        # Number of valid sequence start positions
-        self.n_valid_times = self.n_time - self.seq_len + 1
+        # Valid window start positions per contiguous day range, so that no
+        # window straddles the gap between ranges. Raises if a range is
+        # shorter than seq_len.
+        self._valid_starts = du.compute_valid_sequence_starts(self.range_lengths, self.seq_len)
+        self.n_valid_times = len(self._valid_starts)
 
         # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
         n_features = self.X.shape[1]
@@ -215,8 +220,8 @@ class SequenceWWMDataset(SimpleWWMDataset):
                 - y_target: (n_targets,) tensor of target at last step in sequence
                 - weight: (1,) sample weight at the target time step
         """
-        # Map flat index to (time_start, node)
-        time_start = idx // self.n_nodes
+        # Map flat index to (window start, node); window starts skip range gaps
+        time_start = int(self._valid_starts[idx // self.n_nodes])
         node_idx = idx % self.n_nodes
 
         # X: sequence from time_start to time_start + seq_len
@@ -261,7 +266,8 @@ class GraphWWMDataset(GDataset):
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset. Must contain graph definition.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits (e.g., [[1, 10], [20, 30]]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             graph_features: List of variable names used for constructing the graph
@@ -298,11 +304,17 @@ class GraphWWMDataset(GDataset):
         self.max_nodes = max_nodes
         self.edge_weight_scale = edge_weight_scale
 
-        # --- Pipeline: open, preprocess (keep graph vars), scale ---
-        self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
+        # --- Pipeline: open, slice + preprocess per contiguous range (keep graph vars), scale ---
+        derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
         # No node filtering — full mesh retained for graph construction
-        self.ds, self.n_nodes = du.preprocess_variables(
-            self.ds, self.features, self.targets, extra_keep_vars=self.graph_features
+        self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(
+            self.data_dir,
+            self.data_range,
+            self.features,
+            self.targets,
+            node_idx_csv=None,
+            extra_keep_vars=self.graph_features,
+            derive_vars=derive_vars,
         )
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
@@ -534,7 +546,8 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive.
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits.
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             graph_features: List of variable names used for constructing the graph.
@@ -570,13 +583,11 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             edge_weight_scale=edge_weight_scale,
         )
 
-        # Validate seq_len
-        if self._n_time < self.seq_len:
-            raise ValueError(
-                f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({self._n_time})"
-            )
-
-        self._n_valid_times = self._n_time - self.seq_len + 1
+        # Valid window start positions per contiguous day range, so that no
+        # window straddles the gap between ranges. Raises if a range is
+        # shorter than seq_len.
+        self._valid_starts = du.compute_valid_sequence_starts(self.range_lengths, self.seq_len)
+        self._n_valid_times = len(self._valid_starts)
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
 
@@ -616,8 +627,10 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         """Get a sequence-graph sample by flat index.
 
         The index maps to (time_start, center_node_pos):
-            time_start = idx // n_center_nodes
+            time_start = valid_starts[idx // n_center_nodes]
             center_pos = center_nodes[idx % n_center_nodes]
+
+        Window starts skip range gaps for non-contiguous day ranges.
 
         Args:
             idx: Flat index into the dataset.
@@ -625,7 +638,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         Returns:
             GData: Graph with sequential node features.
         """
-        time_idx = idx // self.n_center_nodes
+        time_idx = int(self._valid_starts[idx // self.n_center_nodes])
         center_pos = self.center_nodes[idx % self.n_center_nodes]
         return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
 
