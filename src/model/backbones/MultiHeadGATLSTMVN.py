@@ -17,7 +17,8 @@ class GaussianRBF(nn.Module):
 
     Expands a scalar input (e.g. edge_weight in [0, 1]) into a vector of
     Gaussian basis responses.  centers are fixed and uniformly spaced; widths
-    are fixed such that adjacent bases overlap at half-maximum.
+    are fixed relative to the center spacing so that adjacent bases overlap
+    heavily (well above half-maximum at the midpoint between centers).
 
     This gives downstream attention heads a resolution-aware representation of
     edge length from which they can learn arbitrary (including non-monotonic)
@@ -72,19 +73,24 @@ class MultiHeadGATLSTMVN(nn.Module):
     **Global path** — A virtual node (VN) provides subgraph-wide context in a
     single step, bypassing the one-hop limit of the local path.  Its scope is
     the sampled subgraph around the center node, not the full domain.  The VN
-    is initialized from the center node's LSTM temporal encoding.  At each
-    layer:
+    is initialized from the center node's LSTM temporal encoding.  Every
+    layer performs:
       - *Gated injection*: each node receives temporal context from the VN
         through a learned sigmoid gate.
+
+    All but the last layer additionally perform:
       - *Attention-weighted collection*: the VN queries attention over all
         subgraph nodes and aggregates their embeddings.
       - *Recurrent update*: a GRU cell updates the VN state, giving the VN
         memory across layers (unlike purely residual updates).
+        Skipped on the last layer, since the updated VN would never be
+        consumed by a subsequent injection step.
 
     **Fusion** — A learned gate per node combines the local and global
     representations before the next layer.
 
-    **Decoder** — Linear head projects fused embeddings to predictions.
+    **Decoder** — Two-layer MLP (Linear → ReLU → Linear) projects fused
+    embeddings to predictions.
     """
 
     def __init__(
