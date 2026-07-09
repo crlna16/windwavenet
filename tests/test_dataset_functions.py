@@ -378,7 +378,7 @@ class TestSequenceWWMDatasetFunctions:
 
     def test_sequence_dataset_raises_on_invalid_seq_len(self, mock_sequence_dataset):
         """Test that invalid seq_len raises ValueError."""
-        with pytest.raises(ValueError, match="must be less than or equal to"):
+        with pytest.raises(ValueError, match="has only"):
             SequenceWWMDataset(
                 data_dir=mock_sequence_dataset,
                 data_range=[1, 2],  # Small time range
