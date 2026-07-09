@@ -33,7 +33,8 @@ class MultiHeadGAT(nn.Module):
     scale is much larger than the edges, all weights cluster near 1 and the
     RBF features carry no signal.
 
-    **Decoder** — Linear head projects node embeddings to predictions.
+    **Decoder** — Two-layer MLP (Linear → ReLU → Linear) projects node
+    embeddings to predictions.
     """
 
     def __init__(

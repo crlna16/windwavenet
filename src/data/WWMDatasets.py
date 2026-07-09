@@ -720,8 +720,8 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
 
     Non-center nodes receive current-time features (2-D), while the center
     node's history is provided as a separate ``x_center_seq`` attribute.
-    This is designed for the ``VirutalNodeCenterLSTMGCNNet`` backbone which processes
-    center history with an LSTM and current features with a GCN.
+    This is designed for the ``MultiHeadGATLSTMVN`` backbone, which processes
+    center history with an LSTM and current features with a GAT.
     """
 
     def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":

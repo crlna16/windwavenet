@@ -36,18 +36,23 @@ class MultiHeadGATVN(nn.Module):
     **Global path** — A virtual node (VN) provides subgraph-wide context in a
     single step, bypassing the one-hop limit of the local path.  Its scope is
     the sampled subgraph around the center node, not the full domain.  The VN
-    is initialized from the mean pooling of encoded node features.  At each
-    layer:
+    is initialized from the mean pooling of encoded node features.  Every
+    layer performs:
       - *Gated injection*: each node receives subgraph-wide context from the
         VN through a learned sigmoid gate.
+
+    All but the last layer additionally perform:
       - *Attention-weighted collection*: the VN queries attention over all
         subgraph nodes and aggregates their embeddings.
       - *Recurrent update*: a GRU cell updates the VN state across layers.
+        Skipped on the last layer, since the updated VN would never be
+        consumed by a subsequent injection step.
 
     **Fusion** — A learned gate per node combines the local and global
     representations before the next layer.
 
-    **Decoder** — Linear head projects fused embeddings to predictions.
+    **Decoder** — Two-layer MLP (Linear → ReLU → Linear) projects fused
+    embeddings to predictions.
     """
 
     def __init__(

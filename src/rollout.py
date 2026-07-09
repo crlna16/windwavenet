@@ -28,7 +28,7 @@ partitioning as ``predict_gcn.py``.
 
 Usage::
 
-    python src/rollout.py experiment=swh_1h_densenet ckpt_path=<ckpt>
+    python src/rollout.py experiment=swh_1h_mlp ckpt_path=<ckpt>
     python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt>
     python src/rollout.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
     python src/rollout.py experiment=swh_1h_multi-head-gat-lstm-vn ckpt_path=<ckpt>
