@@ -100,6 +100,15 @@ class SimpleWWMDataset(Dataset):
         else:
             self.weights = None
 
+        # Move to shared memory so DataLoader workers (if num_workers > 0) map
+        # the same physical pages instead of each touching/copying their own.
+        # Prefer num_workers=0 for this dataset regardless: it fully preloads,
+        # so there is no I/O for workers to parallelize — only duplication risk.
+        self.X.share_memory_()
+        self.y.share_memory_()
+        if self.weights is not None:
+            self.weights.share_memory_()
+
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
         log.info(f"Dataset initialized with {num_samples} samples.")
 
@@ -384,6 +393,11 @@ class GraphWWMDataset(GDataset):
                 self.sample_weight_strategy,
                 self.sample_weight_power,
             )
+            # Graph datasets keep num_workers > 0 (the on-demand zarr reads in
+            # _extract_node_features are the actual I/O bottleneck to
+            # parallelize), so share this preloaded tensor across workers
+            # instead of letting each worker duplicate it.
+            self.weights.share_memory_()
         else:
             self.weights = None
 
@@ -395,6 +409,7 @@ class GraphWWMDataset(GDataset):
         _t_pre = time.perf_counter()
         _tgt_da = self.ds[self.targets].to_array(dim="variable")  # (n_targets, n_time, n_nodes)
         self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
+        self._targets_ram.share_memory_()
         log.info(
             f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
             f"cache shape {tuple(self._targets_ram.shape)} "

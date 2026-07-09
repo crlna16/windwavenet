@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import gc
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -177,6 +178,45 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         else:
             raise ValueError(f"Unknown stage: {stage}")
+
+    def teardown(self, stage: Optional[str] = None) -> None:
+        """Free the dataset(s) created for *stage* once it has finished.
+
+        Without this, ``train.py``'s fit-then-test flow (``test: true`` in
+        train.yaml) keeps ``ds_train`` and ``ds_val`` fully resident in RAM
+        while ``ds_test`` — built over the FULL mesh, unlike the node-subset
+        train/val datasets — is also constructed, roughly tripling peak
+        memory at the worst possible moment. Freeing here removes the
+        DataModule's own reference; note that this may not immediately
+        release memory if the Trainer itself still holds a reference to the
+        corresponding DataLoader (Lightning version dependent). For a
+        guaranteed-clean run on data that barely fits in RAM, prefer setting
+        ``test: false`` in train.yaml and running ``eval.py`` afterward as a
+        separate process instead of relying on this teardown alone.
+
+        Args:
+            stage: Either 'fit', 'validate', 'test', or 'predict'.
+        """
+        freed = False
+        if stage == "fit":
+            if self.ds_train is not None:
+                self.ds_train = None
+                freed = True
+            if self.ds_val is not None:
+                self.ds_val = None
+                freed = True
+        elif stage == "test":
+            if self.ds_test is not None:
+                self.ds_test = None
+                freed = True
+        elif stage == "predict":
+            if self.ds_pred is not None:
+                self.ds_pred = None
+                freed = True
+
+        if freed:
+            gc.collect()
+            log.info(f"Freed dataset(s) for stage '{stage}'.")
 
     def to_numpy(
         self, stage: str = "fit"

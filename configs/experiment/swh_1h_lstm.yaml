@@ -26,6 +26,10 @@ data:
   scaling_config: src/data/scaling/scale_2020_JFM_hourly.yaml
   node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
   batch_size: 1024
+  # SimpleWWMDataset/SequenceWWMDataset fully preload X/y into RAM at
+  # construction time, so DataLoader workers have no I/O to parallelize --
+  # only duplication risk. num_workers=0 avoids that risk for free.
+  num_workers: 0
 
 model:
   _target_: src.model.WWMEmulator.WWMEmulator
