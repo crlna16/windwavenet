@@ -6,23 +6,23 @@
 import torch
 from torch_geometric.data import Batch, Data as GData
 
-from src.model.backbones.DenseNet import DenseNet
+from src.model.backbones.MLP import MLP
 from src.model.backbones.LSTMNet import LSTMNet
 
 
-class TestDenseNet:
-    """Test suite for DenseNet backbone."""
+class TestMLP:
+    """Test suite for MLP backbone."""
 
     def test_forward_basic(self):
         """Test basic forward pass with default parameters."""
-        model = DenseNet(input_dim=10, output_dim=3)
+        model = MLP(input_dim=10, output_dim=3)
         x = torch.randn(8, 10)  # batch_size=8, input_dim=10
         output = model(x)
         assert output.shape == (8, 3)
 
     def test_forward_constant_scaling(self):
         """Test forward pass with constant layer scaling."""
-        model = DenseNet(
+        model = MLP(
             input_dim=20,
             output_dim=5,
             num_hidden_layers=3,
@@ -35,7 +35,7 @@ class TestDenseNet:
 
     def test_forward_halving_scaling(self):
         """Test forward pass with halving layer scaling."""
-        model = DenseNet(
+        model = MLP(
             input_dim=20,
             output_dim=5,
             num_hidden_layers=3,
@@ -48,7 +48,7 @@ class TestDenseNet:
 
     def test_forward_with_dropout(self):
         """Test forward pass with dropout enabled."""
-        model = DenseNet(input_dim=10, output_dim=2, dropout_rate=0.5)
+        model = MLP(input_dim=10, output_dim=2, dropout_rate=0.5)
         x = torch.randn(8, 10)
         # Test in training mode (dropout active)
         model.train()
@@ -67,21 +67,21 @@ class TestDenseNet:
             {"num_hidden_layers": 2, "first_layer_neurons": 16},
         ]
         for cfg in configs:
-            model = DenseNet(input_dim=10, output_dim=2, **cfg)
+            model = MLP(input_dim=10, output_dim=2, **cfg)
             x = torch.randn(2, 10)
             output = model(x)
             assert output.shape == (2, 2)
 
     def test_single_sample_batch(self):
         """Test forward pass with a single sample."""
-        model = DenseNet(input_dim=10, output_dim=3)
+        model = MLP(input_dim=10, output_dim=3)
         x = torch.randn(1, 10)
         output = model(x)
         assert output.shape == (1, 3)
 
     def test_gradient_flow(self):
         """Test that gradients flow through the network."""
-        model = DenseNet(input_dim=10, output_dim=3)
+        model = MLP(input_dim=10, output_dim=3)
         x = torch.randn(4, 10, requires_grad=True)
         output = model(x)
         loss = output.sum()

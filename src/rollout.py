@@ -17,7 +17,7 @@ wave state), next to a persistence baseline that holds the initial state.
 
 Supported model families (auto-detected from ``data._target_``):
 
-- ``WWMDataModule``                   → pointwise MLP (DenseNet)
+- ``WWMDataModule``                   → pointwise MLP
 - ``SequenceWWMDataModule``           → LSTM (per-node sequence-to-one)
 - ``GraphWWMDataModule``              → MultiHeadGAT / MultiHeadGATVN
 - ``SequenceGraphWWMDataModule``      → graph models with sequences at all nodes

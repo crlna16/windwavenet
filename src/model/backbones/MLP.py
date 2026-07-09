@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 
-class DenseNet(nn.Module):
+class MLP(nn.Module):
     """Flexible feed-forward neural network with configurable architecture.
 
     A dense network with configurable number of layers, neurons, and scaling mode.
@@ -24,7 +24,7 @@ class DenseNet(nn.Module):
         layer_scaling: Literal["constant", "halving"] = "halving",
         dropout_rate: float = 0.0,
     ):
-        """Initialize the DenseNet.
+        """Initialize the MLP.
 
         Args:
             input_dim: Number of input features.
