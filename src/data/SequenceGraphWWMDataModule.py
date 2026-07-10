@@ -38,16 +38,13 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: Optional[float] = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
-        max_radius: float = 10000.0,
         max_nodes: int = 1000,
-        max_links: int = 10,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         self.seq_len = seq_len
         self.graph_features = graph_features
-        self.max_radius = max_radius
+        self.boundary_nodes_csv = boundary_nodes_csv
         self.max_nodes = max_nodes
-        self.max_links = max_links
         self.edge_weight_scale = edge_weight_scale
 
         super().__init__(
@@ -90,8 +87,6 @@ class SequenceGraphWWMDataModule(BaseWWMDataModule):
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             sample_weight_variable=sample_weight_variable,
-            max_radius=self.max_radius,
             max_nodes=self.max_nodes,
-            max_links=self.max_links,
             edge_weight_scale=self.edge_weight_scale,
         )

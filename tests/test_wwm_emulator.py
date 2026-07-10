@@ -10,14 +10,14 @@ import torch
 import numpy as np
 
 from src.model.WWMEmulator import WWMEmulator
-from src.model.backbones.DenseNet import DenseNet
+from src.model.backbones.MLP import MLP
 from src.model.backbones.LSTMNet import LSTMNet
 
 
 @pytest.fixture
 def simple_backbone():
-    """Create a simple DenseNet backbone."""
-    return DenseNet(input_dim=10, output_dim=2)
+    """Create a simple MLP backbone."""
+    return MLP(input_dim=10, output_dim=2)
 
 
 @pytest.fixture
@@ -305,7 +305,7 @@ class TestUnitCircleConstraint:
 
     def test_unit_circle_normalizes_to_unit_circle(self, mock_optimizer):
         """sin/cos pair is projected onto the unit circle."""
-        backbone = DenseNet(input_dim=2, output_dim=2)
+        backbone = MLP(input_dim=2, output_dim=2)
         emulator = WWMEmulator(
             backbone=backbone,
             target_names=["sin_meanWaveDirection", "cos_meanWaveDirection"],
@@ -323,7 +323,7 @@ class TestUnitCircleConstraint:
 
     def test_unit_circle_output_has_unit_norm(self, mock_optimizer):
         """For arbitrary inputs, constrained sin²+cos² == 1."""
-        backbone = DenseNet(input_dim=2, output_dim=2)
+        backbone = MLP(input_dim=2, output_dim=2)
         emulator = WWMEmulator(
             backbone=backbone,
             target_names=["sin_meanWaveDirection", "cos_meanWaveDirection"],
@@ -340,7 +340,7 @@ class TestUnitCircleConstraint:
 
     def test_unit_circle_with_mixed_constraints(self, mock_optimizer):
         """semipositive constraint on sigWaveHeight is unaffected by unit_circle logic."""
-        backbone = DenseNet(input_dim=3, output_dim=3)
+        backbone = MLP(input_dim=3, output_dim=3)
         emulator = WWMEmulator(
             backbone=backbone,
             target_names=["sigWaveHeight", "sin_meanWaveDirection", "cos_meanWaveDirection"],
@@ -361,7 +361,7 @@ class TestUnitCircleConstraint:
 
     def test_unit_circle_no_partner_leaves_unchanged(self, mock_optimizer):
         """If only sin_ has unit_circle but no matching cos_, channel is left as-is."""
-        backbone = DenseNet(input_dim=1, output_dim=1)
+        backbone = MLP(input_dim=1, output_dim=1)
         emulator = WWMEmulator(
             backbone=backbone,
             target_names=["sin_meanWaveDirection"],

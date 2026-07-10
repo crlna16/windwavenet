@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import gc
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -46,9 +47,11 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         Args:
             data_dir: Directory containing the Zarr dataset.
-            train_days: Day range for training as [start_day, end_day] inclusive.
-            val_days: Day range for validation as [start_day, end_day] inclusive.
-            test_days: Day range for testing as [start_day, end_day] inclusive.
+            train_days: Day range for training as [start_day, end_day] inclusive,
+                or a list of such ranges (e.g. [[1, 180], [244, 304]]) for
+                non-contiguous splits.
+            val_days: Day range(s) for validation, same format as train_days.
+            test_days: Day range(s) for testing, same format as train_days.
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -63,7 +66,8 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         super().__init__()
 
@@ -142,11 +146,14 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 sample_weight_variable=self.sample_weight_variable,
             )
 
+            # Validation uses the same weighting strategy as training so that
+            # val/loss (the checkpoint/early-stopping monitor) reflects the
+            # weighted training objective. RMSE metrics remain unweighted.
             self.ds_val = self._create_dataset(
                 data_range=self.val_days,
                 node_idx_csv=self.node_idx_csv,
-                sample_weight_strategy=None,
-                sample_weight_power=None,
+                sample_weight_strategy=self.sample_weight_strategy,
+                sample_weight_power=self.sample_weight_power,
                 sample_weight_variable=self.sample_weight_variable,
             )
 
@@ -175,6 +182,45 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
 
         else:
             raise ValueError(f"Unknown stage: {stage}")
+
+    def teardown(self, stage: Optional[str] = None) -> None:
+        """Free the dataset(s) created for *stage* once it has finished.
+
+        Without this, ``train.py``'s fit-then-test flow (``test: true`` in
+        train.yaml) keeps ``ds_train`` and ``ds_val`` fully resident in RAM
+        while ``ds_test`` — built over the FULL mesh, unlike the node-subset
+        train/val datasets — is also constructed, roughly tripling peak
+        memory at the worst possible moment. Freeing here removes the
+        DataModule's own reference; note that this may not immediately
+        release memory if the Trainer itself still holds a reference to the
+        corresponding DataLoader (Lightning version dependent). For a
+        guaranteed-clean run on data that barely fits in RAM, prefer setting
+        ``test: false`` in train.yaml and running ``eval.py`` afterward as a
+        separate process instead of relying on this teardown alone.
+
+        Args:
+            stage: Either 'fit', 'validate', 'test', or 'predict'.
+        """
+        freed = False
+        if stage == "fit":
+            if self.ds_train is not None:
+                self.ds_train = None
+                freed = True
+            if self.ds_val is not None:
+                self.ds_val = None
+                freed = True
+        elif stage == "test":
+            if self.ds_test is not None:
+                self.ds_test = None
+                freed = True
+        elif stage == "predict":
+            if self.ds_pred is not None:
+                self.ds_pred = None
+                freed = True
+
+        if freed:
+            gc.collect()
+            log.info(f"Freed dataset(s) for stage '{stage}'.")
 
     def to_numpy(
         self, stage: str = "fit"
