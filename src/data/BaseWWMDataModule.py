@@ -34,6 +34,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         targets: List[str],
         scaling_config: Optional[str] = None,
         node_idx_csv: Optional[str] = None,
+        boundary_nodes_csv: Optional[str] = None,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -56,6 +57,8 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
             scaling_config: Path to YAML file containing mean and std for each variable.
             node_idx_csv: Optional CSV file with node indices to keep for train/val.
                 Test/predict use all nodes (node_idx_csv=None).
+            boundary_nodes_csv: Optional CSV file with open-sea boundary nodes to exclude.
+                These nodes are discarded in all stages.
             batch_size: Number of samples per batch.
             num_workers: Number of workers for data loading.
             pin_memory: Whether to pin memory for faster GPU transfer.
@@ -79,6 +82,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         self.targets = targets
         self.scaling_config = scaling_config
         self.node_idx_csv = node_idx_csv
+        self.boundary_nodes_csv = boundary_nodes_csv
 
         self.batch_size = batch_size
         self.num_workers = num_workers

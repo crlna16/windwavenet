@@ -231,23 +231,21 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     n_time = ds.sizes["time"]
     all_predictions = np.full((n_time, n_nodes, n_targets), np.nan, dtype=np.float32)
 
+    # For sequence models, the first valid prediction is at time_idx = seq_len - 1
+    # (consistent with predict.py which skips the warm-up period rather than padding).
+    time_start = seq_len - 1 if seq_len > 1 else 0
+
     log.info(
-        f"Running inference over {n_time} time steps, "
+        f"Running inference over time steps [{time_start}, {n_time}), "
         f"{len(partitions)} partitions, batch_size_graphs={batch_size_graphs} ..."
     )
 
     with torch.no_grad():
-        for time_idx in range(n_time):
-            # For sequence models, gather seq_len consecutive frames;
-            # for single-step models this is just X_all[time_idx].
+        for time_idx in range(time_start, n_time):
+            # For sequence models, gather the exact seq_len frames ending at time_idx.
+            # For single-step models this is unused.
             if seq_len > 1:
-                t_start = max(0, time_idx - seq_len + 1)
-                X_window = X_all[t_start : time_idx + 1]  # (<=seq_len, n_nodes, n_feat)
-                # Pad with the earliest available frame if near the start
-                if X_window.shape[0] < seq_len:
-                    pad = np.repeat(X_window[:1], seq_len - X_window.shape[0], axis=0)
-                    X_window = np.concatenate([pad, X_window], axis=0)
-                # X_window: (seq_len, n_nodes, n_features)
+                X_window = X_all[time_idx - seq_len + 1 : time_idx + 1]  # (seq_len, n_nodes, n_feat)
             else:
                 X_window = None
 
@@ -313,13 +311,18 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
 
     log.info("Inference complete.")
 
+    # Trim the warm-up period from the output buffer and align time coordinates.
+    all_predictions = all_predictions[time_start:]
+    pred_time_coords = ds.time.isel(time=slice(time_start, None))
+
     # ------------------------------------------------------------------
     # 6.  Compute test metrics (optional, numpy-only — no extra GPU pass)
     # ------------------------------------------------------------------
     if cfg.get("test_metrics", False):
         log.info("Computing test metrics from prediction buffer ...")
         Y_all = np.stack([ds[t].values for t in targets], axis=-1).astype(np.float32)
-        # Y_all shape: (n_time, n_nodes, n_targets)  — same space as all_predictions
+        Y_all = Y_all[time_start:]  # align with trimmed predictions
+        # Y_all shape: (n_valid_time, n_nodes, n_targets)  — same space as all_predictions
 
         # Exclude boundary nodes (NaN positions) from metrics
         valid_mask = ~np.isnan(all_predictions[:, :, 0])
@@ -375,7 +378,8 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             cos_pred = all_predictions[:, :, target_name_to_idx[cos_name]][valid_mask]
             angle_pred = np.degrees(np.arctan2(sin_pred, cos_pred)) % 360.0
             if base_var in ds:
-                angle_truth = ds[base_var].values[valid_mask].astype(np.float32)
+                angle_truth_all = ds[base_var].isel(time=slice(time_start, None)).values.astype(np.float32)
+                angle_truth = angle_truth_all[valid_mask]
                 c_mae = circular_mae(angle_pred, angle_truth)
                 c_rmse = circular_rmse(angle_pred, angle_truth)
                 metrics[f"test/circular_mae_{base_var}"] = c_mae
@@ -404,7 +408,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         ds=ds,
         features=features,
         scaling_params=scaling_params,
-        time_coords=ds.time,
+        time_coords=pred_time_coords,
         extra_attrs={
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,

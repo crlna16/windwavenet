@@ -1,0 +1,16 @@
+run, id, backbone, sequence length, graph nodes, predictions
+apricot-monkey-35, vlu7fztd, densenet, None, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict/runs/2026-06-30_14-05-11/predictions.nc
+crisp-durian-37, she1j3a6, lstm, 3, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-18-01/predictions.nc
+restful-wood-38, psddgmra, lstm, 6, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-44-43/predictions.nc
+iconic-bush-39, famt9uco, lstm, 12, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-06-30_14-43-09/predictions.nc
+polar-dust-40, rncpe3y2, lstm, 24, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-07-02_12-19-15/predictions.nc
+pretty-bee-41, gnghqhwv, lstm, 48, None, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_lstm/runs/2026-07-02_12-31-35/predictions.nc
+crimson-galaxy-47, rdlv9mns, graph, None, 50, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-vn/runs/2026-06-30_15-01-53/predictions.nc
+lemon-deluge-68, yoh4zask, graph, None, 250, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-vn/runs/2026-06-30_15-02-16/predictions.nc
+celestial-fire-67,  gr3xp6ql, graph, None, 500, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-vn/runs/2026-06-30_17-52-26/predictions.nc
+efficient-snowball-66, jgk32o4k, graph-lstm, 6, 50, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-lstm-vn/runs/2026-07-01_14-17-07/predictions.nc
+valiant-dust-64, m8bav13r, graph-lstm, 6, 250, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-lstm-vn/runs/2026-07-01_14-30-59/predictions.nc
+smart-elevator-65, jg59ucn3, graph-lstm, 6, 500, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-lstm-vn/runs/2026-07-01_14-31-07/predictions.nc
+different-glitter-60, t2likicm, graph-lstm, 48, 50, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-lstm-vn/runs/2026-07-01_15-20-59/predictions.nc
+absurd-thunder-56, 97vhjpjp, graph-lstm, 48, 250, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-lstm-vn/runs/2026-07-01_15-40-07/predictions.nc
+fluent-dragon-63, 69n8g8mm, graph-lstm, 48, 500, /work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_gcn/swh_1h_multi-head-gat-lstm-vn/runs/2026-07-01_16-50-20/predictions.nc

@@ -45,6 +45,7 @@ class WWMDataModule(BaseWWMDataModule):
             targets=self.targets,
             scaling_config=self.scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=self.boundary_nodes_csv,
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             sample_weight_variable=sample_weight_variable,

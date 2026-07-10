@@ -57,6 +57,7 @@ class CenterHistoryGraphWWMDataModule(BaseWWMDataModule):
             targets=targets,
             scaling_config=scaling_config,
             node_idx_csv=node_idx_csv,
+            boundary_nodes_csv=boundary_nodes_csv,
             batch_size=batch_size,
             num_workers=num_workers,
             pin_memory=pin_memory,
