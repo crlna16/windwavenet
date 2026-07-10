@@ -37,6 +37,12 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     """
     assert cfg.ckpt_path
 
+    if len(du.normalize_day_ranges(list(cfg.data.test_days))) > 1:
+        raise NotImplementedError(
+            "predict.py assumes a contiguous test range when reshaping predictions; "
+            "run once per range instead, e.g. data.test_days=[212,242]."
+        )
+
     log.info("Printing config tree with Rich <cfg.extras.print_config=True>")
     print_config_tree(cfg, resolve=True, save_to_file=True)
 

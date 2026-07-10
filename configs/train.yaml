@@ -46,6 +46,12 @@ seed: null
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
+  # Day ranges are 1-indexed and inclusive on both ends:
+  # [1, 304] selects days 1 through 304 (304 days).
+  # Non-contiguous splits are given as a list of ranges, ascending and
+  # non-overlapping, e.g. train_days: [[1, 180], [244, 304]].
+  # Derived variables (prev_*/delta_*) and sequence windows never cross
+  # the gap between ranges.
   train_days: [1, 304]
   val_days: [305, 334]
   test_days: [335, 365]
@@ -66,11 +72,15 @@ data:
 
   # Optional: sample weighting strategy for imbalanced regression
   # Options: null (no weighting), 'z_score'
+  # Note: weights are applied to both train and validation losses, so val/loss
+  # (the checkpoint / early-stopping monitor) reflects the weighted objective.
+  # RMSE metrics stay unweighted.
   sample_weight_strategy: null
 
   sample_weight_power: 1.0 # Exponent for controlling sample weight intensity
 
-  # Variable used to compute z-score sample weights (looked up in targets first, then features)
+  # Variable used to compute z-score sample weights. Any variable in the dataset,
+  # or 'delta_<var>' (e.g. delta_sigWaveHeight) derived on the fly if absent.
   sample_weight_variable: sigWaveHeight
 
 model:
@@ -108,6 +118,11 @@ model:
     mode: min
     factor: 0.5
     patience: 3
+    # After a reduction, wait before counting a new plateau so the lower LR
+    # has time to take effect before being reduced again.
+    cooldown: 2
+    # Stop reducing once the LR is too small to matter (~1/100 of typical initial LR).
+    min_lr: 1.0e-6
 
 trainer:
   _target_: lightning.pytorch.trainer.Trainer
@@ -151,7 +166,13 @@ callbacks:
   early_stopping:
     _target_: lightning.pytorch.callbacks.EarlyStopping
     monitor: val/loss
-    patience: 5
+    # Must be large enough to cover at least two full LR-reduction cycles of the
+    # plateau scheduler (patience 3 + cooldown 2 per cycle), plus a few epochs
+    # for the reduced LR to show an improvement. With patience 5 the halved LR
+    # only got 2 epochs before the run was stopped, so the scheduler never had
+    # a chance to act. ModelCheckpoint keeps the best epoch regardless, so a
+    # generous patience only costs compute, never checkpoint quality.
+    patience: 15
     mode: "min"
 
   model_summary:

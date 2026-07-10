@@ -17,11 +17,19 @@ class GaussianRBF(nn.Module):
 
     Expands a scalar input (e.g. edge_weight in [0, 1]) into a vector of
     Gaussian basis responses.  centers are fixed and uniformly spaced; widths
-    are fixed such that adjacent bases overlap at half-maximum.
+    are fixed relative to the center spacing so that adjacent bases overlap
+    heavily (well above half-maximum at the midpoint between centers).
 
-    This gives downstream attention heads a rich representation of distance
-    from which they can learn arbitrary (including non-monotonic) spatial
-    attention profiles.
+    This gives downstream attention heads a resolution-aware representation of
+    edge length from which they can learn arbitrary (including non-monotonic)
+    weightings of physical proximity.
+
+    The expansion is only informative if the inputs actually spread across
+    ``[low, high]``.  With inverse-distance edge weights this requires the
+    ``edge_weight_scale`` used in :func:`src.data.graph_utils.compute_edge_weights`
+    to be comparable to typical mesh edge lengths; if the scale is much larger
+    than the edges, all weights cluster near ``high`` and most basis functions
+    return near-zero constants.
     """
 
     def __init__(self, n_rbf: int = 16, low: float = 0.0, high: float = 1.0):
@@ -47,31 +55,42 @@ class GaussianRBF(nn.Module):
 
 
 class MultiHeadGATLSTMVN(nn.Module):
-    """Dual-path backbone: local distance-conditioned GAT + global virtual node.
+    """Dual-path backbone: local GAT over mesh edges + temporal virtual node.
 
-    Separates local spatial reasoning from global temporal context:
+    Separates local spatial reasoning from subgraph-wide temporal context:
 
-    **Local path** — Multi-head GATv2 attention over the mesh edge set with
-    distance-conditioned bias.  Edge weights (inverse-distance) are expanded
-    through Gaussian RBFs and passed as edge features to GATv2Conv, which
-    internally projects them to per-head attention biases.  This allows each
-    attention head to learn its own characteristic length scale — some heads
-    can focus on immediate neighbors (short-range wave dynamics) while others
-    attend to more distant nodes (swell propagation).
+    **Local path** — Multi-head GATv2 attention over the mesh edge set.
+    Attention is strictly one-hop (direct mesh neighbours plus self), so the
+    local receptive field grows with ``num_layers``.  Edge lengths are encoded
+    as inverse-distance weights expanded through Gaussian RBFs and passed as
+    edge features to GATv2Conv; this tells attention how much physical space
+    each hop covers on the unstructured mesh, whose edge lengths vary by
+    orders of magnitude between coastal and offshore regions.  The encoding
+    is only informative if ``edge_weight_scale`` is comparable to typical
+    edge lengths (see :class:`GaussianRBF` and
+    :func:`src.data.graph_utils.compute_edge_weights`).
 
-    **Global path** — Cross-attention virtual node initialized from the
-    center node's LSTM temporal encoding.  At each layer:
+    **Global path** — A virtual node (VN) provides subgraph-wide context in a
+    single step, bypassing the one-hop limit of the local path.  Its scope is
+    the sampled subgraph around the center node, not the full domain.  The VN
+    is initialized from the center node's LSTM temporal encoding.  Every
+    layer performs:
       - *Gated injection*: each node receives temporal context from the VN
         through a learned sigmoid gate.
+
+    All but the last layer additionally perform:
       - *Attention-weighted collection*: the VN queries attention over all
-        nodes and aggregates their embeddings.
+        subgraph nodes and aggregates their embeddings.
       - *Recurrent update*: a GRU cell updates the VN state, giving the VN
         memory across layers (unlike purely residual updates).
+        Skipped on the last layer, since the updated VN would never be
+        consumed by a subsequent injection step.
 
     **Fusion** — A learned gate per node combines the local and global
     representations before the next layer.
 
-    **Decoder** — Linear head projects fused embeddings to predictions.
+    **Decoder** — Two-layer MLP (Linear → ReLU → Linear) projects fused
+    embeddings to predictions.
     """
 
     def __init__(
@@ -96,9 +115,10 @@ class MultiHeadGATLSTMVN(nn.Module):
                 Must be divisible by ``heads``.
             lstm_hidden_dim: Hidden dimension of the LSTM.
             num_lstm_layers: Number of stacked LSTM layers.
-            num_layers: Number of dual-path processing layers.
+            num_layers: Number of dual-path processing layers (sets the local
+                receptive field in hops).
             heads: Number of attention heads in the local GAT path.
-            n_rbf: Number of Gaussian RBF centers for distance encoding.
+            n_rbf: Number of Gaussian RBF centers for edge-length encoding.
             dropout: Dropout probability after each processing layer.
             attn_dropout: Dropout on GAT attention coefficients.
         """
@@ -202,7 +222,7 @@ class MultiHeadGATLSTMVN(nn.Module):
         edge_weight = getattr(data, "edge_weight", None)
         batch = data.batch
 
-        # ---- Distance encoding ----
+        # ---- Edge-length encoding ----
         if edge_weight is not None:
             edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
         else:
@@ -228,7 +248,7 @@ class MultiHeadGATLSTMVN(nn.Module):
         ):
             x_residual = x
 
-            # --- Local path: distance-conditioned GAT ---
+            # --- Local path: one-hop GAT with edge-length-conditioned attention ---
             x_local = gat(x, edge_index, edge_attr=edge_attr)
             x_local = F.elu(x_local)
             x_local = F.dropout(x_local, p=self.dropout, training=self.training)

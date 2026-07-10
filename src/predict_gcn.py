@@ -95,7 +95,12 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     features: List[str] = list(cfg.data.features)
     targets: List[str] = list(cfg.data.targets)
     graph_features: List[str] = list(cfg.data.graph_features)
-    test_days: List[int] = list(cfg.data.test_days)
+    test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
+    if len(test_ranges) > 1:
+        raise NotImplementedError(
+            "predict_gcn.py assumes a contiguous test range; run once per range instead, e.g. data.test_days=[212,242]."
+        )
+    test_days: List[int] = test_ranges[0]
 
     log.info(f"Opening dataset from {data_dir}")
     ds, _ = du.open_and_slice_dataset(data_dir, test_days)
@@ -130,19 +135,13 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     # ------------------------------------------------------------------
     # 3.  Partition domain into covering sub-graphs
     # ------------------------------------------------------------------
-    max_radius: float = float(cfg.data.max_radius)
     max_nodes: int = int(cfg.data.max_nodes)
-    max_links: int = int(cfg.data.max_links)
 
-    log.info(f"Partitioning domain with max_radius={max_radius}, max_nodes={max_nodes}, max_links={max_links} ...")
+    log.info(f"Partitioning domain with max_nodes={max_nodes} ...")
     partitions = gu.partition_domain(
         n_nodes=n_nodes,
         adjacency=adjacency,
-        node_x=node_x,
-        node_y=node_y,
-        max_radius=max_radius,
         max_nodes=max_nodes,
-        max_links=max_links,
     )
 
     # Precompute edge weights for every partition
@@ -410,9 +409,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
             "checkpoint": cfg.ckpt_path,
             "model": cfg.model._target_,
             "n_partitions": len(partitions),
-            "max_radius": max_radius,
             "max_nodes": max_nodes,
-            "max_links": max_links,
         },
     )
 

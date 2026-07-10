@@ -344,15 +344,15 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 5
         ds = SequenceWWMDataset(
             data_dir=mock_sequence_dataset,
-            data_range=[1, 2],  # 1 day = 24 samples
+            data_range=[1, 2],  # days 1-2 inclusive = 48 samples
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
         )
 
-        # After removing first timestep (for delta/prev), n_time = 23
-        # n_valid_times = 23 - 5 = 18
-        # Total samples = 18 * 5 nodes = 90
+        # After removing first timestep (for delta/prev), n_time = 47
+        # n_valid_times = 47 - 5 + 1 = 43
+        # Total samples = 43 * 5 nodes = 215
         # (exact number depends on data processing in SimpleWWMDataset)
         assert len(ds) > 0
 
@@ -378,7 +378,7 @@ class TestSequenceWWMDatasetFunctions:
 
     def test_sequence_dataset_raises_on_invalid_seq_len(self, mock_sequence_dataset):
         """Test that invalid seq_len raises ValueError."""
-        with pytest.raises(ValueError, match="must be less than or equal to"):
+        with pytest.raises(ValueError, match="has only"):
             SequenceWWMDataset(
                 data_dir=mock_sequence_dataset,
                 data_range=[1, 2],  # Small time range
@@ -426,13 +426,13 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 3
         ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
         )
 
-        # data_range=[1,2] keeps first day (24 samples); dataset drops first timestep -> 23
+        # data_range=[1,1] keeps day 1 inclusive (24 samples); dataset drops first timestep -> 23
         assert ds.n_time == 23
         assert ds.n_valid_times == 21
         assert len(ds) == 84  # 21 valid starts * 4 nodes
@@ -442,7 +442,7 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 3
         ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
@@ -465,14 +465,14 @@ class TestSequenceWWMDatasetFunctions:
         seq_len = 4
         preload_ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
         )
         lazy_ds = SequenceWWMDataset(
             data_dir=deterministic_sequence_dataset,
-            data_range=[1, 2],
+            data_range=[1, 1],
             features=["U10", "V10"],
             targets=["sigWaveHeight"],
             seq_len=seq_len,
@@ -487,6 +487,31 @@ class TestSequenceWWMDatasetFunctions:
         assert tuple(y_lazy.shape) == (1,)
         np.testing.assert_allclose(X_lazy.numpy(), X_preload.numpy())
         np.testing.assert_allclose(y_lazy.numpy(), y_preload.numpy())
+
+    def test_sequence_dataset_multi_range_no_straddle(self, deterministic_sequence_dataset):
+        """Windows must not straddle the gap between non-contiguous day ranges."""
+        seq_len = 3
+        ds = SequenceWWMDataset(
+            data_dir=deterministic_sequence_dataset,
+            data_range=[[1, 1], [2, 2]],
+            features=["U10", "V10"],
+            targets=["sigWaveHeight"],
+            seq_len=seq_len,
+        )
+
+        # Range 1: 24 raw steps -> 23 after first-step drop -> 21 window starts.
+        # Range 2: fixture has 30 steps, so day 2 is clamped to 6 raw steps
+        # -> 5 after first-step drop -> 3 window starts.
+        assert ds.n_time == 28
+        assert ds.n_valid_times == 24
+        assert len(ds) == 24 * 4
+
+        # First sample of the second range (seq_idx 21, node 0): the window
+        # starts at concatenated index 23, which is raw t=25 (range 2 drops
+        # its own first step, raw t=24) — NOT a window into range 1's tail.
+        X_seq, y_target = ds[21 * 4]
+        np.testing.assert_allclose(X_seq[:, 0].numpy(), np.array([2500.0, 2600.0, 2700.0], dtype=np.float32))
+        np.testing.assert_allclose(y_target.numpy(), np.array([270.0], dtype=np.float32))
 
 
 class TestSimpleWWMDatasetCoverage:
@@ -609,7 +634,51 @@ class TestSimpleWWMDatasetCoverage:
         )
 
         with pytest.raises(ValueError, match="Unknown sample_weight_strategy"):
-            du.compute_weights(ds.y, ds.targets, "invalid_strategy", 1.0)
+            du.compute_weights(ds.y[:, 0], "invalid_strategy", 1.0)
+
+    def test_simple_dataset_multi_range_len(self, simple_dataset_zarr):
+        """Non-contiguous day ranges: each range drops its own first time step."""
+        ds = SimpleWWMDataset(
+            data_dir=simple_dataset_zarr,
+            data_range=[[1, 1], [2, 2]],
+            features=["U10"],
+            targets=["sigWaveHeight"],
+        )
+
+        # Each day: 24 steps minus the per-range dropped first step -> 23.
+        assert ds.range_lengths == [23, 23]
+        assert len(ds) == 46 * 4
+
+
+class TestMultiRangeHelpers:
+    """Test suite for day-range normalization and gap-aware sequence starts."""
+
+    def test_normalize_single_range(self):
+        assert du.normalize_day_ranges([1, 2]) == [[1, 2]]
+
+    def test_normalize_multi_range(self):
+        assert du.normalize_day_ranges([[1, 1], [3, 4]]) == [[1, 1], [3, 4]]
+
+    def test_normalize_rejects_overlap(self):
+        with pytest.raises(ValueError, match="non-overlapping"):
+            du.normalize_day_ranges([[1, 3], [3, 4]])
+
+    def test_normalize_rejects_descending_order(self):
+        with pytest.raises(ValueError, match="ascending"):
+            du.normalize_day_ranges([[3, 4], [1, 2]])
+
+    def test_normalize_rejects_malformed_range(self):
+        with pytest.raises(ValueError, match="start <= end"):
+            du.normalize_day_ranges([5, 2])
+
+    def test_valid_sequence_starts_skip_gaps(self):
+        starts = du.compute_valid_sequence_starts([5, 4], seq_len=3)
+        # Range 1 (indices 0-4): starts 0, 1, 2. Range 2 (indices 5-8): starts 5, 6.
+        np.testing.assert_array_equal(starts, np.array([0, 1, 2, 5, 6]))
+
+    def test_valid_sequence_starts_raise_on_short_range(self):
+        with pytest.raises(ValueError, match="seq_len=3 does not fit"):
+            du.compute_valid_sequence_starts([5, 2], seq_len=3)
 
 
 class TestComputeSincos:

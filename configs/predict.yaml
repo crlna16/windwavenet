@@ -77,7 +77,7 @@ model:
   output_constraints: null
 
   backbone:
-    _target_: src.model.backbones.DenseNet.DenseNet
+    _target_: src.model.backbones.MLP.MLP
     input_dim: 3 # must match len(data.features)
     output_dim: 1 # must match len(data.targets)
     num_hidden_layers: 3 # number of hidden layers

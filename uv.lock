@@ -3183,6 +3183,7 @@ dependencies = [
 dev = [
     { name = "pdoc" },
     { name = "pre-commit" },
+    { name = "psutil" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "reuse" },
@@ -3221,6 +3222,7 @@ requires-dist = [
 dev = [
     { name = "pdoc", specifier = ">=16.0.0" },
     { name = "pre-commit", specifier = ">=4.4.0" },
+    { name = "psutil", specifier = ">=7.0.0" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "reuse", specifier = ">=6.2.0" },

@@ -57,7 +57,8 @@ class SequenceWWMDataModule(BaseWWMDataModule):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         # Store seq_len before calling super().__init__ since it uses save_hyperparameters
         self.seq_len = seq_len

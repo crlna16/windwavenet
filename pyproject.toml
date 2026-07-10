@@ -40,6 +40,7 @@ dependencies = [
 dev = [
     "pdoc>=16.0.0",
     "pre-commit>=4.4.0",
+    "psutil>=7.0.0",
     "pytest>=9.0.1",
     "pytest-cov>=7.0.0",
     "reuse>=6.2.0",

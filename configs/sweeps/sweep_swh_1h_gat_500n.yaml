@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2025-2026 Hereon
+# SPDX-FileContributor: Caroline Arnold
+#
+# SPDX-License-Identifier: MIT
+
+# wandb sweep for MultiHeadGAT on swh, max_nodes=500.
+#
+# Launch with:
+#   wandb sweep configs/sweeps/sweep_swh_1h_gat_500n.yaml
+#   wandb agent <sweep-id>
+#
+# Metric: val/best_rmse_sigWaveHeight is UNWEIGHTED, so it stays comparable
+# across runs even though data.sample_weight_power is swept (val/loss and
+# the checkpoint selection are weighted and change shape with the power —
+# inspect the curves per run before trusting a single number).
+#
+# All hidden_dim values are divisible by all heads values (required by
+# the backbone). num_layers sets the receptive field in hops; the range
+# extends to 10 to match the VN sweeps for a depth-controlled comparison.
+
+program: src/train.py
+project: wwm-emulator-sweeps
+entity: wwm-emulator
+method: bayes
+metric:
+  goal: minimize
+  name: val/best_rmse_sigWaveHeight
+early_terminate:
+  type: hyperband
+  min_iter: 10
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+  - experiment=swh_1h_multi-head-gat
+  - logger.wandb.project=wwm-emulator-sweeps
+  - data.max_nodes=500
+  # Reduced patience for sweep economy (final training uses the longer
+  # patience from train.yaml); allows one full LR-reduction cycle.
+  - callbacks.early_stopping.patience=8
+  - trainer.enable_progress_bar=false
+  - test=false
+parameters:
+
+  data.sample_weight_power:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 100.0
+
+  # Weight by the level (tall waves) or the hour-to-hour change (rapid
+  # build-ups — where the models currently lose to persistence).
+  data.sample_weight_variable:
+    distribution: categorical
+    values:
+      - sigWaveHeight
+      - delta_sigWaveHeight
+
+  model.backbone.hidden_dim:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+
+  model.backbone.heads:
+    distribution: categorical
+    values:
+      - 4
+      - 8
+      - 16
+
+  model.backbone.num_layers:
+    distribution: int_uniform
+    min: 1
+    max: 10
+
+  model.backbone.n_rbf:
+    distribution: categorical
+    values:
+      - 8
+      - 16
+      - 32
+
+  model.backbone.dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.3
+
+  model.backbone.attn_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.3
+
+  model.optimizer.lr:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.003

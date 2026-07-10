@@ -44,4 +44,4 @@ logger: # set to null to disable logging
   wandb:
     project: wwm-emulator-hourly
 
-tags: ["dev", "densenet"]
+tags: ["dev", "gcn"]

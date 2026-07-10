@@ -17,3 +17,4 @@ slurm*out
 tests/cicd_data/cicd.zarr/*
 plans/
 outputs/
+evaluation/*.csv

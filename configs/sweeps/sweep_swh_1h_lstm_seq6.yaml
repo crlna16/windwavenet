@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2025-2026 Hereon
+# SPDX-FileContributor: Caroline Arnold
+#
+# SPDX-License-Identifier: MIT
+
+# wandb sweep for LSTMNet on swh, seq_len=6.
+#
+# Launch with:
+#   wandb sweep configs/sweeps/sweep_swh_1h_lstm_seq6.yaml
+#   wandb agent <sweep-id>
+#
+# Metric: val/best_rmse_sigWaveHeight is UNWEIGHTED, so it stays comparable
+# across runs even though data.sample_weight_power is swept (val/loss and
+# the checkpoint selection are weighted and change shape with the power —
+# inspect the curves per run before trusting a single number).
+
+program: src/train.py
+project: wwm-emulator-sweeps
+entity: wwm-emulator
+method: bayes
+metric:
+  goal: minimize
+  name: val/best_rmse_sigWaveHeight
+early_terminate:
+  type: hyperband
+  min_iter: 10
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+  - experiment=swh_1h_lstm
+  - logger.wandb.project=wwm-emulator-sweeps
+  - data.seq_len=6
+  - model.backbone.bidirectional=false
+  # Largest batch that comfortably fits; batch size is not tuned — its main
+  # effect (optimal-LR shift) is absorbed by the lr sweep.
+  - data.batch_size=2048
+  # Reduced patience for sweep economy (final training uses the longer
+  # patience from train.yaml); allows one full LR-reduction cycle.
+  - callbacks.early_stopping.patience=8
+  - trainer.enable_progress_bar=false
+  - test=false
+parameters:
+
+  data.sample_weight_power:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 100.0
+
+  # Weight by the level (tall waves) or the hour-to-hour change (rapid
+  # build-ups — where the models currently lose to persistence).
+  data.sample_weight_variable:
+    distribution: categorical
+    values:
+      - sigWaveHeight
+      - delta_sigWaveHeight
+
+  model.backbone.hidden_dim:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+      - 256
+      - 512
+
+  # NOTE: dropout is only active for num_layers >= 2 (nn.LSTM applies it
+  # between stacked layers; LSTMNet warns when it is inert).
+  model.backbone.num_layers:
+    distribution: int_uniform
+    min: 1
+    max: 4
+
+  model.backbone.dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.7
+
+  model.optimizer.lr:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.003

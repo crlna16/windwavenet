@@ -43,7 +43,8 @@ class SimpleWWMDataset(Dataset):
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits (e.g., [[1, 10], [20, 30]]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             scaling_config: Path to YAML file containing mean and std for each variable.
@@ -53,7 +54,8 @@ class SimpleWWMDataset(Dataset):
                 Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         super().__init__()
 
@@ -72,10 +74,16 @@ class SimpleWWMDataset(Dataset):
         self.num_workers = None
         self.worker_time_len = None
 
-        # --- Pipeline: open, filter, preprocess, scale, load ---
-        self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
-        self.ds = du.filter_nodes(self.ds, self.node_idx_csv)
-        self.ds, self.n_nodes = du.preprocess_variables(self.ds, self.features, self.targets)
+        # --- Pipeline: open, slice + preprocess per contiguous range, scale, load ---
+        derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
+        self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(
+            self.data_dir,
+            self.data_range,
+            self.features,
+            self.targets,
+            node_idx_csv=self.node_idx_csv,
+            derive_vars=derive_vars,
+        )
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
         self.X = du.retrieve_data(self.ds, self.features)
@@ -83,15 +91,23 @@ class SimpleWWMDataset(Dataset):
 
         # Compute weights (only works with preloaded data)
         if self.sample_weight_strategy is not None:
+            weight_data = du.retrieve_weight_data(self.ds, self.sample_weight_variable)
             self.weights = du.compute_weights(
-                self.y,
-                self.targets,
+                weight_data,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
-                weight_variable=self.sample_weight_variable,
             )
         else:
             self.weights = None
+
+        # Move to shared memory so DataLoader workers (if num_workers > 0) map
+        # the same physical pages instead of each touching/copying their own.
+        # Prefer num_workers=0 for this dataset regardless: it fully preloads,
+        # so there is no I/O for workers to parallelize — only duplication risk.
+        self.X.share_memory_()
+        self.y.share_memory_()
+        if self.weights is not None:
+            self.weights.share_memory_()
 
         num_samples = len(self.ds.time) * len(self.ds.nSCHISM_hgrid_node)
         log.info(f"Dataset initialized with {num_samples} samples.")
@@ -143,7 +159,8 @@ class SequenceWWMDataset(SimpleWWMDataset):
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits (e.g., [[1, 10], [20, 30]]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             seq_len: Length of input sequences (number of time steps).
@@ -152,7 +169,8 @@ class SequenceWWMDataset(SimpleWWMDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent to control the intensity of sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
         """
         self.seq_len = seq_len
 
@@ -172,14 +190,11 @@ class SequenceWWMDataset(SimpleWWMDataset):
         # Store time and node dimensions for sequence indexing
         self.n_time = len(self.ds.time)
 
-        # Validate seq_len
-        if self.n_time < self.seq_len:
-            raise ValueError(
-                f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({self.n_time})"
-            )
-
-        # Number of valid sequence start positions
-        self.n_valid_times = self.n_time - self.seq_len + 1
+        # Valid window start positions per contiguous day range, so that no
+        # window straddles the gap between ranges. Raises if a range is
+        # shorter than seq_len.
+        self._valid_starts = du.compute_valid_sequence_starts(self.range_lengths, self.seq_len)
+        self.n_valid_times = len(self._valid_starts)
 
         # Reshape preloaded data for efficient sequence access: (n_time, n_nodes, n_features)
         n_features = self.X.shape[1]
@@ -208,19 +223,27 @@ class SequenceWWMDataset(SimpleWWMDataset):
             idx: Index of the sample to retrieve.
 
         Returns:
-            Tuple of (X_seq, y_target) where:
+            Tuple of (X_seq, y_target, weight) as PyTorch tensors if weights are
+            computed, otherwise (X_seq, y_target), where:
                 - X_seq: (seq_len, n_features) tensor of input features
                 - y_target: (n_targets,) tensor of target at last step in sequence
+                - weight: (1,) sample weight at the target time step
         """
-        # Map flat index to (time_start, node)
-        time_start = idx // self.n_nodes
+        # Map flat index to (window start, node); window starts skip range gaps
+        time_start = int(self._valid_starts[idx // self.n_nodes])
         node_idx = idx % self.n_nodes
 
         # X: sequence from time_start to time_start + seq_len
         X_seq = self.X[time_start : time_start + self.seq_len, node_idx, :]
 
         # y: target at last step in the sequence
-        y_target = self.y[time_start + self.seq_len - 1, node_idx, :]
+        target_time = time_start + self.seq_len - 1
+        y_target = self.y[target_time, node_idx, :]
+
+        if self.weights is not None:
+            # Weights are stored flat over (time, node) with time as the slow axis.
+            weight = self.weights[target_time * self.n_nodes + node_idx]
+            return X_seq, y_target, weight
 
         return X_seq, y_target
 
@@ -245,16 +268,15 @@ class GraphWWMDataset(GDataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
-        max_radius: float = 10000.0,
         max_nodes: int = 1000,
-        max_links: int = 10,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the graph dataset.
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset. Must contain graph definition.
-            data_range: Day range as [start_day, end_day] inclusive (e.g., [1, 10]).
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits (e.g., [[1, 10], [20, 30]]).
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             graph_features: List of variable names used for constructing the graph
@@ -270,11 +292,11 @@ class GraphWWMDataset(GDataset):
                 Options: None (no weighting), 'z_score' (weight by z-score of one variable).
             sample_weight_power: Exponent to control the intensity of sample weighting (default: 1.0).
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
-            max_radius: Maximum Euclidean distance (meters) from center node for
-                including neighbors in the subgraph (default: 10000.).
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
             max_nodes: Maximum number of nodes in a subgraph (default: 1000).
-            max_links: Maximum number of BFS hops from center node (default: 10).
+                The subgraph is the center node's ``max_nodes``-nearest mesh
+                neighbourhood in BFS (hop) order.
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights.  An edge whose Euclidean length equals this value
                 receives weight 0.5 (default: 1000.0).
@@ -288,16 +310,20 @@ class GraphWWMDataset(GDataset):
         self.sample_weight_power = sample_weight_power
         self.sample_weight_variable = sample_weight_variable
         self.graph_features = [str(f) for f in graph_features]
-        self.max_radius = max_radius
         self.max_nodes = max_nodes
-        self.max_links = max_links
         self.edge_weight_scale = edge_weight_scale
 
-        # --- Pipeline: open, preprocess (keep graph vars), scale ---
-        self.ds, self.samples_per_day = du.open_and_slice_dataset(self.data_dir, self.data_range)
+        # --- Pipeline: open, slice + preprocess per contiguous range (keep graph vars), scale ---
+        derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
         # No node filtering — full mesh retained for graph construction
-        self.ds, self.n_nodes = du.preprocess_variables(
-            self.ds, self.features, self.targets, extra_keep_vars=self.graph_features
+        self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(
+            self.data_dir,
+            self.data_range,
+            self.features,
+            self.targets,
+            node_idx_csv=None,
+            extra_keep_vars=self.graph_features,
+            derive_vars=derive_vars,
         )
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
@@ -339,11 +365,7 @@ class GraphWWMDataset(GDataset):
             subgraph_nodes, edge_index, center_local_idx = gu.build_subgraph(
                 center_pos=int(center_pos),
                 adjacency=self.adjacency,
-                node_x=self.node_x,
-                node_y=self.node_y,
-                max_radius=self.max_radius,
                 max_nodes=self.max_nodes,
-                max_links=self.max_links,
             )
             edge_weight = gu.compute_edge_weights(
                 edge_index,
@@ -365,14 +387,17 @@ class GraphWWMDataset(GDataset):
 
         # Compute weights from the single weight variable only (avoids loading all targets)
         if self.sample_weight_strategy is not None:
-            y_w = du.retrieve_data(self.ds, [self.sample_weight_variable])
+            weight_data = du.retrieve_weight_data(self.ds, self.sample_weight_variable)
             self.weights = du.compute_weights(
-                y_w,
-                [self.sample_weight_variable],
+                weight_data,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
-                weight_variable=self.sample_weight_variable,
             )
+            # Graph datasets keep num_workers > 0 (the on-demand zarr reads in
+            # _extract_node_features are the actual I/O bottleneck to
+            # parallelize), so share this preloaded tensor across workers
+            # instead of letting each worker duplicate it.
+            self.weights.share_memory_()
         else:
             self.weights = None
 
@@ -384,6 +409,7 @@ class GraphWWMDataset(GDataset):
         _t_pre = time.perf_counter()
         _tgt_da = self.ds[self.targets].to_array(dim="variable")  # (n_targets, n_time, n_nodes)
         self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
+        self._targets_ram.share_memory_()
         log.info(
             f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
             f"cache shape {tuple(self._targets_ram.shape)} "
@@ -457,7 +483,7 @@ class GraphWWMDataset(GDataset):
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
-                - sample_weight: (n_targets,) center-node z-score weight, or None
+                - sample_weight: (n_subgraph_nodes, 1) per-node z-score weights, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
 
@@ -466,9 +492,11 @@ class GraphWWMDataset(GDataset):
 
         sample_weight = None
         if self.weights is not None:
-            center_global_idx = subgraph_nodes[center_local_idx]
-            flat_idx = time_idx * self.n_nodes + int(center_global_idx)
-            sample_weight = self.weights[flat_idx]  # (n_targets,)
+            # Weights are stored flat over (time, node) with time as the slow axis.
+            # Every subgraph node gets its own weight so the loss on a node is
+            # driven by that node's z-score, not the center node's.
+            flat_idx = torch.as_tensor(time_idx * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
             x=x,
@@ -526,16 +554,15 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         sample_weight_strategy: Optional[str] = None,
         sample_weight_power: float = 1.0,
         sample_weight_variable: str = "sigWaveHeight",
-        max_radius: float = 10000.0,
         max_nodes: int = 1000,
-        max_links: int = 10,
         edge_weight_scale: float = 1000.0,
     ) -> None:
         """Initialize the sequence graph dataset.
 
         Args:
             data_dir: Directory of the preprocessed Zarr dataset.
-            data_range: Day range as [start_day, end_day] inclusive.
+            data_range: Day range as [start_day, end_day] inclusive, or a list of
+                such ranges for non-contiguous splits.
             features: List of variable names to use as features.
             targets: List of variable names to use as targets.
             graph_features: List of variable names used for constructing the graph.
@@ -546,10 +573,10 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_strategy: Strategy for computing per-sample weights.
             sample_weight_power: Exponent for sample weighting.
             sample_weight_variable: Variable whose z-score drives sample weights
-                (default: 'sigWaveHeight'). Looked up in targets first, then features.
-            max_radius: Maximum Euclidean distance (meters) from center node.
-            max_nodes: Maximum number of nodes in a subgraph.
-            max_links: Maximum number of BFS hops from center node.
+                (default: 'sigWaveHeight'). Any variable in the dataset, or 'delta_<var>'
+                (derived on the fly if absent).
+            max_nodes: Maximum number of nodes in a subgraph (BFS-nearest
+                mesh neighbourhood of the center node).
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights (default: 1000.0).
         """
@@ -567,19 +594,15 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_strategy=sample_weight_strategy,
             sample_weight_power=sample_weight_power,
             sample_weight_variable=sample_weight_variable,
-            max_radius=max_radius,
             max_nodes=max_nodes,
-            max_links=max_links,
             edge_weight_scale=edge_weight_scale,
         )
 
-        # Validate seq_len
-        if self._n_time < self.seq_len:
-            raise ValueError(
-                f"seq_len ({self.seq_len}) must be less than or equal to number of time steps ({self._n_time})"
-            )
-
-        self._n_valid_times = self._n_time - self.seq_len + 1
+        # Valid window start positions per contiguous day range, so that no
+        # window straddles the gap between ranges. Raises if a range is
+        # shorter than seq_len.
+        self._valid_starts = du.compute_valid_sequence_starts(self.range_lengths, self.seq_len)
+        self._n_valid_times = len(self._valid_starts)
 
         self._total_samples = self.n_center_nodes * self._n_valid_times
 
@@ -619,8 +642,10 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         """Get a sequence-graph sample by flat index.
 
         The index maps to (time_start, center_node_pos):
-            time_start = idx // n_center_nodes
+            time_start = valid_starts[idx // n_center_nodes]
             center_pos = center_nodes[idx % n_center_nodes]
+
+        Window starts skip range gaps for non-contiguous day ranges.
 
         Args:
             idx: Flat index into the dataset.
@@ -628,7 +653,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         Returns:
             GData: Graph with sequential node features.
         """
-        time_idx = idx // self.n_center_nodes
+        time_idx = int(self._valid_starts[idx // self.n_center_nodes])
         center_pos = self.center_nodes[idx % self.n_center_nodes]
         return self.construct_graph(time_idx=time_idx, center_node_pos=center_pos)
 
@@ -646,6 +671,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: target tensor (n_subgraph_nodes, n_targets)
                 - center_idx: local index of center node in x
+                - sample_weight: (n_subgraph_nodes, 1) per-node z-score weights, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
         x = self._extract_sequence_node_features(time_idx, subgraph_nodes)
@@ -655,9 +681,9 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
 
         sample_weight = None
         if self.weights is not None:
-            center_global_idx = subgraph_nodes[center_local_idx]
-            flat_idx = target_time * self.n_nodes + int(center_global_idx)
-            sample_weight = self.weights[flat_idx]  # (n_targets,)
+            # Per-node weights at the target time step (time-major flat layout).
+            flat_idx = torch.as_tensor(target_time * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
             x=x,
@@ -675,9 +701,13 @@ class WWMGraphData(GData):
     Handles batching of graph-level attributes by stacking them along a new
     batch dimension instead of concatenating along the node dimension.  Any
     attribute listed in ``_GRAPH_LEVEL_KEYS`` gets this treatment.
+
+    ``sample_weight`` is a node-level attribute of shape
+    ``(n_subgraph_nodes, 1)`` and is concatenated along the node dimension
+    like ``x`` and ``y``.
     """
 
-    _GRAPH_LEVEL_KEYS = {"x_center_seq", "sample_weight"}
+    _GRAPH_LEVEL_KEYS = {"x_center_seq"}
 
     def __cat_dim__(self, key: str, value, *args, **kwargs):
         if key in self._GRAPH_LEVEL_KEYS:
@@ -690,8 +720,8 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
 
     Non-center nodes receive current-time features (2-D), while the center
     node's history is provided as a separate ``x_center_seq`` attribute.
-    This is designed for the ``VirutalNodeCenterLSTMGCNNet`` backbone which processes
-    center history with an LSTM and current features with a GCN.
+    This is designed for the ``MultiHeadGATLSTMVN`` backbone, which processes
+    center history with an LSTM and current features with a GAT.
     """
 
     def construct_graph(self, time_idx: int, center_node_pos: int) -> "WWMGraphData":
@@ -709,7 +739,7 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
                 - edge_weight: (n_edges,) inverse-distance edge weights
                 - y: (n_subgraph_nodes, n_targets) targets at last time step
                 - center_idx: local index of center node in x
-                - sample_weight: (n_targets,) center-node z-score weight, or None
+                - sample_weight: (n_subgraph_nodes, 1) per-node z-score weights, or None
         """
         subgraph_nodes, edge_index, center_local_idx, edge_weight = self.graph_cache[center_node_pos]
 
@@ -728,12 +758,12 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # Targets at the last time step for all subgraph nodes
         y = self._extract_targets(present_time, subgraph_nodes)
 
-        # Graph-level sample weight from center node's precomputed z-score weight
-        # self.weights shape: (n_times * n_nodes, n_targets), stacked time-major
+        # Per-node z-score weights at the present time step
+        # self.weights shape: (n_times * n_nodes, 1), stacked time-major
         sample_weight = None
         if self.weights is not None:
-            flat_idx = present_time * self.n_nodes + int(center_global_idx)
-            sample_weight = self.weights[flat_idx]  # (n_targets,)
+            flat_idx = torch.as_tensor(present_time * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
             x=x,
