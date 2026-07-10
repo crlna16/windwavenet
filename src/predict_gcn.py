@@ -98,8 +98,7 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
     if len(test_ranges) > 1:
         raise NotImplementedError(
-            "predict_gcn.py assumes a contiguous test range; "
-            "run once per range instead, e.g. data.test_days=[212,242]."
+            "predict_gcn.py assumes a contiguous test range; run once per range instead, e.g. data.test_days=[212,242]."
         )
     test_days: List[int] = test_ranges[0]
 

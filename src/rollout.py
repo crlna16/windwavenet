@@ -225,14 +225,10 @@ def make_graph_predictor(
                     )
                 elif seq_len > 1:
                     x = torch.from_numpy(window[:, subgraph_nodes, :].transpose(1, 0, 2).copy())
-                    data_list.append(
-                        GData(x=x, edge_index=edge_index, edge_weight=edge_weights[batch_start + i])
-                    )
+                    data_list.append(GData(x=x, edge_index=edge_index, edge_weight=edge_weights[batch_start + i]))
                 else:
                     x = torch.from_numpy(X_t[subgraph_nodes].copy())
-                    data_list.append(
-                        GData(x=x, edge_index=edge_index, edge_weight=edge_weights[batch_start + i])
-                    )
+                    data_list.append(GData(x=x, edge_index=edge_index, edge_weight=edge_weights[batch_start + i]))
 
             batch = Batch.from_data_list(data_list).to(device)
             preds = model.forward(batch).cpu().numpy()
@@ -361,9 +357,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
 
     feedback = build_feedback_map(features, targets, scaling_params)
     if not feedback:
-        log.warning(
-            "No prev_<target> feedback channels found — the rollout is identical to teacher-forced prediction!"
-        )
+        log.warning("No prev_<target> feedback channels found — the rollout is identical to teacher-forced prediction!")
 
     # Boundary nodes keep ground-truth prev_* features (prescribed boundary conditions).
     boundary_from_truth = bool(cfg.rollout.get("boundary_from_truth", True))
@@ -491,11 +485,27 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     summary: Dict[str, float] = {}
     for name in targets:
         summary[f"rollout/rmse_{name}"] = float(
-            np.sqrt(np.nanmean((preds_out[t_first:, valid_nodes, targets.index(name)] - Y_all[t_first:n_time_eff, valid_nodes, targets.index(name)]) ** 2))
+            np.sqrt(
+                np.nanmean(
+                    (
+                        preds_out[t_first:, valid_nodes, targets.index(name)]
+                        - Y_all[t_first:n_time_eff, valid_nodes, targets.index(name)]
+                    )
+                    ** 2
+                )
+            )
         )
         summary[f"rollout/rmse_{name}_final_lead"] = float(metrics_df[f"rmse_{name}"].iloc[-1])
         summary[f"rollout/rmse_persistence_{name}"] = float(
-            np.sqrt(np.nanmean((anchor[valid_nodes, targets.index(name)][None, :] - Y_all[t_first:n_time_eff, valid_nodes, targets.index(name)]) ** 2))
+            np.sqrt(
+                np.nanmean(
+                    (
+                        anchor[valid_nodes, targets.index(name)][None, :]
+                        - Y_all[t_first:n_time_eff, valid_nodes, targets.index(name)]
+                    )
+                    ** 2
+                )
+            )
         )
     for key, val in summary.items():
         log.info(f"  {key}: {val:.6f}")
