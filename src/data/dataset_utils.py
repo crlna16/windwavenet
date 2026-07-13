@@ -23,6 +23,7 @@ import xarray as xr
 import yaml
 
 from scipy.stats import gaussian_kde
+from scipy.ndimage import gaussian_filter1d
 
 from src.utils.pylogger import RankedLogger
 
@@ -586,7 +587,7 @@ def compute_weights(
 
     Args:
         data: Weighting variable values, shape ``(n_samples,)`` or ``(n_samples, 1)``.
-        strategy: ``"z_score", "density"``.
+        strategy: ``"z_score", "density", "histogram"``.
         power: Exponent controlling weighting intensity.
 
     Returns:
@@ -619,6 +620,15 @@ def compute_weights(
 
         w_grid = (density_grid + 1e-6) ** (-power)
         weights = torch.from_numpy(np.interp(data, grid, w_grid))
+    elif strategy == "histogram":
+        n_bins = 50
+        hist, bin_edges = np.histogram(data, bins=n_bins, density=True)
+        hist_smooth = gaussian_filter1d(hist, sigma=2)
+
+        eps = 1e-6  # guard against empty bins
+        bin_idx = np.clip(np.digitize(data, bin_edges[1:-1]), 0, n_bins - 1)
+        density = hist_smooth[bin_idx] + eps
+        weights = density ** (-power)
     else:
         raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
 
