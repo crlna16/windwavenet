@@ -44,9 +44,9 @@ command:
 parameters:
 
   data.sample_weight_power:
-    distribution: log_uniform_values
-    min: 0.01
-    max: 100.0
+    distribution: uniform
+    min: 0.0
+    max: 1.0
 
   # Weight by the level (tall waves) or the hour-to-hour change (rapid
   # build-ups — where the models currently lose to persistence).
