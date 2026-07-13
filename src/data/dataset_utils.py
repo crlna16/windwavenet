@@ -628,7 +628,7 @@ def compute_weights(
         eps = 1e-6  # guard against empty bins
         bin_idx = np.clip(np.digitize(data, bin_edges[1:-1]), 0, n_bins - 1)
         density = hist_smooth[bin_idx] + eps
-        weights = density ** (-power)
+        weights = torch.from_numpy(density ** (-power))
     else:
         raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
 
