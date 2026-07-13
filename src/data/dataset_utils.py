@@ -611,7 +611,7 @@ def compute_weights(
         z_scores[valid] = (data[valid] - mean) / std
         weights = 1.0 - torch.exp(-(z_scores**2) / power)
     elif strategy == "density":
-        subsample = np.random.choice(data, size=100_000, replace=False)
+        subsample = np.random.choice(data, size=max(len(data), 100000), replace=False)
         kde = gaussian_kde(subsample)
 
         grid = np.linspace(data.min(), data.max(), 1024)
