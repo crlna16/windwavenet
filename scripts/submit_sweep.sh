@@ -28,4 +28,8 @@
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/2pc9i8vw
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/qhb8xukn
 #uv run wandb agent wwm-emulator/wwm-emulator-hourly/wy7aegad
-uv run wandb agent wwm-emulator/wwm-emulator-hourly/67na936m
+#uv run wandb agent wwm-emulator/wwm-emulator-hourly/67na936m
+
+# full year
+#uv run wandb agent wwm-emulator/wwm-emulator-sweeps/ym0pccfb
+uv run wandb agent wwm-emulator/wwm-emulator-sweeps/86nlwwxf

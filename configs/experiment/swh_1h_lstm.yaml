@@ -7,9 +7,9 @@ experiment_name: "swh_1h_lstm"
 data:
   _target_: src.data.SequenceWWMDataModule.SequenceWWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
-  train_days: [1, 90]
-  val_days: [305, 334]
-  test_days: [335, 365]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
@@ -37,7 +37,7 @@ model:
   target_names: ${data.targets}
 
   target_bins:
-    sigWaveHeight: [0.5, 1.0, 2.0]
+    sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
   backbone:
     _target_: src.model.backbones.LSTMNet.LSTMNet
