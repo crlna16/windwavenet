@@ -22,6 +22,8 @@ import torch
 import xarray as xr
 import yaml
 
+from scipy.stats import gaussian_kde
+
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -584,7 +586,7 @@ def compute_weights(
 
     Args:
         data: Weighting variable values, shape ``(n_samples,)`` or ``(n_samples, 1)``.
-        strategy: ``"z_score"``.
+        strategy: ``"z_score", "density"``.
         power: Exponent controlling weighting intensity.
 
     Returns:
@@ -608,6 +610,15 @@ def compute_weights(
         z_scores = torch.zeros_like(data)
         z_scores[valid] = (data[valid] - mean) / std
         weights = 1.0 - torch.exp(-(z_scores**2) / power)
+    elif strategy == "density":
+        subsample = np.random.choice(data, size=100_000, replace=False)
+        kde = gaussian_kde(subsample)
+
+        grid = np.linspace(data.min(), data.max(), 1024)
+        density_grid = kde(grid)
+
+        w_grid = (density_grid + 1e-6) ** (-power)
+        weights = torch.from_numpy(np.interp(data, grid, w_grid))
     else:
         raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
 

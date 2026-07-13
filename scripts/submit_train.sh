@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -A ka1176
 #SBATCH -p vader
-#SBATCH --mem=200G
-#SBATCH --gres=gpu:1
+# no#SBATCH --mem=200G
+# no#SBATCH --gres=gpu:1
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
@@ -58,4 +58,7 @@
 #uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=50.0
 #uv run src/train.py experiment=mwp_1h_lstm test=false trainer.devices=4 logger.wandb.project="wwm-emulator-hourly" data.sample_weight_power=100.0
 
-HYDRA_FULL_ERROR=1 uv run src/train.py experiment=swh_mwd_1h_multi-head-gat-vn test=false trainer.devices=2 logger.wandb.project="wwm-emulator-hourly" data.max_nodes=50 trainer.enable_progress_bar=true data.persistent_workers=false
+#HYDRA_FULL_ERROR=1 uv run src/train.py experiment=swh_mwd_1h_multi-head-gat-vn test=false trainer.devices=2 logger.wandb.project="wwm-emulator-hourly" data.max_nodes=50 trainer.enable_progress_bar=true data.persistent_workers=false
+
+#uv run src/train.py data.sample_weight_strategy=null model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
+uv run src/train.py data.sample_weight_strategy="density" data.sample_weight_power=0.2 model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
