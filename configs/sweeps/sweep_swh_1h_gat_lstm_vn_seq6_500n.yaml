@@ -40,6 +40,8 @@ command:
   # Reduced patience for sweep economy (final training uses the longer
   # patience from train.yaml); allows one full LR-reduction cycle.
   - callbacks.early_stopping.patience=8
+  # Sweeps don't need checkpoints; disable to save disk and I/O.
+  - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
   - test=false
 parameters:
