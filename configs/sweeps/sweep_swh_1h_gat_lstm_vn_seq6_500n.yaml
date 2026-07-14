@@ -21,7 +21,8 @@
 program: src/train.py
 project: wwm-emulator-sweeps
 entity: wwm-emulator
-method: bayes
+#method: bayes
+method: random
 metric:
   goal: minimize
   name: val/best_rmse_sigWaveHeight
@@ -48,8 +49,8 @@ parameters:
 
   data.sample_weight_power:
     distribution: log_uniform_values
-    min: 0.01
-    max: 100.0
+    min: 0.0
+    max: 1.0
 
   # Weight by the level (tall waves) or the hour-to-hour change (rapid
   # build-ups — where the models currently lose to persistence).

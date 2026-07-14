@@ -71,7 +71,7 @@ data:
   persistent_workers: false
 
   # Optional: sample weighting strategy for imbalanced regression
-  # Options: null (no weighting), 'z_score'
+  # Options: null (no weighting), 'z_score', 'history', 'density'
   # Note: weights are applied to both train and validation losses, so val/loss
   # (the checkpoint / early-stopping monitor) reflects the weighted objective.
   # RMSE metrics stay unweighted.
