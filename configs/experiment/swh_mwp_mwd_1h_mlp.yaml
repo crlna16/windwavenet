@@ -7,9 +7,9 @@ experiment_name: "swh_mwp_mwd_1h_densenet"
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
-  train_days: [1, 90]
-  val_days: [305, 334]
-  test_days: [335, 365]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
@@ -26,8 +26,8 @@ data:
     - meanWavePeriod
     - sin_meanWaveDirection
     - cos_meanWaveDirection
-  sample_weight_strategy: z_score
-  sample_weight_power: 20.0
+  sample_weight_strategy: histogram
+  sample_weight_power: 0.2
   scaling_config: src/data/scaling/scale_2020_JFM_hourly.yaml
   node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
   batch_size: 1024
@@ -42,7 +42,7 @@ model:
   target_names: ${data.targets}
 
   target_bins:
-    sigWaveHeight: [0.5, 1.0, 2.0]
+    sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
   backbone:
     _target_: src.model.backbones.MLP.MLP

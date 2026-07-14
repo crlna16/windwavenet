@@ -17,7 +17,8 @@
 program: src/train.py
 project: wwm-emulator-sweeps
 entity: wwm-emulator
-method: bayes
+#method: bayes
+method: random
 metric:
   goal: minimize
   name: val/best_rmse_sigWaveHeight

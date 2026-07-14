@@ -33,4 +33,5 @@
 # full year
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/ym0pccfb
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/86nlwwxf
-uv run wandb agent wwm-emulator/wwm-emulator-sweeps/eh72snxn
+#uv run wandb agent wwm-emulator/wwm-emulator-sweeps/eh72snxn
+uv run wandb agent wwm-emulator/wwm-emulator-sweeps/g222cke1
