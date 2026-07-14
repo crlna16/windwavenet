@@ -630,7 +630,9 @@ def compute_weights(
         density = hist_smooth[bin_idx] + eps
         weights = torch.from_numpy(density ** (-power))
     else:
-        raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
+        raise ValueError(
+            f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score', 'histogram', 'density'"
+        )
 
     # Normalise so mean == 1.0
     weight_sum = weights.sum()

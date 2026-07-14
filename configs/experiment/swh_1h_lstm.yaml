@@ -45,7 +45,7 @@ model:
     output_dim: 1
     hidden_dim: 128
     num_layers: 1
-    dropout: 0.7
+    dropout: 0.0
     bidirectional: false
 
   optimizer:
