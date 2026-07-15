@@ -8,7 +8,7 @@ import pytest
 import xarray as xr
 
 from src.data import dataset_utils as du
-from src.data.WWMDatasets import SequenceWWMDataset, SimpleWWMDataset
+from src.data.WWMDatasets import CenterHistoryGraphWWMDataset, GraphWWMDataset, SequenceWWMDataset, SimpleWWMDataset
 
 
 class TestDatasetFunctions:
@@ -512,6 +512,122 @@ class TestSequenceWWMDatasetFunctions:
         X_seq, y_target = ds[21 * 4]
         np.testing.assert_allclose(X_seq[:, 0].numpy(), np.array([2500.0, 2600.0, 2700.0], dtype=np.float32))
         np.testing.assert_allclose(y_target.numpy(), np.array([270.0], dtype=np.float32))
+
+
+class TestGraphWWMDatasetFunctions:
+    """Graph dataset coverage using a small synthetic SCHISM-like mesh."""
+
+    @pytest.fixture
+    def deterministic_graph_dataset(self, tmp_path):
+        """Create deterministic Zarr data with enough mesh variables for graph datasets."""
+        import pandas as pd
+
+        n_time = 30
+        n_nodes = 4
+        n_edges = 5
+
+        time = pd.date_range("2020-01-01", periods=n_time, freq="h")
+        nSCHISM_hgrid_node = np.arange(n_nodes)
+        nSCHISM_hgrid_edge = np.arange(n_edges)
+        two = np.arange(2)
+
+        t = np.arange(n_time)[:, None]
+        n = np.arange(n_nodes)[None, :]
+        U10 = (100.0 * t + n).astype(np.float32)
+        V10 = (1000.0 * t + n).astype(np.float32)
+        sigWaveHeight = (10.0 * t + n).astype(np.float32)
+
+        edge_nodes = np.array(
+            [
+                [1, 2],
+                [2, 3],
+                [3, 4],
+                [4, 1],
+                [1, 3],
+            ],
+            dtype=np.int64,
+        )
+        edge_nodes = np.broadcast_to(edge_nodes, (n_time, n_edges, 2)).copy()
+
+        ds = xr.Dataset(
+            {
+                "U10": (["time", "nSCHISM_hgrid_node"], U10),
+                "V10": (["time", "nSCHISM_hgrid_node"], V10),
+                "sigWaveHeight": (["time", "nSCHISM_hgrid_node"], sigWaveHeight),
+                "SCHISM_hgrid_edge_nodes": (
+                    ["time", "nSCHISM_hgrid_edge", "two"],
+                    edge_nodes,
+                ),
+            },
+            coords={
+                "time": time,
+                "nSCHISM_hgrid_node": nSCHISM_hgrid_node,
+                "nSCHISM_hgrid_edge": nSCHISM_hgrid_edge,
+                "two": two,
+                "SCHISM_hgrid_node_x": (["nSCHISM_hgrid_node"], np.array([0.0, 1.0, 1.0, 0.0])),
+                "SCHISM_hgrid_node_y": (["nSCHISM_hgrid_node"], np.array([0.0, 0.0, 1.0, 1.0])),
+            },
+        )
+
+        zarr_path = tmp_path / "deterministic_graph.zarr"
+        ds.to_zarr(zarr_path)
+        return zarr_path
+
+    def test_graph_dataset_cache_mode_false_uses_on_demand_reads(self, deterministic_graph_dataset):
+        """Graph samples should work without target/feature RAM caches."""
+        ds = GraphWWMDataset(
+            data_dir=deterministic_graph_dataset,
+            data_range=[1, 1],
+            features=["U10", "V10"],
+            targets=["sigWaveHeight"],
+            graph_features=["SCHISM_hgrid_edge_nodes"],
+            max_nodes=3,
+            edge_weight_scale=1.0,
+            cache_mode=False,
+        )
+
+        graph = ds.get(0)
+
+        assert len(ds) == 23 * 4
+        assert not hasattr(ds, "_features_ram")
+        assert not hasattr(ds, "_targets_ram")
+        assert tuple(graph.x.shape) == (3, 2)
+        assert tuple(graph.y.shape) == (3, 1)
+        assert graph.edge_weight.shape[0] == graph.edge_index.shape[1]
+
+    @pytest.mark.parametrize("cache_mode", [True, False])
+    def test_center_history_graph_uses_expected_sequence(self, deterministic_graph_dataset, cache_mode):
+        """Center-history samples should return the same sequence with and without RAM cache."""
+        ds = CenterHistoryGraphWWMDataset(
+            data_dir=deterministic_graph_dataset,
+            data_range=[1, 1],
+            features=["U10", "V10"],
+            targets=["sigWaveHeight"],
+            graph_features=["SCHISM_hgrid_edge_nodes"],
+            seq_len=3,
+            max_nodes=3,
+            edge_weight_scale=1.0,
+            cache_mode=cache_mode,
+        )
+
+        graph = ds.get(0)
+
+        assert hasattr(ds, "_features_ram") is cache_mode
+        assert hasattr(ds, "_targets_ram") is cache_mode
+        assert tuple(graph.x.shape) == (3, 2)
+        assert tuple(graph.x_center_seq.shape) == (3, 2)
+        np.testing.assert_allclose(
+            graph.x_center_seq.numpy(),
+            np.array(
+                [
+                    [100.0, 1000.0],
+                    [200.0, 2000.0],
+                    [300.0, 3000.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+        np.testing.assert_allclose(graph.y[:, 0].numpy(), np.array([30.0, 31.0, 32.0], dtype=np.float32))
 
 
 class TestSimpleWWMDatasetCoverage:

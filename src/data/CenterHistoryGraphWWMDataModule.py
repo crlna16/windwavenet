@@ -41,12 +41,14 @@ class CenterHistoryGraphWWMDataModule(BaseWWMDataModule):
         sample_weight_variable: str = "sigWaveHeight",
         max_nodes: int = 1000,
         edge_weight_scale: float = 1000.0,
+        cache_mode: bool = True,
     ) -> None:
         self.seq_len = seq_len
         self.graph_features = graph_features
         self.boundary_nodes_csv = boundary_nodes_csv
         self.max_nodes = max_nodes
         self.edge_weight_scale = edge_weight_scale
+        self.cache_mode = cache_mode
 
         super().__init__(
             data_dir=data_dir,
@@ -90,4 +92,5 @@ class CenterHistoryGraphWWMDataModule(BaseWWMDataModule):
             sample_weight_variable=sample_weight_variable,
             max_nodes=self.max_nodes,
             edge_weight_scale=self.edge_weight_scale,
+            cache_mode=self.cache_mode,
         )

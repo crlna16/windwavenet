@@ -20,6 +20,9 @@ from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
+DayRange = List[int]
+DataRange = Union[DayRange, List[DayRange]]
+
 
 class SimpleWWMDataset(Dataset):
     """Dataset that loads a Zarr dataset and returns features and targets per grid point and time.
@@ -30,7 +33,7 @@ class SimpleWWMDataset(Dataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
@@ -143,7 +146,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         seq_len: int,
@@ -258,7 +261,7 @@ class GraphWWMDataset(GDataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         graph_features: List[str],
@@ -270,6 +273,7 @@ class GraphWWMDataset(GDataset):
         sample_weight_variable: str = "sigWaveHeight",
         max_nodes: int = 1000,
         edge_weight_scale: float = 1000.0,
+        cache_mode: bool = True,
     ) -> None:
         """Initialize the graph dataset.
 
@@ -300,6 +304,9 @@ class GraphWWMDataset(GDataset):
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights.  An edge whose Euclidean length equals this value
                 receives weight 0.5 (default: 1000.0).
+            cache_mode: If True, preload target and feature tensors over the
+                subgraph-node union into shared RAM. If False, read them from
+                the xarray dataset on demand.
         """
         self.data_dir = Path(data_dir)
         self.data_range = data_range
@@ -312,6 +319,7 @@ class GraphWWMDataset(GDataset):
         self.graph_features = [str(f) for f in graph_features]
         self.max_nodes = max_nodes
         self.edge_weight_scale = edge_weight_scale
+        self.cache_mode = cache_mode
 
         # --- Pipeline: open, slice + preprocess per contiguous range (keep graph vars), scale ---
         derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
@@ -412,52 +420,57 @@ class GraphWWMDataset(GDataset):
         if self.sample_weight_strategy is not None:
             weight_ds = self.ds.isel(nSCHISM_hgrid_node=self._used_nodes)
             weight_data = du.retrieve_weight_data(weight_ds, self.sample_weight_variable)
-            self.weights = du.compute_weights(
+            weights = du.compute_weights(
                 weight_data,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
             )
+            self.weights = weights
             # Graph datasets keep num_workers > 0 (the on-demand zarr reads in
             # _extract_node_features are the actual I/O bottleneck to
             # parallelize), so share this preloaded tensor across workers
             # instead of letting each worker duplicate it.
-            self.weights.share_memory_()
+            if self.weights is not None:
+                self.weights.share_memory_()
         else:
             self.weights = None
 
-        # Preload target variables into RAM to avoid repeated slow zarr reads during
-        # training.  zarr chunk layouts for some variables (e.g. meanWavePeriod,
-        # sin/cos_meanWaveDirection) can make scattered-node isel calls very expensive.
-        # Restricted to the subgraph-node union. Shape: (n_time, n_used_nodes, n_targets) as float32.
-        log.info(f"Preloading {len(self.targets)} target variable(s) into RAM...")
-        _t_pre = time.perf_counter()
-        _tgt_da = (
-            self.ds[self.targets].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
-        )  # (n_targets, n_time, n_used_nodes)
-        self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
-        self._targets_ram.share_memory_()
-        log.info(
-            f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
-            f"cache shape {tuple(self._targets_ram.shape)} "
-            f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
-        )
+        if self.cache_mode:
+            # Preload target variables into RAM to avoid repeated slow zarr reads during
+            # training.  zarr chunk layouts for some variables (e.g. meanWavePeriod,
+            # sin/cos_meanWaveDirection) can make scattered-node isel calls very expensive.
+            # Restricted to the subgraph-node union. Shape: (n_time, n_used_nodes, n_targets) as float32.
+            log.info(f"Preloading {len(self.targets)} target variable(s) into RAM...")
+            _t_pre = time.perf_counter()
+            _tgt_da = (
+                self.ds[self.targets].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
+            )  # (n_targets, n_time, n_used_nodes)
+            self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
+            self._targets_ram.share_memory_()
+            log.info(
+                f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
+                f"cache shape {tuple(self._targets_ram.shape)} "
+                f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
+            )
 
-        # Preload feature variables into RAM as well, restricted to the subgraph-node
-        # union. Lazy per-sample dask reads deadlock/oversubscribe inside forked
-        # DataLoader workers, so materialize once here and share across workers.
-        # Shape: (n_time, n_used_nodes, n_features) as float32.
-        log.info(f"Preloading {len(self.features)} feature variable(s) into RAM...")
-        _f_pre = time.perf_counter()
-        _feat_da = (
-            self.ds[self.features].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
-        )  # (n_features, n_time, n_used_nodes)
-        self._features_ram = torch.from_numpy(np.asarray(_feat_da.values)).float().permute(1, 2, 0)
-        self._features_ram.share_memory_()
-        log.info(
-            f"Feature preload complete in {time.perf_counter() - _f_pre:.1f}s — "
-            f"cache shape {tuple(self._features_ram.shape)} "
-            f"({self._features_ram.nbytes / 1024**3:.2f} GiB)"
-        )
+            # Preload feature variables into RAM as well, restricted to the subgraph-node
+            # union. Lazy per-sample dask reads deadlock/oversubscribe inside forked
+            # DataLoader workers, so materialize once here and share across workers.
+            # Shape: (n_time, n_used_nodes, n_features) as float32.
+            log.info(f"Preloading {len(self.features)} feature variable(s) into RAM...")
+            _f_pre = time.perf_counter()
+            _feat_da = (
+                self.ds[self.features].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
+            )  # (n_features, n_time, n_used_nodes)
+            self._features_ram = torch.from_numpy(np.asarray(_feat_da.values)).float().permute(1, 2, 0)
+            self._features_ram.share_memory_()
+            log.info(
+                f"Feature preload complete in {time.perf_counter() - _f_pre:.1f}s — "
+                f"cache shape {tuple(self._features_ram.shape)} "
+                f"({self._features_ram.nbytes / 1024**3:.2f} GiB)"
+            )
+        else:
+            log.info("Graph cache_mode is disabled; targets and features will be read on demand.")
 
         # Precompute number of time steps as a plain int.
         # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
@@ -597,7 +610,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         graph_features: List[str],
@@ -610,6 +623,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         sample_weight_variable: str = "sigWaveHeight",
         max_nodes: int = 1000,
         edge_weight_scale: float = 1000.0,
+        cache_mode: bool = True,
     ) -> None:
         """Initialize the sequence graph dataset.
 
@@ -633,6 +647,9 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
                 mesh neighbourhood of the center node).
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights (default: 1000.0).
+            cache_mode: If True, preload target and feature tensors over the
+                subgraph-node union into shared RAM. If False, read them from
+                the xarray dataset on demand.
         """
         self.seq_len = seq_len
 
@@ -650,6 +667,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_variable=sample_weight_variable,
             max_nodes=max_nodes,
             edge_weight_scale=edge_weight_scale,
+            cache_mode=cache_mode,
         )
 
         # Valid window start positions per contiguous day range, so that no
@@ -814,10 +832,14 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # Temporal sequence for the CENTER node only
         center_global_idx = subgraph_nodes[center_local_idx]
         time_indices = list(range(time_idx, time_idx + self.seq_len))
-        sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=center_global_idx)
-        x_da = sample[self.features].to_dataarray(dim="variable")
-        # x_da shape: (variable, time) — single node
-        x_center_seq = torch.from_numpy(x_da.values.T.copy()).float()  # (seq_len, n_features)
+        if hasattr(self, "_features_ram"):
+            compact = self._global_to_compact[center_global_idx]
+            x_center_seq = self._features_ram[time_indices, compact, :].contiguous()
+        else:
+            sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=center_global_idx)
+            x_da = sample[self.features].to_dataarray(dim="variable")
+            # x_da shape: (variable, time) — single node
+            x_center_seq = torch.from_numpy(x_da.values.T.copy()).float()  # (seq_len, n_features)
 
         # Targets at the last time step for all subgraph nodes
         y = self._extract_targets(present_time, subgraph_nodes)
