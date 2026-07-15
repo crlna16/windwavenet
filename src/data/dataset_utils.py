@@ -22,16 +22,13 @@ import torch
 import xarray as xr
 import yaml
 
-from scipy.stats import gaussian_kde
 from scipy.ndimage import gaussian_filter1d
 
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
-# ``compute_weights`` tuning constants (strategy="density" / "histogram").
-_DENSITY_KDE_MAX_SUBSAMPLE = 100000  # cap on samples fed to gaussian_kde (runtime/memory)
-_DENSITY_GRID_POINTS = 1024  # resolution of the KDE evaluation grid
+# ``compute_weights`` tuning constants (strategy="histogram").
 _HISTOGRAM_N_BINS = 50  # number of bins for the histogram-based density estimate
 _HISTOGRAM_SMOOTHING_SIGMA = 2  # gaussian_filter1d sigma for smoothing the histogram
 
@@ -604,8 +601,13 @@ def compute_weights(
 
     Args:
         data: Weighting variable values, shape ``(n_samples,)`` or ``(n_samples, 1)``.
-        strategy: ``"z_score", "density", "histogram"``.
-        power: Exponent controlling weighting intensity.
+        strategy: ``"z_score"`` (legacy; kept for backward compatibility with older
+            configs/checkpoints, emphasises samples far from the mean) or ``"histogram"``
+            (preferred: reweights by inverse local density, so rare value ranges get more
+            weight regardless of where they sit relative to the mean).
+        power: Exponent controlling weighting intensity. For ``"histogram"``, lower values
+            move weights toward uniform (unweighted); it does not reproduce ``"z_score"``
+            behavior, which is a distinct (tail-emphasis) weighting scheme.
 
     Returns:
         Weight tensor of shape ``(n_samples, 1)``, or ``None``.
@@ -620,6 +622,7 @@ def compute_weights(
     n_samples = len(data)
 
     if strategy == "z_score":
+        # Legacy strategy, kept for backward compatibility. Prefer "histogram".
         valid = torch.isfinite(data)
         if not bool(valid.all()):
             log.info(f"Weight data contains {int((~valid).sum())} non-finite entries; they get zero weight.")
@@ -628,15 +631,6 @@ def compute_weights(
         z_scores = torch.zeros_like(data)
         z_scores[valid] = (data[valid] - mean) / std
         weights = 1.0 - torch.exp(-(z_scores**2) / power)
-    elif strategy == "density":
-        subsample = np.random.choice(data, size=min(len(data), _DENSITY_KDE_MAX_SUBSAMPLE), replace=False)
-        kde = gaussian_kde(subsample)
-
-        grid = np.linspace(data.min(), data.max(), _DENSITY_GRID_POINTS)
-        density_grid = kde(grid)
-
-        w_grid = (density_grid + 1e-6) ** (-power)
-        weights = torch.from_numpy(np.interp(data, grid, w_grid))
     elif strategy == "histogram":
         n_bins = _HISTOGRAM_N_BINS
         hist, bin_edges = np.histogram(data, bins=n_bins, density=True)
@@ -648,7 +642,7 @@ def compute_weights(
         weights = torch.from_numpy(density ** (-power))
     else:
         raise ValueError(
-            f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score', 'histogram', 'density'"
+            f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score' (legacy), 'histogram'"
         )
 
     # Normalise so mean == 1.0

@@ -38,8 +38,8 @@ Key capabilities:
   `unit_circle` constraint for `sin_*`/`cos_*` direction pairs.
 - **Circular error metrics** for angular targets and **binned RMSE** over
   configurable value ranges (`target_bins`).
-- **Sample weighting** for imbalanced regression (`z_score`, `density`,
-  `histogram`), pre-computed once per training run (see below).
+- **Sample weighting** for imbalanced regression (`histogram`, preferred; `z_score`,
+  legacy), pre-computed once per training run (see below).
 - **Graph models over the SCHISM mesh** with physical edge-length encoding
   via inverse-distance weights expanded through Gaussian RBFs (see below).
 - **Evaluation modes**: teacher-forced one-step testing, full-domain
@@ -118,7 +118,7 @@ In `configs/train.yaml`:
 ```yaml
 data:
   # Sample weighting parameters
-  sample_weight_strategy: null  # Options: null, 'z_score', 'density', 'histogram'
+  sample_weight_strategy: null  # Options: null, 'z_score' (legacy), 'histogram' (preferred)
   sample_weight_power: 1.0      # Exponent for weight calculation
   sample_weight_variable: sigWaveHeight  # Variable whose z-score drives the weights
 ```
