@@ -25,6 +25,7 @@ metric:
 early_terminate:
   type: hyperband
   min_iter: 10
+run_cap: 100
 command:
   - ${env}
   - python
@@ -43,6 +44,7 @@ command:
   # Sweeps don't need checkpoints; disable to save disk and I/O.
   - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
+  - trainer.max_epochs=25
   - test=false
 parameters:
 

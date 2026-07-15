@@ -42,6 +42,7 @@ command:
   - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
   - test=false
+  - trainer.max_epochs=25
   # from LSTM
   - data.sample_weight_variable=delta_sigWaveHeight
   - data.sample_weight_power=0.05

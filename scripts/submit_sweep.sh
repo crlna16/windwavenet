@@ -36,4 +36,7 @@
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/eh72snxn
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/g222cke1
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/puj3yvo0
-uv run wandb agent wwm-emulator/wwm-emulator-sweeps/zlytwsu7
+#uv run wandb agent wwm-emulator/wwm-emulator-sweeps/zlytwsu7
+
+# once again with proper scaling
+uv run wandb agent wwm-emulator/wwm-emulator-sweeps/ga3do9gq

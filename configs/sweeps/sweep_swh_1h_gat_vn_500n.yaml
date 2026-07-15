@@ -42,6 +42,7 @@ command:
   # Sweeps don't need checkpoints; disable to save disk and I/O.
   - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
+  - trainer.max_epochs=25
   - test=false
 parameters:
 
