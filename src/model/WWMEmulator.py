@@ -19,7 +19,7 @@ log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class WWMEmulator(L.LightningModule):
-    """Lightning Module for Wave Wind Model emulation with flexible backbone.
+    """Lightning Module for Wind Wave Model emulation with flexible backbone.
 
     This model uses a configurable backbone architecture that can be swapped out
     via Hydra configuration.

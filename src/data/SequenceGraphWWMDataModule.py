@@ -12,7 +12,7 @@ from src.data.WWMDatasets import SequenceGraphWWMDataset
 
 
 class SequenceGraphWWMDataModule(BaseWWMDataModule):
-    """Lightning DataModule for sequence graph-based Wave Wind Model data.
+    """Lightning DataModule for sequence graph-based Wind Wave Model data.
 
     Each sample is a graph subgraph where every node carries a temporal
     sequence of features spanning ``seq_len`` consecutive time steps.

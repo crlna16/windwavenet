@@ -12,7 +12,7 @@ from src.data.WWMDatasets import GraphWWMDataset
 
 
 class GraphWWMDataModule(BaseWWMDataModule):
-    """Lightning DataModule for graph-based Wave Wind Model data.
+    """Lightning DataModule for graph-based Wind Wave Model data.
 
     Each sample is a graph subgraph at a single time step, built from
     the SCHISM mesh via BFS around center nodes.

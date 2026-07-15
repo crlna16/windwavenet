@@ -12,7 +12,7 @@ from src.data.WWMDatasets import SimpleWWMDataset
 
 
 class WWMDataModule(BaseWWMDataModule):
-    """Lightning DataModule for point-wise Wave Wind Model data.
+    """Lightning DataModule for point-wise Wind Wave Model data.
 
     Each sample is a single (time, node) pair with features and targets.
     Train, validation, and test datasets are separated by day ranges.

@@ -5,11 +5,47 @@ SPDX-FileContributor: Caroline Arnold
 SPDX-License-Identifier: MIT
 -->
 
-# Wave Wind Model Emulator
+# Wind Wave Model Emulator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Lightning](https://img.shields.io/badge/-Lightning-792ee5?logo=pytorchlightning&logoColor=white)](https://lightning.ai)
+
+## Overview
+
+A machine-learning emulator for the WWM (Wind Wave Model) component of a
+SCHISM ocean simulation. Given atmospheric/ocean forcing and the previous wave
+state on an unstructured SCHISM mesh, the emulator predicts the next wave state
+(significant wave height, mean wave period, mean wave direction, ...).
+
+The project is built on **PyTorch Lightning** + **Hydra** (config-driven) and
+supports several model families that share one data/preprocessing pipeline:
+
+| Family | Backbone (`src/model/backbones/`) | Lightning module | Data module |
+| --- | --- | --- | --- |
+| Pointwise MLP | `MLP` | `WWMEmulator` | `WWMDataModule` |
+| Temporal LSTM | `LSTMNet` | `WWMEmulator` | `SequenceWWMDataModule` |
+| Graph attention | `MultiHeadGAT` | `GraphWWMEmulator` | `GraphWWMDataModule` |
+| Graph + virtual node | `MultiHeadGATVN` | `GraphWWMEmulator` | `GraphWWMDataModule` |
+| Graph + temporal virtual node | `MultiHeadGATLSTMVN` | `GraphWWMEmulator` | `CenterHistoryGraphWWMDataModule` |
+| Classical ML | XGBoost / scikit-learn estimator | `MLModelWrapper` | `WWMDataModule` |
+
+Key capabilities:
+
+- **Multi-target prediction** with per-variable loss weights and per-variable
+  output constraints: `semipositive` (ReLU), `positive` (softplus),
+  `angle_deg` (mod 360), `angle_rad` (mod 2π), `sigmoid`, and the paired
+  `unit_circle` constraint for `sin_*`/`cos_*` direction pairs.
+- **Circular error metrics** for angular targets and **binned RMSE** over
+  configurable value ranges (`target_bins`).
+- **Sample weighting** for imbalanced regression (`z_score`, `density`,
+  `histogram`), pre-computed once per training run (see below).
+- **Graph models over the SCHISM mesh** with physical edge-length encoding
+  via inverse-distance weights expanded through Gaussian RBFs (see below).
+- **Evaluation modes**: teacher-forced one-step testing, full-domain
+  prediction, and pseudo-coupled autoregressive rollout.
+- **Reproducible experiments** via Hydra `experiment=` configs under
+  `configs/experiment/` and inference-timing benchmarks.
 
 ## Installation
 
@@ -29,6 +65,37 @@ pip install -e .
 
 The project is tracked online at [https://wandb.ai/wwm-emulator/simple-wwm-emulator](https://wandb.ai/wwm-emulator/simple-wwm-emulator).
 
+## Usage
+
+All entrypoints live in `src/` and are configured with Hydra. Select a model /
+data combination with an `experiment=` config from `configs/experiment/` and
+override any field on the command line (e.g. `trainer.max_epochs=50`).
+
+| Script | Base config | Purpose |
+| --- | --- | --- |
+| `src/train.py` | `configs/train.yaml` | Train a deep-learning model (MLP / LSTM / GAT). |
+| `src/train_ml.py` | `configs/train_ml.yaml` | Train a classical ML model (XGBoost / scikit-learn). |
+| `src/eval.py` | `configs/eval.yaml` | Teacher-forced one-step testing of a checkpoint. |
+| `src/predict.py` | `configs/predict.yaml` | Full-domain prediction for pointwise / sequence models. |
+| `src/predict_gcn.py` | `configs/predict_gcn.yaml` | Full-domain prediction for graph models (greedy mesh partitioning). |
+| `src/rollout.py` | `configs/rollout.yaml` | Pseudo-coupled autoregressive rollout evaluation. |
+| `src/benchmark_inference.py` | — (argparse) | Benchmark inference latency/memory on CPU/CUDA. |
+
+```bash
+# Train
+python src/train.py experiment=swh_1h_mlp
+python src/train.py experiment=swh_1h_lstm
+python src/train.py experiment=swh_1h_multi-head-gat-vn
+python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn
+
+# Evaluate / predict a checkpoint
+python src/eval.py experiment=swh_1h_mlp ckpt_path=<ckpt>
+python src/predict.py experiment=swh_1h_lstm ckpt_path=<ckpt>
+python src/predict_gcn.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
+```
+
+The available experiment configs (see `configs/experiment/`) cover single-target
+`swh_1h_*` and multi-target `swh_mwp_mwd_1h_*` variants for each backbone.
 
 # Technical notes
 
@@ -51,7 +118,7 @@ In `configs/train.yaml`:
 ```yaml
 data:
   # Sample weighting parameters
-  sample_weight_strategy: null  # Options: null, 'z_score'
+  sample_weight_strategy: null  # Options: null, 'z_score', 'density', 'histogram'
   sample_weight_power: 1.0      # Exponent for weight calculation
   sample_weight_variable: sigWaveHeight  # Variable whose z-score drives the weights
 ```
@@ -73,7 +140,7 @@ how errors accumulate in the wave channel over lead time, which one-step
 (teacher-forced) test metrics cannot show.
 
 ```bash
-python src/rollout.py experiment=swh_1h_densenet ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_mlp ckpt_path=<ckpt>
 python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt>
 python src/rollout.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
 python src/rollout.py experiment=swh_1h_multi-head-gat-lstm-vn ckpt_path=<ckpt>
@@ -145,10 +212,14 @@ The ML integration is **completely separated** from the deep learning training p
 python src/train_ml.py
 ```
 
-### Train with different models:
-```bash
-# Random Forest
-python src/train_ml.py experiment=ml/random_forest
+### Train with a different estimator:
+The estimator is configured under `model.model` in `configs/train_ml.yaml`
+(default: `xgboost.XGBRegressor`). `MLModelWrapper` accepts any
+scikit-learn-compatible estimator exposing `fit`/`predict`, so you can swap it
+via a Hydra override (dropping any XGBoost-specific keyword args):
 
-# etc for other models
+```bash
+python src/train_ml.py \
+  model.model._target_=sklearn.ensemble.RandomForestRegressor \
+  ~model.callbacks
 ```
