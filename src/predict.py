@@ -3,6 +3,14 @@
 #
 # SPDX-License-Identifier: MIT
 
+"""Full-domain prediction entrypoint for pointwise/sequence WWM emulator models (MLP/LSTM).
+
+Invoked via Hydra using ``configs/predict.yaml`` as the base config. Loads a trained
+checkpoint, runs single-step or teacher-forced sequence prediction over the requested
+day ranges, and assembles the results into an ``xarray.Dataset``. For graph-based
+backbones (GAT/GAT-VN/GAT-LSTM-VN), use ``src/predict_gcn.py`` instead.
+"""
+
 from typing import Any, List, cast
 
 import hydra

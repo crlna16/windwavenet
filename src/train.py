@@ -3,6 +3,14 @@
 #
 # SPDX-License-Identifier: MIT
 
+"""Training entrypoint for WWM emulator models (dense/LSTM/GAT backbones).
+
+Invoked via Hydra using ``configs/train.yaml`` as the base config. Instantiates the
+datamodule, model, callbacks, loggers, and trainer, then runs ``trainer.fit`` (and
+optionally ``trainer.test``), returning the merged metric dict for hyperparameter
+optimization (e.g. Hydra sweeps).
+"""
+
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -10,10 +18,6 @@ import lightning as L
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-
-import torch
-
-import warnings
 
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.pylogger import RankedLogger
@@ -25,7 +29,6 @@ from src.utils.utils import (
 )
 
 log = RankedLogger(__name__, rank_zero_only=True)
-warnings.filterwarnings("ignore")
 
 
 @task_wrapper
@@ -46,8 +49,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
-
-    torch.autograd.set_detect_anomaly(True)
 
     log.info("Printing config tree with Rich <cfg.extras.print_config=True>")
     print_config_tree(cfg, resolve=True, save_to_file=True)

@@ -72,11 +72,6 @@ class SimpleWWMDataset(Dataset):
         self.sample_weight_power = sample_weight_power
         self.sample_weight_variable = sample_weight_variable
 
-        # Store parameters for worker initialization
-        self.worker_id = None
-        self.num_workers = None
-        self.worker_time_len = None
-
         # --- Pipeline: open, slice + preprocess per contiguous range, scale, load ---
         derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
         self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(

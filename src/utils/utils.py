@@ -24,7 +24,9 @@ from src.data import dataset_utils as du
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
-def task_wrapper(task_func: Callable) -> Callable:
+def task_wrapper(
+    task_func: Callable[[DictConfig], Tuple[Dict[str, Any], Dict[str, Any]]],
+) -> Callable[[DictConfig], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Optional decorator that controls the failure behavior when executing the task function.
 
     This wrapper can be used to:
@@ -42,10 +44,12 @@ def task_wrapper(task_func: Callable) -> Callable:
     ```
 
     Args:
-        task_func (Callable): The task function to be wrapped.
+        task_func (Callable[[DictConfig], Tuple[Dict[str, Any], Dict[str, Any]]]): The task
+            function to be wrapped. Must accept a single ``cfg`` argument and return a tuple
+            of (metric_dict, object_dict).
 
     Returns:
-        Callable: The wrapped task function.
+        Callable[[DictConfig], Tuple[Dict[str, Any], Dict[str, Any]]]: The wrapped task function.
     """
 
     def wrap(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:

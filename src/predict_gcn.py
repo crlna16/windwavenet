@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import hydra
+import importlib
 import numpy as np
 import torch
 import xarray as xr
@@ -158,8 +159,6 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     log.info(f"Loading model from checkpoint: {cfg.ckpt_path}")
     model_cls_path: str = cfg.model._target_
     module_path, class_name = model_cls_path.rsplit(".", 1)
-
-    import importlib
 
     model_module = importlib.import_module(module_path)
     model_cls = getattr(model_module, class_name)

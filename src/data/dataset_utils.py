@@ -29,6 +29,12 @@ from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
+# ``compute_weights`` tuning constants (strategy="density" / "histogram").
+_DENSITY_KDE_MAX_SUBSAMPLE = 100000  # cap on samples fed to gaussian_kde (runtime/memory)
+_DENSITY_GRID_POINTS = 1024  # resolution of the KDE evaluation grid
+_HISTOGRAM_N_BINS = 50  # number of bins for the histogram-based density estimate
+_HISTOGRAM_SMOOTHING_SIGMA = 2  # gaussian_filter1d sigma for smoothing the histogram
+
 
 # ---------------------------------------------------------------------------
 # Zarr I/O helpers
@@ -623,18 +629,18 @@ def compute_weights(
         z_scores[valid] = (data[valid] - mean) / std
         weights = 1.0 - torch.exp(-(z_scores**2) / power)
     elif strategy == "density":
-        subsample = np.random.choice(data, size=min(len(data), 100000), replace=False)
+        subsample = np.random.choice(data, size=min(len(data), _DENSITY_KDE_MAX_SUBSAMPLE), replace=False)
         kde = gaussian_kde(subsample)
 
-        grid = np.linspace(data.min(), data.max(), 1024)
+        grid = np.linspace(data.min(), data.max(), _DENSITY_GRID_POINTS)
         density_grid = kde(grid)
 
         w_grid = (density_grid + 1e-6) ** (-power)
         weights = torch.from_numpy(np.interp(data, grid, w_grid))
     elif strategy == "histogram":
-        n_bins = 50
+        n_bins = _HISTOGRAM_N_BINS
         hist, bin_edges = np.histogram(data, bins=n_bins, density=True)
-        hist_smooth = gaussian_filter1d(hist, sigma=2)
+        hist_smooth = gaussian_filter1d(hist, sigma=_HISTOGRAM_SMOOTHING_SIGMA)
 
         eps = 1e-6  # guard against empty bins
         bin_idx = np.clip(np.digitize(data, bin_edges[1:-1]), 0, n_bins - 1)

@@ -63,7 +63,7 @@ data:
   persistent_workers: true
 
   # Optional: sample weighting strategy for imbalanced regression
-  # Options: null (no weighting), 'abs_value' (weight by absolute value of targets), 'z_score'
+  # Options: null (no weighting), 'z_score', 'histogram', 'density'
   sample_weight_strategy: null
 
   sample_weight_power: 1.0 # Exponent for controlling sample weight intensity

@@ -441,7 +441,14 @@ class WWMEmulator(L.LightningModule):
     def predict_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single predict step on a batch of data.
 
-        TODO: Refactor for use with dataset that does not return target.
+        Note:
+            This currently reuses ``model_step``, which unconditionally unpacks a target
+            tensor ``y`` from ``batch`` (see ``model_step``'s ``x, y = batch`` fallback). It
+            therefore only works with datasets/datamodules that always return targets (as all
+            current WWM datasets do), even though the target is discarded below. A dataset that
+            yields inputs only (no target, e.g. true out-of-sample forecasting) is NOT
+            supported yet and would raise when unpacking the batch; this would require either
+            an optional-target branch here or in ``model_step``.
 
         Args:
             batch: A batch of data (a tuple) containing input and target tensors.
