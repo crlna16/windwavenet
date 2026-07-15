@@ -32,6 +32,7 @@ data:
   sample_weight_power: 0.2
   scaling_config: src/data/scaling/scale_2020_8months_hourly.yaml
   node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
+  boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
   batch_size: 128
   num_workers: 8
   pin_memory: true

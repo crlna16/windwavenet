@@ -52,7 +52,7 @@ data:
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
-  scaling_config: src/data/scaling/scale_2020_hourly.yaml
+  scaling_config: src/data/scaling/scale_2020_8months_hourly.yaml
   node_idx_csv: null
   boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
   batch_size: 2048
