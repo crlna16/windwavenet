@@ -320,7 +320,10 @@ class GraphWWMDataset(GDataset):
 
         # --- Pipeline: open, slice + preprocess per contiguous range (keep graph vars), scale ---
         derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
-        # No node filtering — full mesh retained for graph construction
+        # No node filtering — full mesh retained for graph construction. Open the
+        # store dask-backed (chunks={}) so the full-mesh preprocessing/scaling stays
+        # lazy: features are read per subgraph in _extract_node_features and only
+        # those slices are ever materialized, avoiding a full-mesh RAM blow-up.
         self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(
             self.data_dir,
             self.data_range,
@@ -329,6 +332,7 @@ class GraphWWMDataset(GDataset):
             node_idx_csv=None,
             extra_keep_vars=self.graph_features,
             derive_vars=derive_vars,
+            chunks={},
         )
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
@@ -443,6 +447,23 @@ class GraphWWMDataset(GDataset):
             f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
         )
 
+        # Preload feature variables into RAM as well, restricted to the subgraph-node
+        # union. Lazy per-sample dask reads deadlock/oversubscribe inside forked
+        # DataLoader workers, so materialize once here and share across workers.
+        # Shape: (n_time, n_used_nodes, n_features) as float32.
+        log.info(f"Preloading {len(self.features)} feature variable(s) into RAM...")
+        _f_pre = time.perf_counter()
+        _feat_da = (
+            self.ds[self.features].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
+        )  # (n_features, n_time, n_used_nodes)
+        self._features_ram = torch.from_numpy(np.asarray(_feat_da.values)).float().permute(1, 2, 0)
+        self._features_ram.share_memory_()
+        log.info(
+            f"Feature preload complete in {time.perf_counter() - _f_pre:.1f}s — "
+            f"cache shape {tuple(self._features_ram.shape)} "
+            f"({self._features_ram.nbytes / 1024**3:.2f} GiB)"
+        )
+
         # Precompute number of time steps as a plain int.
         # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
         # must not traverse attribute chains like self.ds.time at call time.
@@ -469,6 +490,13 @@ class GraphWWMDataset(GDataset):
         Returns:
             Tensor of shape (n_subgraph_nodes, n_features).
         """
+        # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        # The cache is stored over the subgraph-node union, so remap global node
+        # positions to their compact position within the union.
+        if hasattr(self, "_features_ram"):
+            compact = self._global_to_compact[subgraph_nodes]
+            return self._features_ram[time_idx][compact]
+
         sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=subgraph_nodes)
         x_da = sample[self.features].to_dataarray(dim="variable")
         return torch.from_numpy(x_da.values.T.copy()).float()
@@ -654,6 +682,14 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             Tensor of shape (n_subgraph_nodes, seq_len, n_features).
         """
         time_indices = list(range(time_start, time_start + self.seq_len))
+        # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        # The cache is stored over the subgraph-node union, so remap global node
+        # positions to their compact position within the union.
+        if hasattr(self, "_features_ram"):
+            compact = self._global_to_compact[subgraph_nodes]
+            # (seq_len, n_nodes, n_features) -> (n_nodes, seq_len, n_features)
+            return self._features_ram[time_indices][:, compact, :].permute(1, 0, 2).contiguous()
+
         sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=subgraph_nodes)
         x_da = sample[self.features].to_dataarray(dim="variable")
         # x_da shape: (variable, time, nSCHISM_hgrid_node)

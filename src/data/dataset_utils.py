@@ -101,7 +101,9 @@ def compute_valid_sequence_starts(range_lengths: List[int], seq_len: int) -> np.
     return np.asarray(starts, dtype=np.int64)
 
 
-def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Dataset, int]:
+def open_and_slice_dataset(
+    data_dir: Path, data_range: List[int], chunks: Optional[dict] = None
+) -> Tuple[xr.Dataset, int]:
     """Open a Zarr dataset and slice to the requested day range.
 
     Both ends of the range are inclusive: ``[1, 2]`` selects days 1 and 2
@@ -110,11 +112,16 @@ def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Da
     Args:
         data_dir: Path to the Zarr store.
         data_range: Day range as ``[start_day, end_day]`` (1-indexed, inclusive).
+        chunks: If not ``None``, open the store dask-backed with these chunks
+            (``{}`` uses the native zarr chunking). Keeps the whole
+            preprocessing/scaling pipeline lazy so that only the slices that
+            are actually read are ever materialized. If ``None`` (default) the
+            store is opened eagerly as before.
 
     Returns:
         Tuple of ``(dataset, samples_per_day)``.
     """
-    ds = xr.open_dataset(data_dir, engine="zarr")
+    ds = xr.open_dataset(data_dir, engine="zarr", chunks=chunks)
     time_delta = ds.time.values[1] - ds.time.values[0]
     samples_per_day = int(pd.Timedelta(days=1) / time_delta)
     log.info(f"Dataset has {samples_per_day} samples per day.")
@@ -337,6 +344,7 @@ def open_and_preprocess_dataset(
     node_idx_csv: Optional[str] = None,
     extra_keep_vars: Optional[List[str]] = None,
     derive_vars: Optional[List[str]] = None,
+    chunks: Optional[dict] = None,
 ) -> Tuple[xr.Dataset, int, int, List[int]]:
     """Open a Zarr store and slice + preprocess one or more day ranges.
 
@@ -355,6 +363,9 @@ def open_and_preprocess_dataset(
         extra_keep_vars: Additional variables to keep (e.g. graph topology).
         derive_vars: Additional variables to derive per range and keep
             (see :func:`preprocess_variables`).
+        chunks: If not ``None``, open the store dask-backed (lazy) with these
+            chunks (``{}`` = native zarr chunking). Preprocessing/scaling then
+            stay lazy and only the slices that are read are materialized.
 
     Returns:
         Tuple ``(dataset, samples_per_day, n_nodes, range_lengths)`` where
@@ -367,7 +378,7 @@ def open_and_preprocess_dataset(
     lengths: List[int] = []
     samples_per_day = n_nodes = 0
     for r in ranges:
-        ds_r, samples_per_day = open_and_slice_dataset(data_dir, r)
+        ds_r, samples_per_day = open_and_slice_dataset(data_dir, r, chunks=chunks)
         ds_r = filter_nodes(ds_r, node_idx_csv)
         ds_r, n_nodes = preprocess_variables(
             ds_r, features, targets, extra_keep_vars=extra_keep_vars, derive_vars=derive_vars

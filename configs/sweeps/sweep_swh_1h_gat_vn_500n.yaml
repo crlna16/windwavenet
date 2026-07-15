@@ -46,7 +46,7 @@ command:
 parameters:
 
   data.sample_weight_power:
-    distribution: log_uniform_values
+    distribution: uniform
     min: 0.0
     max: 1.0
 
@@ -68,6 +68,8 @@ parameters:
   model.backbone.heads:
     distribution: categorical
     values:
+      - 1
+      - 2
       - 4
       - 8
       - 16
@@ -80,6 +82,9 @@ parameters:
   model.backbone.n_rbf:
     distribution: categorical
     values:
+      - 1
+      - 2
+      - 4
       - 8
       - 16
       - 32
