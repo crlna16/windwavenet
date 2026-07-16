@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -A ka1176
 #SBATCH -p vader
-# no#SBATCH --mem=200G
-# no#SBATCH --gres=gpu:1
+#SBATCH --mem=60G
+#SBATCH --gres=gpu:1
 #SBATCH --time=08:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
 
@@ -63,4 +63,6 @@
 #uv run src/train.py data.sample_weight_strategy=null model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
 #uv run src/train.py data.sample_weight_strategy="density" data.sample_weight_power=0.2 model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
 #uv run src/train.py data.sample_weight_strategy="histogram" data.sample_weight_power=0.2 model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
-uv run src/train.py data.sample_weight_strategy="histogram" data.sample_weight_power=0.4 model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
+#uv run src/train.py data.sample_weight_strategy="histogram" data.sample_weight_power=0.4 model.backbone.dropout=0.584672343539078 model.backbone.hidden_dim=128 model.backbone.num_layers=1 model.optimizer.lr=0.0004491078969284579 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=6 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 trainer.enable_progress_bar=false test=false trainer.devices="auto"
+
+uv run /work/ka1176/caroline/gitlab/wave-wind-model-emulator/src/train.py data.sample_weight_power=0.21210393954907747 data.sample_weight_variable=delta_sigWaveHeight model.optimizer.lr=0.0020762237776402845 experiment=swh_1h_lstm logger.wandb.project=wwm-emulator-sweeps data.seq_len=48 model.backbone.bidirectional=false data.batch_size=2048 callbacks.early_stopping.patience=8 callbacks.model_checkpoint=null trainer.enable_progress_bar=false trainer.max_epochs=25 test=false

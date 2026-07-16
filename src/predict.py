@@ -91,6 +91,11 @@ def predict(cfg: DictConfig) -> xr.Dataset:
 
     log.info("Retrieving metadata from source dataset")
     datamodule_data = cast(Any, datamodule)
+    if datamodule_data.ds_pred is None:
+        # trainer.predict()'s teardown hook frees ds_pred after the predict stage
+        # finishes, so it must be rebuilt here before we can read its metadata.
+        log.info("ds_pred was freed by teardown; re-instantiating predict dataset")
+        datamodule.setup(stage="predict")
     ds_pred_data = datamodule_data.ds_pred
     ds = ds_pred_data.ds
     features = getattr(ds_pred_data, "features", [])

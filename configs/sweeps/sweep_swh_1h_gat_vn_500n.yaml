@@ -43,7 +43,7 @@ command:
   - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
   - trainer.max_epochs=25
-  - trainer.accumulate_grad_batches=2
+  - trainer.accumulate_grad_batches=2 # for later transfer to A100 with 80 GB VRAM
   - test=false
 parameters:
 
