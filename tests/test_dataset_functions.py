@@ -616,6 +616,7 @@ class TestGraphWWMDatasetFunctions:
         assert hasattr(ds, "_targets_ram") is cache_mode
         assert tuple(graph.x.shape) == (3, 2)
         assert tuple(graph.x_center_seq.shape) == (3, 2)
+
         np.testing.assert_allclose(
             graph.x_center_seq.numpy(),
             np.array(
@@ -627,7 +628,10 @@ class TestGraphWWMDatasetFunctions:
                 dtype=np.float32,
             ),
         )
-        np.testing.assert_allclose(graph.y[:, 0].numpy(), np.array([30.0, 31.0, 32.0], dtype=np.float32))
+        # Node 0's subgraph is {0, 1, 3}: node 0 is a hop-1 neighbor of nodes 1, 2, and 3
+        # (a 3-way tie for max_nodes=3), and BFS breaks the tie using adjacency insertion
+        # order, which yields 1 and 3 before 2 (see build_subgraph/build_adjacency).
+        np.testing.assert_allclose(graph.y[:, 0].numpy(), np.array([30.0, 31.0, 33.0], dtype=np.float32))
 
 
 class TestSimpleWWMDatasetCoverage:
