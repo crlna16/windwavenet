@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ka1176
 #SBATCH -p vader
-#SBATCH --mem=200G
+#SBATCH --mem=60G
 #SBATCH --gres=gpu:1
 #SBATCH --time=48:00:00
 #SBATCH -o scripts/slurm/slurm-%j.out
@@ -39,4 +39,6 @@
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/zlytwsu7
 
 # once again with proper scaling
-uv run wandb agent wwm-emulator/wwm-emulator-sweeps/ga3do9gq
+#uv run wandb agent wwm-emulator/wwm-emulator-sweeps/ga3do9gq
+uv run wandb agent wwm-emulator/wwm-emulator-sweeps/h0bzt7ou
+#uv run wandb agent wwm-emulator/wwm-emulator-sweeps/yi1g74b0 # mlp

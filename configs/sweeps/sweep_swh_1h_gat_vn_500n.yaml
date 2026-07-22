@@ -22,12 +22,13 @@ project: wwm-emulator-sweeps
 entity: wwm-emulator
 #method: bayes
 method: random
+run_cap: 100
 metric:
   goal: minimize
   name: val/best_rmse_sigWaveHeight
 early_terminate:
   type: hyperband
-  min_iter: 10
+  min_iter: 5
 command:
   - ${env}
   - python
@@ -42,23 +43,27 @@ command:
   # Sweeps don't need checkpoints; disable to save disk and I/O.
   - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
-  - trainer.max_epochs=25
+  - trainer.max_epochs=15
   - trainer.accumulate_grad_batches=2 # for later transfer to A100 with 80 GB VRAM
+  - data.sample_weight_power=0.2
+  - data.sample_weight_variable=delta_sigWaveHeight
+  - data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv
+  - data.num_workers=4
   - test=false
 parameters:
 
-  data.sample_weight_power:
-    distribution: uniform
-    min: 0.0
-    max: 1.0
+  #data.sample_weight_power:
+  #  distribution: uniform
+  #  min: 0.0
+  #  max: 1.0
 
-  # Weight by the level (tall waves) or the hour-to-hour change (rapid
-  # build-ups — where the models currently lose to persistence).
-  data.sample_weight_variable:
-    distribution: categorical
-    values:
-      - sigWaveHeight
-      - delta_sigWaveHeight
+  ## Weight by the level (tall waves) or the hour-to-hour change (rapid
+  ## build-ups — where the models currently lose to persistence).
+  #data.sample_weight_variable:
+  #  distribution: categorical
+  #  values:
+  #    - sigWaveHeight
+  #    - delta_sigWaveHeight
 
   model.backbone.hidden_dim:
     distribution: categorical
@@ -94,12 +99,12 @@ parameters:
   model.backbone.dropout:
     distribution: uniform
     min: 0.0
-    max: 0.3
+    max: 0.5
 
   model.backbone.attn_dropout:
     distribution: uniform
     min: 0.0
-    max: 0.3
+    max: 0.5
 
   model.optimizer.lr:
     distribution: log_uniform_values

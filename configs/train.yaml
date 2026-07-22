@@ -136,7 +136,7 @@ trainer:
 
   # Performance optimizations
   # Gradient accumulation can help with memory if you want larger effective batch size
-  # accumulate_grad_batches: 1
+  accumulate_grad_batches: 1
 
   # Benchmark mode finds fastest algorithms for your hardware
   benchmark: true
