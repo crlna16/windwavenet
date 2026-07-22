@@ -63,6 +63,7 @@ model:
     num_layers: 3
     heads: 4             # attention heads (hidden_dim must be divisible)
     n_rbf: 16            # Gaussian RBF centres for distance encoding
+    edge_encoding: rbf   # rbf | scalar | none (edge-weight ablation)
     dropout: 0.1
     attn_dropout: 0.1
 

@@ -24,14 +24,19 @@ class MultiHeadGATVN(nn.Module):
 
     **Local path** — Multi-head GATv2 attention over the mesh edge set.
     Attention is strictly one-hop (direct mesh neighbours plus self), so the
-    local receptive field grows with ``num_layers``.  Edge lengths are encoded
-    as inverse-distance weights expanded through Gaussian RBFs and passed as
-    edge features to GATv2Conv; this tells attention how much physical space
-    each hop covers on the unstructured mesh, whose edge lengths vary by
-    orders of magnitude between coastal and offshore regions.  The encoding
-    is only informative if ``edge_weight_scale`` is comparable to typical
-    edge lengths (see :class:`MultiHeadGAT` and
-    :func:`src.data.graph_utils.compute_edge_weights`).
+    local receptive field grows with ``num_layers``.  Edge lengths (inverse-
+    distance weights in ``(0, 1]``) are encoded as edge features passed to
+    GATv2Conv, controlled by ``edge_encoding``:
+
+      - ``"rbf"`` (default) — expanded through Gaussian RBFs, giving a
+        resolution-aware representation of physical distance.  Only
+        informative if ``edge_weight_scale`` is comparable to typical edge
+        lengths (see :class:`MultiHeadGAT` and
+        :func:`src.data.graph_utils.compute_edge_weights`).
+      - ``"scalar"`` — the raw edge weight is passed as a single edge
+        feature, without RBF expansion.
+      - ``"none"`` — no edge features are used at all; attention is blind to
+        edge length.
 
     **Global path** — A virtual node (VN) provides subgraph-wide context in a
     single step, bypassing the one-hop limit of the local path.  Its scope is
@@ -63,6 +68,7 @@ class MultiHeadGATVN(nn.Module):
         num_layers: int = 3,
         heads: int = 4,
         n_rbf: int = 16,
+        edge_encoding: str = "rbf",
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
     ):
@@ -77,6 +83,12 @@ class MultiHeadGATVN(nn.Module):
                 receptive field in hops).
             heads: Number of attention heads in the local GAT path.
             n_rbf: Number of Gaussian RBF centres for edge-length encoding.
+                Only used when ``edge_encoding == "rbf"``.
+            edge_encoding: How edge lengths are passed to GATv2Conv as edge
+                features. One of ``"rbf"`` (Gaussian RBF expansion,
+                default), ``"scalar"`` (raw edge weight, no expansion), or
+                ``"none"`` (no edge features; ablation of edge-length
+                information entirely).
             dropout: Dropout probability after each processing layer.
             attn_dropout: Dropout on GAT attention coefficients.
         """
@@ -84,13 +96,22 @@ class MultiHeadGATVN(nn.Module):
 
         if hidden_dim % heads != 0:
             raise ValueError(f"hidden_dim ({hidden_dim}) must be divisible by heads ({heads})")
+        if edge_encoding not in ("rbf", "scalar", "none"):
+            raise ValueError(f"edge_encoding must be one of 'rbf', 'scalar', 'none'; got {edge_encoding!r}")
 
         self.hidden_dim = hidden_dim
         self.dropout = dropout
+        self.edge_encoding = edge_encoding
         self._scale = 1.0 / math.sqrt(hidden_dim)
 
         # ---- Distance encoder ----
-        self.rbf = GaussianRBF(n_rbf=n_rbf, low=0.0, high=1.0)
+        if edge_encoding == "rbf":
+            self.rbf = GaussianRBF(n_rbf=n_rbf, low=0.0, high=1.0)
+            edge_dim = n_rbf
+        elif edge_encoding == "scalar":
+            edge_dim = 1
+        else:
+            edge_dim = None
 
         # ---- Node encoder ----
         self.node_encoder = nn.Sequential(
@@ -126,7 +147,7 @@ class MultiHeadGATVN(nn.Module):
                     heads=heads,
                     concat=True,
                     add_self_loops=True,
-                    edge_dim=n_rbf,
+                    edge_dim=edge_dim,
                     dropout=attn_dropout,
                 )
             )
@@ -171,10 +192,12 @@ class MultiHeadGATVN(nn.Module):
         batch = data.batch
 
         # ---- Edge-length encoding ----
-        if edge_weight is not None:
-            edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
-        else:
+        if edge_weight is None or self.edge_encoding == "none":
             edge_attr = None
+        elif self.edge_encoding == "rbf":
+            edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
+        else:  # "scalar"
+            edge_attr = edge_weight.unsqueeze(-1)  # (n_edges, 1)
 
         # ---- Stage 1: Encode node features ----
         x = self.node_encoder(x)  # (total_nodes, hidden_dim)
