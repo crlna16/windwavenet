@@ -2,7 +2,7 @@
 #SBATCH -A ka1176
 #SBATCH -p vader
 #SBATCH --gres=gpu:2
-#SBATCH --exclusive
+# no#SBATCH --exclusive
 #SBATCH --time=48:00:00
 #SBATCH -o scripts/slurm/slurm-%A_%a.out
 #SBATCH --array=0-34
@@ -11,8 +11,8 @@
 # sbatch --array=15-18 scripts/submit_swh_1h_array.sh
 
 COMMANDS=(
-    # DenseNet (0) - TODO
-    "uv run python src/train.py experiment=swh_1h_densenet trainer.devices=3"
+    # MLP (0) - UPDATED
+    "uv run python src/train.py experiment=swh_1h_mlp trainer.devices=1"
     # LSTM (1-6) - UPDATED
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=3  trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=6  trainer.devices=2 'ckpt_path=\"logs/train/swh_1h_lstm/runs/2026-07-22_06-04-45/wwm-emulator-hourly-final/1lt1kqxe/checkpoints/last.ckpt\"' logger.wandb.id=1lt1kqxe"

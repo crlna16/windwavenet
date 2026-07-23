@@ -277,14 +277,16 @@ class WWMEmulator(L.LightningModule):
             rmse_metrics: ModuleDict containing RMSE metrics for each target.
             log_on_step: Whether to log on step (True for training).
         """
+        sync_dist = prefix in ("val", "test")
+
         # Log total loss
-        self.log(f"{prefix}/loss", total_loss, on_step=log_on_step, on_epoch=True, prog_bar=True)
+        self.log(f"{prefix}/loss", total_loss, on_step=log_on_step, on_epoch=True, prog_bar=True, sync_dist=sync_dist)
 
         # Log per-variable losses and RMSE
         for i, name in enumerate(self.target_names):
-            self.log(f"{prefix}/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True)
+            self.log(f"{prefix}/loss_{name}", per_var_losses[name], on_step=False, on_epoch=True, sync_dist=sync_dist)
             rmse_metrics[name](preds[:, i], targets[:, i])
-            self.log(f"{prefix}/rmse_{name}", rmse_metrics[name], on_step=False, on_epoch=True)
+            self.log(f"{prefix}/rmse_{name}", rmse_metrics[name], on_step=False, on_epoch=True, sync_dist=sync_dist)
 
     def log_binned_rmse_metrics(
         self,
@@ -301,6 +303,8 @@ class WWMEmulator(L.LightningModule):
             prefix: Logging prefix ('val' or 'test').
             binned_rmse_metrics: ModuleDict containing one RMSE metric per target bin.
         """
+        sync_dist = prefix in ("val", "test")
+
         for i, name in enumerate(self.target_names):
             if name not in self.target_bins:
                 continue
@@ -332,6 +336,7 @@ class WWMEmulator(L.LightningModule):
                     cast(Any, binned_rmse_metrics[bin_key]),
                     on_step=False,
                     on_epoch=True,
+                    sync_dist=sync_dist,
                 )
 
     def log_circular_metrics(
@@ -352,6 +357,7 @@ class WWMEmulator(L.LightningModule):
             targets: Ground-truth targets, shape (batch, num_targets).
             prefix: Logging prefix (``'val'`` or ``'test'``).
         """
+        sync_dist = prefix in ("val", "test")
         name_to_idx = {n: i for i, n in enumerate(self.target_names)}
         sin_names = {n[len("sin_") :]: n for n in self.target_names if n.startswith("sin_")}
         cos_names = {n[len("cos_") :]: n for n in self.target_names if n.startswith("cos_")}
@@ -377,7 +383,9 @@ class WWMEmulator(L.LightningModule):
             diff = (angle_pred - angle_truth).abs() % 360.0
             circular_mae_val = torch.where(diff > 180.0, 360.0 - diff, diff).mean()
 
-            self.log(f"{prefix}/circular_mae_{base_var}", circular_mae_val, on_step=False, on_epoch=True)
+            self.log(
+                f"{prefix}/circular_mae_{base_var}", circular_mae_val, on_step=False, on_epoch=True, sync_dist=sync_dist
+            )
 
     def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data.
@@ -401,12 +409,21 @@ class WWMEmulator(L.LightningModule):
             batch_idx: The index of the current batch.
         """
         total_loss, per_var_losses, preds, targets = self.model_step(batch)
+
+        # Skip logging during the sanity check so its tiny, non-representative
+        # batch subset can't pollute real metrics (e.g. `best_rmse` tracking).
+        if self.trainer.sanity_checking:
+            return
+
         self.log_step_metrics(total_loss, per_var_losses, preds, targets, "val", self.val_rmse, log_on_step=False)
         self.log_binned_rmse_metrics(preds, targets, "val", self.val_rmse_binned)
         self.log_circular_metrics(preds, targets, "val")
 
     def on_validation_epoch_end(self) -> None:
         """Called at the end of the validation epoch to track best validation loss."""
+        if self.trainer.sanity_checking:
+            return
+
         # Get the current epoch's validation loss
         val_loss = self.trainer.callback_metrics.get("val/loss")
 
@@ -416,7 +433,7 @@ class WWMEmulator(L.LightningModule):
                 self.best_val_loss = val_loss.item()
 
             # Log the best validation loss
-            self.log("val/best_loss", self.best_val_loss, on_epoch=True, prog_bar=True)
+            self.log("val/best_loss", self.best_val_loss, on_epoch=True, prog_bar=True, sync_dist=True)
 
         for name in self.target_names:
             val_rmse = self.trainer.callback_metrics.get(f"val/rmse_{name}")
@@ -424,7 +441,13 @@ class WWMEmulator(L.LightningModule):
                 if val_rmse < self.best_val_rmse[name]:
                     self.best_val_rmse[name] = val_rmse.item()
 
-                self.log(f"val/best_rmse_{name}", self.best_val_rmse[name], on_epoch=True, prog_bar=True)
+                self.log(
+                    f"val/best_rmse_{name}",
+                    self.best_val_rmse[name],
+                    on_epoch=True,
+                    prog_bar=True,
+                    sync_dist=True,
+                )
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data.
