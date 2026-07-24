@@ -15,7 +15,7 @@ COMMANDS=(
     "uv run python src/train.py experiment=swh_1h_mlp trainer.devices=1"
     # LSTM (1-6) - UPDATED
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=3  trainer.devices=2"
-    "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=6  trainer.devices=2 'ckpt_path=\"logs/train/swh_1h_lstm/runs/2026-07-22_06-04-45/wwm-emulator-hourly-final/1lt1kqxe/checkpoints/last.ckpt\"' logger.wandb.id=1lt1kqxe"
+    "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=6  trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=12 trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=24 trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=48 trainer.devices=2"

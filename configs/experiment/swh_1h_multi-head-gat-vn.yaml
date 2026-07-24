@@ -32,7 +32,7 @@ data:
   pin_memory: true
   persistent_workers: true
   max_nodes: 500
-  edge_weight_scale: 20.0
+  edge_weight_scale: 2000.0
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
