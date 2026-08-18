@@ -23,6 +23,7 @@ project: wwm-emulator-sweeps
 entity: wwm-emulator
 #method: bayes
 method: random
+run_cap: 50
 metric:
   goal: minimize
   name: val/best_rmse_sigWaveHeight

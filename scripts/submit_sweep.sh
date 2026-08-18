@@ -40,5 +40,6 @@
 
 # once again with proper scaling
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/ga3do9gq
-uv run wandb agent wwm-emulator/wwm-emulator-sweeps/h0bzt7ou
+#uv run wandb agent wwm-emulator/wwm-emulator-sweeps/h0bzt7ou
 #uv run wandb agent wwm-emulator/wwm-emulator-sweeps/yi1g74b0 # mlp
+uv run wandb agent wwm-emulator/wwm-emulator-sweeps/xexe06i3 # graph-lstm

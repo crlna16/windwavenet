@@ -41,7 +41,7 @@ Key capabilities:
 - **Sample weighting** for imbalanced regression (`histogram`, preferred; `z_score`,
   legacy), pre-computed once per training run (see below).
 - **Graph models over the SCHISM mesh** with physical edge-length encoding
-  via inverse-distance weights expanded through Gaussian RBFs (see below).
+  via inverse-distance edge weights (see below).
 - **Evaluation modes**: teacher-forced one-step testing, full-domain
   prediction, and pseudo-coupled autoregressive rollout.
 - **Reproducible experiments** via Hydra `experiment=` configs under
@@ -185,16 +185,16 @@ therefore assigned an inverse-distance weight
 w = 1 / (1 + length / edge_weight_scale)
 ```
 
-which is expanded through `n_rbf` Gaussian radial basis functions and passed
-as edge features to `GATv2Conv`, where they become per-head attention biases.
-This tells attention how much physical space each hop covers, so neighbours
-can be weighted by physical proximity rather than hop count alone.
+which is passed as a scalar edge feature to `GATv2Conv`, where it becomes a
+per-head attention bias. This tells attention how much physical space each
+hop covers, so neighbours can be weighted by physical proximity rather than
+hop count alone. Set `model.backbone.edge_encoding=none` to ablate edge-length
+information entirely.
 
 **Choosing `edge_weight_scale`** (data config): the value should be comparable
 to the typical (median) mesh edge length. An edge of exactly that length gets
-weight 0.5, and the weight distribution spreads over (0, 1) where the RBF
-centres live. If the scale is much larger than the mesh edges, all weights
-cluster near 1.0, most RBF features return near-zero constants, and the
+weight 0.5, and the weight distribution spreads over (0, 1). If the scale is
+much larger than the mesh edges, all weights cluster near 1.0 and the
 encoding carries no signal.
 
 ## Classical ML Integration

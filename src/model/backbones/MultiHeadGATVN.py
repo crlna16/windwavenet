@@ -11,8 +11,6 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATv2Conv, global_add_pool, global_mean_pool
 from torch_geometric.utils import softmax as pyg_softmax
 
-from .MultiHeadGATLSTMVN import GaussianRBF
-
 
 class MultiHeadGATVN(nn.Module):
     """Dual-path backbone: local GAT over mesh edges + subgraph-wide virtual node.
@@ -28,13 +26,8 @@ class MultiHeadGATVN(nn.Module):
     distance weights in ``(0, 1]``) are encoded as edge features passed to
     GATv2Conv, controlled by ``edge_encoding``:
 
-      - ``"rbf"`` (default) — expanded through Gaussian RBFs, giving a
-        resolution-aware representation of physical distance.  Only
-        informative if ``edge_weight_scale`` is comparable to typical edge
-        lengths (see :class:`MultiHeadGAT` and
-        :func:`src.data.graph_utils.compute_edge_weights`).
-      - ``"scalar"`` — the raw edge weight is passed as a single edge
-        feature, without RBF expansion.
+      - ``"scalar"`` (default) — the raw edge weight is passed as a single
+        edge feature.
       - ``"none"`` — no edge features are used at all; attention is blind to
         edge length.
 
@@ -67,8 +60,7 @@ class MultiHeadGATVN(nn.Module):
         hidden_dim: int = 128,
         num_layers: int = 3,
         heads: int = 4,
-        n_rbf: int = 16,
-        edge_encoding: str = "rbf",
+        edge_encoding: str = "scalar",
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
     ):
@@ -82,11 +74,8 @@ class MultiHeadGATVN(nn.Module):
             num_layers: Number of dual-path processing layers (sets the local
                 receptive field in hops).
             heads: Number of attention heads in the local GAT path.
-            n_rbf: Number of Gaussian RBF centres for edge-length encoding.
-                Only used when ``edge_encoding == "rbf"``.
             edge_encoding: How edge lengths are passed to GATv2Conv as edge
-                features. One of ``"rbf"`` (Gaussian RBF expansion,
-                default), ``"scalar"`` (raw edge weight, no expansion), or
+                features. One of ``"scalar"`` (raw edge weight, default) or
                 ``"none"`` (no edge features; ablation of edge-length
                 information entirely).
             dropout: Dropout probability after each processing layer.
@@ -96,8 +85,8 @@ class MultiHeadGATVN(nn.Module):
 
         if hidden_dim % heads != 0:
             raise ValueError(f"hidden_dim ({hidden_dim}) must be divisible by heads ({heads})")
-        if edge_encoding not in ("rbf", "scalar", "none"):
-            raise ValueError(f"edge_encoding must be one of 'rbf', 'scalar', 'none'; got {edge_encoding!r}")
+        if edge_encoding not in ("scalar", "none"):
+            raise ValueError(f"edge_encoding must be one of 'scalar', 'none'; got {edge_encoding!r}")
 
         self.hidden_dim = hidden_dim
         self.dropout = dropout
@@ -105,13 +94,7 @@ class MultiHeadGATVN(nn.Module):
         self._scale = 1.0 / math.sqrt(hidden_dim)
 
         # ---- Distance encoder ----
-        if edge_encoding == "rbf":
-            self.rbf = GaussianRBF(n_rbf=n_rbf, low=0.0, high=1.0)
-            edge_dim = n_rbf
-        elif edge_encoding == "scalar":
-            edge_dim = 1
-        else:
-            edge_dim = None
+        edge_dim = 1 if edge_encoding == "scalar" else None
 
         # ---- Node encoder ----
         self.node_encoder = nn.Sequential(
@@ -139,7 +122,7 @@ class MultiHeadGATVN(nn.Module):
         self.fusion_gates = nn.ModuleList()
 
         for i in range(num_layers):
-            # Local: GATv2 with RBF edge features
+            # Local: GATv2 with scalar edge-weight feature
             self.gat_convs.append(
                 GATv2Conv(
                     hidden_dim,
@@ -194,8 +177,6 @@ class MultiHeadGATVN(nn.Module):
         # ---- Edge-length encoding ----
         if edge_weight is None or self.edge_encoding == "none":
             edge_attr = None
-        elif self.edge_encoding == "rbf":
-            edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
         else:  # "scalar"
             edge_attr = edge_weight.unsqueeze(-1)  # (n_edges, 1)
 

@@ -86,16 +86,6 @@ parameters:
     min: 1
     max: 10
 
-  model.backbone.n_rbf:
-    distribution: categorical
-    values:
-      - 1
-      - 2
-      - 4
-      - 8
-      - 16
-      - 32
-
   model.backbone.dropout:
     distribution: uniform
     min: 0.0

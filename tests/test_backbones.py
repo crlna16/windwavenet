@@ -218,14 +218,14 @@ def _make_gat_batch(n_graphs=2, n_nodes_per_graph=10, n_features=6, n_edges_per_
 
 @pytest.mark.parametrize("backbone_cls", [MultiHeadGAT, MultiHeadGATVN])
 class TestEdgeEncodingAblation:
-    """Edge-weight ablation: 'rbf' (default), 'scalar', and 'none' modes.
+    """Edge-weight ablation: 'scalar' (default) and 'none' modes.
 
     Parametrized across the (non-temporal) GAT backbones that share the
     same edge-encoding pattern. MultiHeadGATLSTMVN follows the identical
     pattern but requires x_center_seq, so it is exercised separately below.
     """
 
-    @pytest.mark.parametrize("edge_encoding", ["rbf", "scalar", "none"])
+    @pytest.mark.parametrize("edge_encoding", ["scalar", "none"])
     def test_forward_shape(self, backbone_cls, edge_encoding):
         n_features, output_dim = 6, 2
         batch = _make_gat_batch(n_features=n_features)
@@ -241,7 +241,7 @@ class TestEdgeEncodingAblation:
         assert out.shape == (batch.x.shape[0], output_dim)
         assert torch.isfinite(out).all()
 
-    @pytest.mark.parametrize("edge_encoding", ["rbf", "scalar", "none"])
+    @pytest.mark.parametrize("edge_encoding", ["scalar", "none"])
     def test_gradient_flow(self, backbone_cls, edge_encoding):
         batch = _make_gat_batch(n_features=6)
         model = backbone_cls(
@@ -271,15 +271,10 @@ class TestEdgeEncodingAblation:
             backbone_cls(input_dim=6, output_dim=2, hidden_dim=16, num_layers=2, heads=4, edge_encoding="bogus")
 
     def test_edge_dim_matches_encoding(self, backbone_cls):
-        n_rbf = 8
-        model_rbf = backbone_cls(
-            input_dim=6, output_dim=2, hidden_dim=16, num_layers=1, heads=4, n_rbf=n_rbf, edge_encoding="rbf"
-        )
         model_scalar = backbone_cls(
             input_dim=6, output_dim=2, hidden_dim=16, num_layers=1, heads=4, edge_encoding="scalar"
         )
         model_none = backbone_cls(input_dim=6, output_dim=2, hidden_dim=16, num_layers=1, heads=4, edge_encoding="none")
 
-        assert model_rbf.gat_convs[0].edge_dim == n_rbf
         assert model_scalar.gat_convs[0].edge_dim == 1
         assert model_none.gat_convs[0].edge_dim is None
