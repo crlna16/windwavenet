@@ -55,6 +55,7 @@ model:
     hidden_dim: 64
     num_layers: 9
     heads: 16            # attention heads (hidden_dim must be divisible)
+    edge_encoding: scalar # scalar | none (edge-weight ablation)
     dropout: 0.1
     attn_dropout: 0.2
 
