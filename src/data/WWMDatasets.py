@@ -20,6 +20,9 @@ from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
+DayRange = List[int]
+DataRange = Union[DayRange, List[DayRange]]
+
 
 class SimpleWWMDataset(Dataset):
     """Dataset that loads a Zarr dataset and returns features and targets per grid point and time.
@@ -30,7 +33,7 @@ class SimpleWWMDataset(Dataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         scaling_config: Optional[str] = None,
@@ -71,11 +74,6 @@ class SimpleWWMDataset(Dataset):
         self.sample_weight_strategy = sample_weight_strategy
         self.sample_weight_power = sample_weight_power
         self.sample_weight_variable = sample_weight_variable
-
-        # Store parameters for worker initialization
-        self.worker_id = None
-        self.num_workers = None
-        self.worker_time_len = None
 
         # --- Pipeline: open, slice + preprocess per contiguous range, scale, load ---
         derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
@@ -148,7 +146,7 @@ class SequenceWWMDataset(SimpleWWMDataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         seq_len: int,
@@ -263,7 +261,7 @@ class GraphWWMDataset(GDataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         graph_features: List[str],
@@ -275,6 +273,7 @@ class GraphWWMDataset(GDataset):
         sample_weight_variable: str = "sigWaveHeight",
         max_nodes: int = 1000,
         edge_weight_scale: float = 1000.0,
+        cache_mode: bool = True,
     ) -> None:
         """Initialize the graph dataset.
 
@@ -305,6 +304,9 @@ class GraphWWMDataset(GDataset):
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights.  An edge whose Euclidean length equals this value
                 receives weight 0.5 (default: 1000.0).
+            cache_mode: If True, preload target and feature tensors over the
+                subgraph-node union into shared RAM. If False, read them from
+                the xarray dataset on demand.
         """
         self.data_dir = Path(data_dir)
         self.data_range = data_range
@@ -317,10 +319,14 @@ class GraphWWMDataset(GDataset):
         self.graph_features = [str(f) for f in graph_features]
         self.max_nodes = max_nodes
         self.edge_weight_scale = edge_weight_scale
+        self.cache_mode = cache_mode
 
         # --- Pipeline: open, slice + preprocess per contiguous range (keep graph vars), scale ---
         derive_vars = [self.sample_weight_variable] if self.sample_weight_strategy is not None else None
-        # No node filtering — full mesh retained for graph construction
+        # No node filtering — full mesh retained for graph construction. Open the
+        # store dask-backed (chunks={}) so the full-mesh preprocessing/scaling stays
+        # lazy: features are read per subgraph in _extract_node_features and only
+        # those slices are ever materialized, avoiding a full-mesh RAM blow-up.
         self.ds, self.samples_per_day, self.n_nodes, self.range_lengths = du.open_and_preprocess_dataset(
             self.data_dir,
             self.data_range,
@@ -329,6 +335,7 @@ class GraphWWMDataset(GDataset):
             node_idx_csv=None,
             extra_keep_vars=self.graph_features,
             derive_vars=derive_vars,
+            chunks={},
         )
         self.ds, self.scaling_params = du.scale_variables(self.ds, self.features, self.scaling_config)
 
@@ -390,36 +397,80 @@ class GraphWWMDataset(GDataset):
             errors="ignore",
         )
 
-        # Compute weights from the single weight variable only (avoids loading all targets)
+        # --- Restrict preloading to the union of all subgraph nodes ---
+        # Targets and sample weights are only ever indexed at nodes that belong
+        # to some center node's subgraph, so preloading/computing them over the
+        # full mesh wastes memory. Build the union and a compact remapping
+        # (global node position -> position within the union); everything below
+        # is loaded/computed only for these nodes.
+        all_subgraph_nodes = np.concatenate([self.graph_cache[int(c)][0] for c in self.center_nodes])
+        self._used_nodes = np.unique(all_subgraph_nodes)
+        self.n_used_nodes = len(self._used_nodes)
+        self._global_to_compact = np.full(self.n_nodes, -1, dtype=np.int64)
+        self._global_to_compact[self._used_nodes] = np.arange(self.n_used_nodes)
+        log.info(
+            f"Subgraph node union: {self.n_used_nodes} / {self.n_nodes} mesh nodes "
+            f"({100.0 * self.n_used_nodes / self.n_nodes:.1f}%); targets and weights "
+            f"restricted to these."
+        )
+
+        # Compute weights from the single weight variable only (avoids loading all targets).
+        # Restricted to the subgraph-node union, so the global normalization in
+        # compute_weights is over exactly the samples that are trained on.
         if self.sample_weight_strategy is not None:
-            weight_data = du.retrieve_weight_data(self.ds, self.sample_weight_variable)
-            self.weights = du.compute_weights(
+            weight_ds = self.ds.isel(nSCHISM_hgrid_node=self._used_nodes)
+            weight_data = du.retrieve_weight_data(weight_ds, self.sample_weight_variable)
+            weights = du.compute_weights(
                 weight_data,
                 self.sample_weight_strategy,
                 self.sample_weight_power,
             )
+            self.weights = weights
             # Graph datasets keep num_workers > 0 (the on-demand zarr reads in
             # _extract_node_features are the actual I/O bottleneck to
             # parallelize), so share this preloaded tensor across workers
             # instead of letting each worker duplicate it.
-            self.weights.share_memory_()
+            if self.weights is not None:
+                self.weights.share_memory_()
         else:
             self.weights = None
 
-        # Preload target variables into RAM to avoid repeated slow zarr reads during
-        # training.  zarr chunk layouts for some variables (e.g. meanWavePeriod,
-        # sin/cos_meanWaveDirection) can make scattered-node isel calls very expensive.
-        # Shape: (n_time, n_nodes, n_targets) as float32.
-        log.info(f"Preloading {len(self.targets)} target variable(s) into RAM...")
-        _t_pre = time.perf_counter()
-        _tgt_da = self.ds[self.targets].to_array(dim="variable")  # (n_targets, n_time, n_nodes)
-        self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
-        self._targets_ram.share_memory_()
-        log.info(
-            f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
-            f"cache shape {tuple(self._targets_ram.shape)} "
-            f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
-        )
+        if self.cache_mode:
+            # Preload target variables into RAM to avoid repeated slow zarr reads during
+            # training.  zarr chunk layouts for some variables (e.g. meanWavePeriod,
+            # sin/cos_meanWaveDirection) can make scattered-node isel calls very expensive.
+            # Restricted to the subgraph-node union. Shape: (n_time, n_used_nodes, n_targets) as float32.
+            log.info(f"Preloading {len(self.targets)} target variable(s) into RAM...")
+            _t_pre = time.perf_counter()
+            _tgt_da = (
+                self.ds[self.targets].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
+            )  # (n_targets, n_time, n_used_nodes)
+            self._targets_ram = torch.from_numpy(np.asarray(_tgt_da.values)).float().permute(1, 2, 0)
+            self._targets_ram.share_memory_()
+            log.info(
+                f"Target preload complete in {time.perf_counter() - _t_pre:.1f}s — "
+                f"cache shape {tuple(self._targets_ram.shape)} "
+                f"({self._targets_ram.nbytes / 1024**3:.2f} GiB)"
+            )
+
+            # Preload feature variables into RAM as well, restricted to the subgraph-node
+            # union. Lazy per-sample dask reads deadlock/oversubscribe inside forked
+            # DataLoader workers, so materialize once here and share across workers.
+            # Shape: (n_time, n_used_nodes, n_features) as float32.
+            log.info(f"Preloading {len(self.features)} feature variable(s) into RAM...")
+            _f_pre = time.perf_counter()
+            _feat_da = (
+                self.ds[self.features].isel(nSCHISM_hgrid_node=self._used_nodes).to_array(dim="variable")
+            )  # (n_features, n_time, n_used_nodes)
+            self._features_ram = torch.from_numpy(np.asarray(_feat_da.values)).float().permute(1, 2, 0)
+            self._features_ram.share_memory_()
+            log.info(
+                f"Feature preload complete in {time.perf_counter() - _f_pre:.1f}s — "
+                f"cache shape {tuple(self._features_ram.shape)} "
+                f"({self._features_ram.nbytes / 1024**3:.2f} GiB)"
+            )
+        else:
+            log.info("Graph cache_mode is disabled; targets and features will be read on demand.")
 
         # Precompute number of time steps as a plain int.
         # PyG's Dataset.__getattr__ intercepts attribute access, so __len__/len
@@ -447,6 +498,13 @@ class GraphWWMDataset(GDataset):
         Returns:
             Tensor of shape (n_subgraph_nodes, n_features).
         """
+        # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        # The cache is stored over the subgraph-node union, so remap global node
+        # positions to their compact position within the union.
+        if hasattr(self, "_features_ram"):
+            compact = self._global_to_compact[subgraph_nodes]
+            return self._features_ram[time_idx][compact]
+
         sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=subgraph_nodes)
         x_da = sample[self.features].to_dataarray(dim="variable")
         return torch.from_numpy(x_da.values.T.copy()).float()
@@ -463,8 +521,11 @@ class GraphWWMDataset(GDataset):
             or (n_nodes, n_targets) for multiple nodes.
         """
         # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        # The cache is stored over the subgraph-node union, so remap global node
+        # positions to their compact position within the union.
         if hasattr(self, "_targets_ram"):
-            return self._targets_ram[time_idx][node_indices]
+            compact = self._global_to_compact[node_indices]
+            return self._targets_ram[time_idx][compact]
 
         sample = self.ds.isel(time=time_idx, nSCHISM_hgrid_node=node_indices)
         y_da = sample[self.targets].to_dataarray(dim="variable")
@@ -497,10 +558,11 @@ class GraphWWMDataset(GDataset):
 
         sample_weight = None
         if self.weights is not None:
-            # Weights are stored flat over (time, node) with time as the slow axis.
-            # Every subgraph node gets its own weight so the loss on a node is
+            # Weights are stored flat over (time, union-node) with time as the slow
+            # axis. Every subgraph node gets its own weight so the loss on a node is
             # driven by that node's z-score, not the center node's.
-            flat_idx = torch.as_tensor(time_idx * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            compact = self._global_to_compact[subgraph_nodes]
+            flat_idx = torch.as_tensor(time_idx * self.n_used_nodes + compact, dtype=torch.long)
             sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
@@ -548,7 +610,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
     def __init__(
         self,
         data_dir: Path,
-        data_range: List[int],
+        data_range: DataRange,
         features: List[str],
         targets: List[str],
         graph_features: List[str],
@@ -561,6 +623,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
         sample_weight_variable: str = "sigWaveHeight",
         max_nodes: int = 1000,
         edge_weight_scale: float = 1000.0,
+        cache_mode: bool = True,
     ) -> None:
         """Initialize the sequence graph dataset.
 
@@ -584,6 +647,9 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
                 mesh neighbourhood of the center node).
             edge_weight_scale: Length scale (meters) for inverse-distance edge
                 weights (default: 1000.0).
+            cache_mode: If True, preload target and feature tensors over the
+                subgraph-node union into shared RAM. If False, read them from
+                the xarray dataset on demand.
         """
         self.seq_len = seq_len
 
@@ -601,6 +667,7 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             sample_weight_variable=sample_weight_variable,
             max_nodes=max_nodes,
             edge_weight_scale=edge_weight_scale,
+            cache_mode=cache_mode,
         )
 
         # Valid window start positions per contiguous day range, so that no
@@ -628,6 +695,14 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
             Tensor of shape (n_subgraph_nodes, seq_len, n_features).
         """
         time_indices = list(range(time_start, time_start + self.seq_len))
+        # Fast path: use in-memory cache if available (avoids slow zarr reads).
+        # The cache is stored over the subgraph-node union, so remap global node
+        # positions to their compact position within the union.
+        if hasattr(self, "_features_ram"):
+            compact = self._global_to_compact[subgraph_nodes]
+            # (seq_len, n_nodes, n_features) -> (n_nodes, seq_len, n_features)
+            return self._features_ram[time_indices][:, compact, :].permute(1, 0, 2).contiguous()
+
         sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=subgraph_nodes)
         x_da = sample[self.features].to_dataarray(dim="variable")
         # x_da shape: (variable, time, nSCHISM_hgrid_node)
@@ -686,8 +761,10 @@ class SequenceGraphWWMDataset(GraphWWMDataset):
 
         sample_weight = None
         if self.weights is not None:
-            # Per-node weights at the target time step (time-major flat layout).
-            flat_idx = torch.as_tensor(target_time * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            # Per-node weights at the target time step (time-major flat layout,
+            # over the subgraph-node union).
+            compact = self._global_to_compact[subgraph_nodes]
+            flat_idx = torch.as_tensor(target_time * self.n_used_nodes + compact, dtype=torch.long)
             sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(
@@ -755,10 +832,14 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # Temporal sequence for the CENTER node only
         center_global_idx = subgraph_nodes[center_local_idx]
         time_indices = list(range(time_idx, time_idx + self.seq_len))
-        sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=center_global_idx)
-        x_da = sample[self.features].to_dataarray(dim="variable")
-        # x_da shape: (variable, time) — single node
-        x_center_seq = torch.from_numpy(x_da.values.T.copy()).float()  # (seq_len, n_features)
+        if hasattr(self, "_features_ram"):
+            compact = self._global_to_compact[center_global_idx]
+            x_center_seq = self._features_ram[time_indices, compact, :].contiguous()
+        else:
+            sample = self.ds.isel(time=time_indices, nSCHISM_hgrid_node=center_global_idx)
+            x_da = sample[self.features].to_dataarray(dim="variable")
+            # x_da shape: (variable, time) — single node
+            x_center_seq = torch.from_numpy(x_da.values.T.copy()).float()  # (seq_len, n_features)
 
         # Targets at the last time step for all subgraph nodes
         y = self._extract_targets(present_time, subgraph_nodes)
@@ -767,7 +848,9 @@ class CenterHistoryGraphWWMDataset(SequenceGraphWWMDataset):
         # self.weights shape: (n_times * n_nodes, 1), stacked time-major
         sample_weight = None
         if self.weights is not None:
-            flat_idx = torch.as_tensor(present_time * self.n_nodes + subgraph_nodes, dtype=torch.long)
+            # Time-major flat layout over the subgraph-node union.
+            compact = self._global_to_compact[subgraph_nodes]
+            flat_idx = torch.as_tensor(present_time * self.n_used_nodes + compact, dtype=torch.long)
             sample_weight = self.weights[flat_idx]  # (n_subgraph_nodes, 1)
 
         return WWMGraphData(

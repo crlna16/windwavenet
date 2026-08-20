@@ -8,8 +8,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GATv2Conv
 
-from .MultiHeadGATLSTMVN import GaussianRBF
-
 
 class MultiHeadGAT(nn.Module):
     """Spatial graph backbone: multi-head GAT over mesh edges with edge-length encoding.
@@ -23,15 +21,14 @@ class MultiHeadGAT(nn.Module):
     hop along an edge covers very different physical distances in different
     parts of the domain.  Inverse-distance edge weights
     (``w = 1 / (1 + length / scale)``, see
-    :func:`src.data.graph_utils.compute_edge_weights`) are expanded through
-    Gaussian RBFs and passed as edge features to GATv2Conv, which projects
-    them to per-head attention biases.  This tells each attention head how
-    much physical space a hop covers, so it can weight neighbours by physical
-    proximity rather than by hop count alone.  Note that the encoding is only
-    informative if ``edge_weight_scale`` (data config) is comparable to
-    typical mesh edge lengths, so that the weights spread over (0, 1); if the
-    scale is much larger than the edges, all weights cluster near 1 and the
-    RBF features carry no signal.
+    :func:`src.data.graph_utils.compute_edge_weights`) are passed as edge
+    features to GATv2Conv, which projects them to per-head attention biases,
+    controlled by ``edge_encoding``:
+
+      - ``"scalar"`` (default) — the raw edge weight is passed as a single
+        edge feature.
+      - ``"none"`` — no edge features are used at all; attention is blind to
+        edge length.
 
     **Decoder** — Two-layer MLP (Linear → ReLU → Linear) projects node
     embeddings to predictions.
@@ -44,7 +41,7 @@ class MultiHeadGAT(nn.Module):
         hidden_dim: int = 128,
         num_layers: int = 3,
         heads: int = 4,
-        n_rbf: int = 16,
+        edge_encoding: str = "scalar",
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
     ):
@@ -57,7 +54,10 @@ class MultiHeadGAT(nn.Module):
                 Must be divisible by ``heads``.
             num_layers: Number of GAT layers (sets the receptive field in hops).
             heads: Number of attention heads.
-            n_rbf: Number of Gaussian RBF centres for edge-length encoding.
+            edge_encoding: How edge lengths are passed to GATv2Conv as edge
+                features. One of ``"scalar"`` (raw edge weight, default) or
+                ``"none"`` (no edge features; ablation of edge-length
+                information entirely).
             dropout: Dropout probability after each processing layer.
             attn_dropout: Dropout on GAT attention coefficients.
         """
@@ -65,12 +65,15 @@ class MultiHeadGAT(nn.Module):
 
         if hidden_dim % heads != 0:
             raise ValueError(f"hidden_dim ({hidden_dim}) must be divisible by heads ({heads})")
+        if edge_encoding not in ("scalar", "none"):
+            raise ValueError(f"edge_encoding must be one of 'scalar', 'none'; got {edge_encoding!r}")
 
         self.hidden_dim = hidden_dim
         self.dropout = dropout
+        self.edge_encoding = edge_encoding
 
         # ---- Distance encoder ----
-        self.rbf = GaussianRBF(n_rbf=n_rbf, low=0.0, high=1.0)
+        edge_dim = 1 if edge_encoding == "scalar" else None
 
         # ---- Node encoder ----
         self.node_encoder = nn.Sequential(
@@ -85,7 +88,7 @@ class MultiHeadGAT(nn.Module):
         self.gat_norms = nn.ModuleList()
 
         for _ in range(num_layers):
-            # Local: GATv2 with RBF edge features
+            # Local: GATv2 with scalar edge-weight feature
             self.gat_convs.append(
                 GATv2Conv(
                     hidden_dim,
@@ -93,7 +96,7 @@ class MultiHeadGAT(nn.Module):
                     heads=heads,
                     concat=True,
                     add_self_loops=True,
-                    edge_dim=n_rbf,
+                    edge_dim=edge_dim,
                     dropout=attn_dropout,
                 )
             )
@@ -122,10 +125,10 @@ class MultiHeadGAT(nn.Module):
         edge_weight = getattr(data, "edge_weight", None)
 
         # ---- Edge-length encoding ----
-        if edge_weight is not None:
-            edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
-        else:
+        if edge_weight is None or self.edge_encoding == "none":
             edge_attr = None
+        else:  # "scalar"
+            edge_attr = edge_weight.unsqueeze(-1)  # (n_edges, 1)
 
         # ---- Stage 1: Encode node features ----
         x = self.node_encoder(x)  # (total_nodes, hidden_dim)

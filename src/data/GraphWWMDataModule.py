@@ -12,7 +12,7 @@ from src.data.WWMDatasets import GraphWWMDataset
 
 
 class GraphWWMDataModule(BaseWWMDataModule):
-    """Lightning DataModule for graph-based Wave Wind Model data.
+    """Lightning DataModule for graph-based Wind Wave Model data.
 
     Each sample is a graph subgraph at a single time step, built from
     the SCHISM mesh via BFS around center nodes.
@@ -39,11 +39,13 @@ class GraphWWMDataModule(BaseWWMDataModule):
         sample_weight_variable: str = "sigWaveHeight",
         max_nodes: int = 1000,
         edge_weight_scale: float = 1000.0,
+        cache_mode: bool = True,
     ) -> None:
         self.graph_features = graph_features
         self.boundary_nodes_csv = boundary_nodes_csv
         self.max_nodes = max_nodes
         self.edge_weight_scale = edge_weight_scale
+        self.cache_mode = cache_mode
 
         super().__init__(
             data_dir=data_dir,
@@ -86,4 +88,5 @@ class GraphWWMDataModule(BaseWWMDataModule):
             sample_weight_variable=sample_weight_variable,
             max_nodes=self.max_nodes,
             edge_weight_scale=self.edge_weight_scale,
+            cache_mode=self.cache_mode,
         )

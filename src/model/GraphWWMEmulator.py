@@ -11,7 +11,7 @@ from src.model.WWMEmulator import WWMEmulator
 
 
 class GraphWWMEmulator(WWMEmulator):
-    """Lightning Module for graph-based Wave Wind Model emulation.
+    """Lightning Module for graph-based Wind Wave Model emulation.
 
     Extends WWMEmulator to handle PyTorch Geometric batch objects instead of
     plain tensor tuples. The backbone receives the full PyG Batch and is

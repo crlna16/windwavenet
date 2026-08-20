@@ -308,7 +308,7 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         return self._make_dataloader(
             dataset=self.ds_val,
             batch_size=4 * self.batch_size,
-            shuffle=True,
+            shuffle=False,
         )
 
     def test_dataloader(self) -> DataLoader:

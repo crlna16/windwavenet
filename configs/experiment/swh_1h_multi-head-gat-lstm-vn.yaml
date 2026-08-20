@@ -7,9 +7,9 @@ experiment_name: "swh_1h_multi-head-gat-lstm-vn"
 data:
   _target_: src.data.CenterHistoryGraphWWMDataModule.CenterHistoryGraphWWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
-  train_days: [1, 90]
-  val_days: [305, 334]
-  test_days: [335, 365]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
@@ -22,16 +22,18 @@ data:
     - sigWaveHeight
   graph_features:
     - SCHISM_hgrid_edge_nodes
-  sample_weight_strategy: z_score
-  sample_weight_power: 20.0
-  scaling_config: src/data/scaling/scale_2020_JFM_hourly.yaml
+  sample_weight_strategy: histogram
+  sample_weight_variable: delta_sigWaveHeight
+  sample_weight_power: 0.2
+  scaling_config: src/data/scaling/scale_2020_8months_hourly.yaml
   node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
-  batch_size: 128
+  boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
+  batch_size: 512
   num_workers: 8
   pin_memory: true
   persistent_workers: true
   max_nodes: 500
-  edge_weight_scale: 20000.0
+  edge_weight_scale: 2000.0
   seq_len: 24
 
 model:
@@ -40,7 +42,7 @@ model:
   target_names: ${data.targets}
 
   target_bins:
-    sigWaveHeight: [0.5, 1.0, 2.0]
+    sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
   backbone:
     _target_: src.model.backbones.MultiHeadGATLSTMVN.MultiHeadGATLSTMVN
@@ -50,13 +52,13 @@ model:
     num_lstm_layers: 2
     hidden_dim: 64
     num_layers: 9
-    heads: 16            # attention heads (hidden_dim must be divisible)
-    n_rbf: 16            # Gaussian RBF centres for distance encoding
+    heads: 4             # attention heads (hidden_dim must be divisible)
+    edge_encoding: scalar # scalar | none (edge-weight ablation)
     dropout: 0.1
     attn_dropout: 0.2
 
   optimizer:
-    lr: 0.0007
+    lr: 0.0025
 
   output_constraints:
     sigWaveHeight: semipositive

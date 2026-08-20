@@ -21,13 +21,15 @@
 program: src/train.py
 project: wwm-emulator-sweeps
 entity: wwm-emulator
-method: bayes
+#method: bayes
+method: random
+run_cap: 50
 metric:
   goal: minimize
   name: val/best_rmse_sigWaveHeight
 early_terminate:
   type: hyperband
-  min_iter: 10
+  min_iter: 7
 command:
   - ${env}
   - python
@@ -40,41 +42,37 @@ command:
   # Reduced patience for sweep economy (final training uses the longer
   # patience from train.yaml); allows one full LR-reduction cycle.
   - callbacks.early_stopping.patience=8
+  # Sweeps don't need checkpoints; disable to save disk and I/O.
+  - callbacks.model_checkpoint=null
   - trainer.enable_progress_bar=false
+  - trainer.max_epochs=25
   - test=false
+  # from LSTM
+  - data.sample_weight_variable=delta_sigWaveHeight
+  - data.sample_weight_power=0.20
+  - data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv
+  - model.backbone.edge_encoding=scalar
 parameters:
-
-  data.sample_weight_power:
-    distribution: log_uniform_values
-    min: 0.01
-    max: 100.0
-
-  # Weight by the level (tall waves) or the hour-to-hour change (rapid
-  # build-ups — where the models currently lose to persistence).
-  data.sample_weight_variable:
-    distribution: categorical
-    values:
-      - sigWaveHeight
-      - delta_sigWaveHeight
 
   model.backbone.hidden_dim:
     distribution: categorical
     values:
       - 32
       - 64
-      - 128
 
   model.backbone.heads:
     distribution: categorical
     values:
+      - 1
+      - 2
       - 4
-      - 8
-      - 16
 
   model.backbone.num_layers:
-    distribution: int_uniform
-    min: 1
-    max: 10
+    distribution: categorical
+    values:
+      - 3
+      - 6
+      - 9
 
   model.backbone.lstm_hidden_dim:
     distribution: categorical
@@ -88,22 +86,23 @@ parameters:
     min: 1
     max: 3
 
-  model.backbone.n_rbf:
+  model.backbone.dropout:
     distribution: categorical
     values:
-      - 8
-      - 16
-      - 32
-
-  model.backbone.dropout:
-    distribution: uniform
-    min: 0.0
-    max: 0.3
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
 
   model.backbone.attn_dropout:
-    distribution: uniform
-    min: 0.0
-    max: 0.3
+    distribution: categorical
+    values:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
 
   model.optimizer.lr:
     distribution: log_uniform_values

@@ -12,48 +12,6 @@ from torch_geometric.nn import GATv2Conv, global_add_pool
 from torch_geometric.utils import softmax as pyg_softmax
 
 
-class GaussianRBF(nn.Module):
-    """Gaussian radial basis function expansion for scalar edge features.
-
-    Expands a scalar input (e.g. edge_weight in [0, 1]) into a vector of
-    Gaussian basis responses.  centers are fixed and uniformly spaced; widths
-    are fixed relative to the center spacing so that adjacent bases overlap
-    heavily (well above half-maximum at the midpoint between centers).
-
-    This gives downstream attention heads a resolution-aware representation of
-    edge length from which they can learn arbitrary (including non-monotonic)
-    weightings of physical proximity.
-
-    The expansion is only informative if the inputs actually spread across
-    ``[low, high]``.  With inverse-distance edge weights this requires the
-    ``edge_weight_scale`` used in :func:`src.data.graph_utils.compute_edge_weights`
-    to be comparable to typical mesh edge lengths; if the scale is much larger
-    than the edges, all weights cluster near ``high`` and most basis functions
-    return near-zero constants.
-    """
-
-    def __init__(self, n_rbf: int = 16, low: float = 0.0, high: float = 1.0):
-        super().__init__()
-        centers = torch.linspace(low, high, n_rbf)
-        self.register_buffer("centers", centers)  # so it is on the correct device
-
-        # Width so that adjacent bases cross at ~0.5 height
-        self.gamma = 0.5 / ((high - low) / n_rbf) ** 2
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Expand scalar x to RBF features.
-
-        Args:
-            x: (n_edges,) or (n_edges, 1) scalar values.
-
-        Returns:
-            (n_edges, n_rbf) Gaussian basis expansion.
-        """
-        if x.dim() == 1:
-            x = x.unsqueeze(-1)
-        return torch.exp(-self.gamma * (x - self.centers) ** 2)
-
-
 class MultiHeadGATLSTMVN(nn.Module):
     """Dual-path backbone: local GAT over mesh edges + temporal virtual node.
 
@@ -61,14 +19,14 @@ class MultiHeadGATLSTMVN(nn.Module):
 
     **Local path** — Multi-head GATv2 attention over the mesh edge set.
     Attention is strictly one-hop (direct mesh neighbours plus self), so the
-    local receptive field grows with ``num_layers``.  Edge lengths are encoded
-    as inverse-distance weights expanded through Gaussian RBFs and passed as
-    edge features to GATv2Conv; this tells attention how much physical space
-    each hop covers on the unstructured mesh, whose edge lengths vary by
-    orders of magnitude between coastal and offshore regions.  The encoding
-    is only informative if ``edge_weight_scale`` is comparable to typical
-    edge lengths (see :class:`GaussianRBF` and
-    :func:`src.data.graph_utils.compute_edge_weights`).
+    local receptive field grows with ``num_layers``.  Edge lengths (inverse-
+    distance weights in ``(0, 1]``) are encoded as edge features passed to
+    GATv2Conv, controlled by ``edge_encoding``:
+
+      - ``"scalar"`` (default) — the raw edge weight is passed as a single
+        edge feature.
+      - ``"none"`` — no edge features are used at all; attention is blind to
+        edge length.
 
     **Global path** — A virtual node (VN) provides subgraph-wide context in a
     single step, bypassing the one-hop limit of the local path.  Its scope is
@@ -102,7 +60,7 @@ class MultiHeadGATLSTMVN(nn.Module):
         num_lstm_layers: int = 2,
         num_layers: int = 3,
         heads: int = 4,
-        n_rbf: int = 16,
+        edge_encoding: str = "scalar",
         dropout: float = 0.0,
         attn_dropout: float = 0.0,
     ):
@@ -118,7 +76,10 @@ class MultiHeadGATLSTMVN(nn.Module):
             num_layers: Number of dual-path processing layers (sets the local
                 receptive field in hops).
             heads: Number of attention heads in the local GAT path.
-            n_rbf: Number of Gaussian RBF centers for edge-length encoding.
+            edge_encoding: How edge lengths are passed to GATv2Conv as edge
+                features. One of ``"scalar"`` (raw edge weight, default) or
+                ``"none"`` (no edge features; ablation of edge-length
+                information entirely).
             dropout: Dropout probability after each processing layer.
             attn_dropout: Dropout on GAT attention coefficients.
         """
@@ -126,13 +87,16 @@ class MultiHeadGATLSTMVN(nn.Module):
 
         if hidden_dim % heads != 0:
             raise ValueError(f"hidden_dim ({hidden_dim}) must be divisible by heads ({heads})")
+        if edge_encoding not in ("scalar", "none"):
+            raise ValueError(f"edge_encoding must be one of 'scalar', 'none'; got {edge_encoding!r}")
 
         self.hidden_dim = hidden_dim
         self.dropout = dropout
+        self.edge_encoding = edge_encoding
         self._scale = 1.0 / math.sqrt(hidden_dim)
 
         # ---- Distance encoder ----
-        self.rbf = GaussianRBF(n_rbf=n_rbf, low=0.0, high=1.0)
+        edge_dim = 1 if edge_encoding == "scalar" else None
 
         # ---- Stage 1: Temporal encoding (LSTM) ----
         self.lstm = nn.LSTM(
@@ -167,7 +131,7 @@ class MultiHeadGATLSTMVN(nn.Module):
         self.fusion_gates = nn.ModuleList()
 
         for i in range(num_layers):
-            # Local: GATv2 with RBF edge features
+            # Local: GATv2 with scalar edge-weight feature
             self.gat_convs.append(
                 GATv2Conv(
                     hidden_dim,
@@ -175,7 +139,7 @@ class MultiHeadGATLSTMVN(nn.Module):
                     heads=heads,
                     concat=True,
                     add_self_loops=True,
-                    edge_dim=n_rbf,
+                    edge_dim=edge_dim,
                     dropout=attn_dropout,
                 )
             )
@@ -223,10 +187,10 @@ class MultiHeadGATLSTMVN(nn.Module):
         batch = data.batch
 
         # ---- Edge-length encoding ----
-        if edge_weight is not None:
-            edge_attr = self.rbf(edge_weight)  # (n_edges, n_rbf)
-        else:
+        if edge_weight is None or self.edge_encoding == "none":
             edge_attr = None
+        else:  # "scalar"
+            edge_attr = edge_weight.unsqueeze(-1)  # (n_edges, 1)
 
         # ---- Stage 1: Temporal encoding ----
         lstm_out, _ = self.lstm(x_center_seq)

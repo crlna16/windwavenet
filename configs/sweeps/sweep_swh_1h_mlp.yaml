@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: 2025-2026 Hereon
+# SPDX-FileContributor: Caroline Arnold
+#
+# SPDX-License-Identifier: MIT
+
+# wandb sweep for MLP on swh.
+#
+# Launch with:
+#   wandb sweep configs/sweeps/sweep_swh_1h_mlp.yaml
+#   wandb agent <sweep-id>
+#
+# Metric: val/best_rmse_sigWaveHeight is UNWEIGHTED, so it stays comparable
+# across runs even though data.sample_weight_power is swept (val/loss and
+# the checkpoint selection are weighted and change shape with the power —
+# inspect the curves per run before trusting a single number).
+
+program: src/train.py
+project: wwm-emulator-sweeps
+entity: wwm-emulator
+#method: bayes
+method: random
+run_cap: 50
+metric:
+  goal: minimize
+  name: val/best_rmse_sigWaveHeight
+early_terminate:
+  type: hyperband
+  min_iter: 7
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+  - experiment=swh_1h_mlp
+  - logger.wandb.project=wwm-emulator-sweeps
+  # Largest batch that comfortably fits; batch size is not tuned — its main
+  # effect (optimal-LR shift) is absorbed by the lr sweep.
+  - data.batch_size=4096
+  # Reduced patience for sweep economy (final training uses the longer
+  # patience from train.yaml); allows one full LR-reduction cycle.
+  - callbacks.early_stopping.patience=8
+  # Sweeps don't need checkpoints; disable to save disk and I/O.
+  - callbacks.model_checkpoint=null
+  - trainer.enable_progress_bar=false
+  - test=false
+  - trainer.max_epochs=25
+  # from LSTM
+  - data.sample_weight_variable=delta_sigWaveHeight
+  - data.sample_weight_power=0.20
+parameters:
+
+  #data.sample_weight_power:
+  #  distribution: uniform
+  #  min: 0.0
+  #  max: 1.0
+
+  ## Weight by the level (tall waves) or the hour-to-hour change (rapid
+  ## build-ups — where the models currently lose to persistence).
+  #data.sample_weight_variable:
+  #  distribution: categorical
+  #  values:
+  #    - sigWaveHeight
+  #    - delta_sigWaveHeight
+
+  # MLP architecture parameters
+  model.backbone.num_hidden_layers:
+    distribution: int_uniform
+    min: 1
+    max: 6
+
+  model.backbone.first_layer_neurons:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+      - 256
+      - 512
+      - 1024
+
+  model.backbone.layer_scaling:
+    distribution: categorical
+    values:
+      - constant
+      - halving
+
+  model.backbone.dropout_rate:
+    distribution: uniform
+    min: 0.0
+    max: 0.7
+
+  model.optimizer.lr:
+    distribution: log_uniform_values
+    min: 0.0001
+    max: 0.003

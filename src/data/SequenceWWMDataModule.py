@@ -12,7 +12,7 @@ from src.data.WWMDatasets import SequenceWWMDataset
 
 
 class SequenceWWMDataModule(BaseWWMDataModule):
-    """Lightning DataModule for sequence-based Wave Wind Model data (LSTM/RNN).
+    """Lightning DataModule for sequence-based Wind Wave Model data (LSTM/RNN).
 
     Returns time sequences of features with next-step targets.
     Train, validation, and test datasets are separated by day ranges.

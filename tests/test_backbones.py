@@ -3,11 +3,14 @@
 #
 # SPDX-License-Identifier: MIT
 
+import pytest
 import torch
 from torch_geometric.data import Batch, Data as GData
 
-from src.model.backbones.MLP import MLP
 from src.model.backbones.LSTMNet import LSTMNet
+from src.model.backbones.MLP import MLP
+from src.model.backbones.MultiHeadGAT import MultiHeadGAT
+from src.model.backbones.MultiHeadGATVN import MultiHeadGATVN
 
 
 class TestMLP:
@@ -198,3 +201,80 @@ def _make_center_history_batch(n_graphs=2, n_nodes_per_graph=10, n_features=3, n
     # x_center_seq needs to be (n_graphs, seq_len, n_features)
     batch.x_center_seq = torch.stack([d.x_center_seq for d in data_list], dim=0)
     return batch
+
+
+def _make_gat_batch(n_graphs=2, n_nodes_per_graph=10, n_features=6, n_edges_per_graph=20):
+    """Create a mock PyG Batch of simple (non-temporal) node-feature graphs."""
+    data_list = []
+    for _ in range(n_graphs):
+        x = torch.randn(n_nodes_per_graph, n_features)
+        src = torch.randint(0, n_nodes_per_graph, (n_edges_per_graph,))
+        dst = torch.randint(0, n_nodes_per_graph, (n_edges_per_graph,))
+        edge_index = torch.stack([src, dst], dim=0)
+        edge_weight = torch.rand(n_edges_per_graph)
+        data_list.append(GData(x=x, edge_index=edge_index, edge_weight=edge_weight))
+    return Batch.from_data_list(data_list)
+
+
+@pytest.mark.parametrize("backbone_cls", [MultiHeadGAT, MultiHeadGATVN])
+class TestEdgeEncodingAblation:
+    """Edge-weight ablation: 'scalar' (default) and 'none' modes.
+
+    Parametrized across the (non-temporal) GAT backbones that share the
+    same edge-encoding pattern. MultiHeadGATLSTMVN follows the identical
+    pattern but requires x_center_seq, so it is exercised separately below.
+    """
+
+    @pytest.mark.parametrize("edge_encoding", ["scalar", "none"])
+    def test_forward_shape(self, backbone_cls, edge_encoding):
+        n_features, output_dim = 6, 2
+        batch = _make_gat_batch(n_features=n_features)
+        model = backbone_cls(
+            input_dim=n_features,
+            output_dim=output_dim,
+            hidden_dim=16,
+            num_layers=2,
+            heads=4,
+            edge_encoding=edge_encoding,
+        )
+        out = model(batch)
+        assert out.shape == (batch.x.shape[0], output_dim)
+        assert torch.isfinite(out).all()
+
+    @pytest.mark.parametrize("edge_encoding", ["scalar", "none"])
+    def test_gradient_flow(self, backbone_cls, edge_encoding):
+        batch = _make_gat_batch(n_features=6)
+        model = backbone_cls(
+            input_dim=6, output_dim=2, hidden_dim=16, num_layers=2, heads=4, edge_encoding=edge_encoding
+        )
+        out = model(batch)
+        out.sum().backward()
+        grads = [p.grad for p in model.parameters() if p.requires_grad]
+        assert all(g is not None for g in grads)
+
+    def test_none_ignores_edge_weight(self, backbone_cls):
+        """With edge_encoding='none', the presence of edge_weight must not affect output."""
+        torch.manual_seed(0)
+        batch = _make_gat_batch(n_features=6)
+        model = backbone_cls(input_dim=6, output_dim=2, hidden_dim=16, num_layers=2, heads=4, edge_encoding="none")
+        model.eval()
+        out_with_weight = model(batch)
+
+        batch_no_weight = batch.clone()
+        batch_no_weight.edge_weight = None
+        out_without_weight = model(batch_no_weight)
+
+        assert torch.allclose(out_with_weight, out_without_weight, atol=1e-6)
+
+    def test_invalid_edge_encoding_raises(self, backbone_cls):
+        with pytest.raises(ValueError):
+            backbone_cls(input_dim=6, output_dim=2, hidden_dim=16, num_layers=2, heads=4, edge_encoding="bogus")
+
+    def test_edge_dim_matches_encoding(self, backbone_cls):
+        model_scalar = backbone_cls(
+            input_dim=6, output_dim=2, hidden_dim=16, num_layers=1, heads=4, edge_encoding="scalar"
+        )
+        model_none = backbone_cls(input_dim=6, output_dim=2, hidden_dim=16, num_layers=1, heads=4, edge_encoding="none")
+
+        assert model_scalar.gat_convs[0].edge_dim == 1
+        assert model_none.gat_convs[0].edge_dim is None

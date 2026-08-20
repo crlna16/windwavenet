@@ -3,6 +3,12 @@
 #
 # SPDX-License-Identifier: MIT
 
+"""Evaluation entrypoint for WWM emulator models.
+
+Invoked via Hydra using ``configs/eval.yaml`` as the base config. Loads a trained
+checkpoint and runs teacher-forced ``trainer.test`` on the datamodule's test split.
+"""
+
 from typing import Any, Dict, List, Tuple
 
 import hydra
@@ -28,10 +34,15 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
     failure. Useful for multiruns, saving info about the crash, etc.
 
-    :param cfg: DictConfig configuration composed by Hydra.
-    :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
+    Args:
+        cfg (DictConfig): A DictConfig configuration composed by Hydra.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: Tuple of dictionary of metrics and dictionary of all
+                                               instantiated objects (the latter for debug purposes).
     """
-    assert cfg.ckpt_path
+    if not cfg.get("ckpt_path"):
+        raise ValueError("cfg.ckpt_path must be set to a valid checkpoint path for evaluation.")
 
     log.info("Printing config tree with Rich <cfg.extras.print_config=True>")
     print_config_tree(cfg, resolve=True, save_to_file=True)

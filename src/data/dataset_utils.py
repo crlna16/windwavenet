@@ -22,9 +22,15 @@ import torch
 import xarray as xr
 import yaml
 
+from scipy.ndimage import gaussian_filter1d
+
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
+
+# ``compute_weights`` tuning constants (strategy="histogram").
+_HISTOGRAM_N_BINS = 50  # number of bins for the histogram-based density estimate
+_HISTOGRAM_SMOOTHING_SIGMA = 2  # gaussian_filter1d sigma for smoothing the histogram
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +104,9 @@ def compute_valid_sequence_starts(range_lengths: List[int], seq_len: int) -> np.
     return np.asarray(starts, dtype=np.int64)
 
 
-def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Dataset, int]:
+def open_and_slice_dataset(
+    data_dir: Path, data_range: List[int], chunks: Optional[dict] = None
+) -> Tuple[xr.Dataset, int]:
     """Open a Zarr dataset and slice to the requested day range.
 
     Both ends of the range are inclusive: ``[1, 2]`` selects days 1 and 2
@@ -107,11 +115,16 @@ def open_and_slice_dataset(data_dir: Path, data_range: List[int]) -> Tuple[xr.Da
     Args:
         data_dir: Path to the Zarr store.
         data_range: Day range as ``[start_day, end_day]`` (1-indexed, inclusive).
+        chunks: If not ``None``, open the store dask-backed with these chunks
+            (``{}`` uses the native zarr chunking). Keeps the whole
+            preprocessing/scaling pipeline lazy so that only the slices that
+            are actually read are ever materialized. If ``None`` (default) the
+            store is opened eagerly as before.
 
     Returns:
         Tuple of ``(dataset, samples_per_day)``.
     """
-    ds = xr.open_dataset(data_dir, engine="zarr")
+    ds = xr.open_dataset(data_dir, engine="zarr", chunks=chunks)
     time_delta = ds.time.values[1] - ds.time.values[0]
     samples_per_day = int(pd.Timedelta(days=1) / time_delta)
     log.info(f"Dataset has {samples_per_day} samples per day.")
@@ -334,6 +347,7 @@ def open_and_preprocess_dataset(
     node_idx_csv: Optional[str] = None,
     extra_keep_vars: Optional[List[str]] = None,
     derive_vars: Optional[List[str]] = None,
+    chunks: Optional[dict] = None,
 ) -> Tuple[xr.Dataset, int, int, List[int]]:
     """Open a Zarr store and slice + preprocess one or more day ranges.
 
@@ -352,6 +366,9 @@ def open_and_preprocess_dataset(
         extra_keep_vars: Additional variables to keep (e.g. graph topology).
         derive_vars: Additional variables to derive per range and keep
             (see :func:`preprocess_variables`).
+        chunks: If not ``None``, open the store dask-backed (lazy) with these
+            chunks (``{}`` = native zarr chunking). Preprocessing/scaling then
+            stay lazy and only the slices that are read are materialized.
 
     Returns:
         Tuple ``(dataset, samples_per_day, n_nodes, range_lengths)`` where
@@ -364,7 +381,7 @@ def open_and_preprocess_dataset(
     lengths: List[int] = []
     samples_per_day = n_nodes = 0
     for r in ranges:
-        ds_r, samples_per_day = open_and_slice_dataset(data_dir, r)
+        ds_r, samples_per_day = open_and_slice_dataset(data_dir, r, chunks=chunks)
         ds_r = filter_nodes(ds_r, node_idx_csv)
         ds_r, n_nodes = preprocess_variables(
             ds_r, features, targets, extra_keep_vars=extra_keep_vars, derive_vars=derive_vars
@@ -584,8 +601,13 @@ def compute_weights(
 
     Args:
         data: Weighting variable values, shape ``(n_samples,)`` or ``(n_samples, 1)``.
-        strategy: ``"z_score"``.
-        power: Exponent controlling weighting intensity.
+        strategy: ``"z_score"`` (legacy; kept for backward compatibility with older
+            configs/checkpoints, emphasises samples far from the mean) or ``"histogram"``
+            (preferred: reweights by inverse local density, so rare value ranges get more
+            weight regardless of where they sit relative to the mean).
+        power: Exponent controlling weighting intensity. For ``"histogram"``, lower values
+            move weights toward uniform (unweighted); it does not reproduce ``"z_score"``
+            behavior, which is a distinct (tail-emphasis) weighting scheme.
 
     Returns:
         Weight tensor of shape ``(n_samples, 1)``, or ``None``.
@@ -600,6 +622,7 @@ def compute_weights(
     n_samples = len(data)
 
     if strategy == "z_score":
+        # Legacy strategy, kept for backward compatibility. Prefer "histogram".
         valid = torch.isfinite(data)
         if not bool(valid.all()):
             log.info(f"Weight data contains {int((~valid).sum())} non-finite entries; they get zero weight.")
@@ -608,8 +631,19 @@ def compute_weights(
         z_scores = torch.zeros_like(data)
         z_scores[valid] = (data[valid] - mean) / std
         weights = 1.0 - torch.exp(-(z_scores**2) / power)
+    elif strategy == "histogram":
+        n_bins = _HISTOGRAM_N_BINS
+        hist, bin_edges = np.histogram(data, bins=n_bins, density=True)
+        hist_smooth = gaussian_filter1d(hist, sigma=_HISTOGRAM_SMOOTHING_SIGMA)
+
+        eps = 1e-6  # guard against empty bins
+        bin_idx = np.clip(np.digitize(data, bin_edges[1:-1]), 0, n_bins - 1)
+        density = hist_smooth[bin_idx] + eps
+        weights = torch.from_numpy(density ** (-power))
     else:
-        raise ValueError(f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score'")
+        raise ValueError(
+            f"Unknown sample_weight_strategy: '{strategy}'. Supported: None, 'z_score' (legacy), 'histogram'"
+        )
 
     # Normalise so mean == 1.0
     weight_sum = weights.sum()

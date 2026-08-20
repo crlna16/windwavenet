@@ -61,8 +61,9 @@ data:
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
-  scaling_config: src/data/scaling/scale_2020_hourly.yaml
+  scaling_config: src/data/scaling/scale_2020_8months_hourly.yaml
   node_idx_csv: null
+  boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
   batch_size: 2048
   num_workers: 8
   pin_memory: true
@@ -71,7 +72,7 @@ data:
   persistent_workers: false
 
   # Optional: sample weighting strategy for imbalanced regression
-  # Options: null (no weighting), 'z_score'
+  # Options: null (no weighting), 'z_score' (legacy), 'histogram' (preferred)
   # Note: weights are applied to both train and validation losses, so val/loss
   # (the checkpoint / early-stopping monitor) reflects the weighted objective.
   # RMSE metrics stay unweighted.
@@ -131,13 +132,11 @@ trainer:
   accelerator: auto
   devices: auto
   enable_progress_bar: false
+  precision: bf16-mixed
 
   # Performance optimizations
   # Gradient accumulation can help with memory if you want larger effective batch size
-  # accumulate_grad_batches: 1
-
-  # Mixed precision training for faster computation (if using GPU)
-  # precision: "16-mixed"  # Uncomment if using modern GPU (Volta+)
+  accumulate_grad_batches: 1
 
   # Benchmark mode finds fastest algorithms for your hardware
   benchmark: true
@@ -178,6 +177,10 @@ callbacks:
   model_summary:
     _target_: lightning.pytorch.callbacks.RichModelSummary
     max_depth: -1
+
+  learning_rate_monitor:
+    _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: "epoch"
 
 paths:
   root_dir: ${hydra:runtime.cwd}
