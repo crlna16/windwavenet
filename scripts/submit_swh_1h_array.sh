@@ -19,12 +19,22 @@ COMMANDS=(
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=24 trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=48 trainer.devices=2"
     # Multi-Head GAT (6-8) - TODO (node)
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=2 data.max_nodes=50 test=false predict=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=2 data.max_nodes=250 test=false predict=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=2 data.max_nodes=500 test=false predict=false"
-    # Multi-Head GAT VN (09-10) - INPROGRESS (node)
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=2 test=false model.backbone.heads=1"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=auto data.max_nodes=500 test=false predict=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=auto data.max_nodes=250 test=false predict=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=auto data.max_nodes=50  test=false predict=false"
+    # Multi-Head GAT VN (09-12) - INPROGRESS (node)
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto test=false seed=101"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto test=false model.backbone.heads=1 seed=101"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto data.max_nodes=250 test=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto data.max_nodes=50 test=false"
+    # Multi-Head LSTM GAT VN (13-18) - TODO
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=auto test=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=6 trainer.devices=auto test=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=6 trainer.devices=auto test=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=auto test=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=48 trainer.devices=auto test=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=48 trainer.devices=auto test=false"
+
 )
 
 eval "${COMMANDS[$SLURM_ARRAY_TASK_ID]}"
