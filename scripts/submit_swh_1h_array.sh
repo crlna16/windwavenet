@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ka1176
 #SBATCH -p vader
-#SBATCH --gres=gpu:2
+# no#SBATCH --gres=gpu:2
 #SBATCH --exclusive
 #SBATCH --time=48:00:00
 #SBATCH -o scripts/slurm/slurm-%A_%a.out
@@ -18,22 +18,21 @@ COMMANDS=(
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=12 trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=24 trainer.devices=2"
     "uv run python src/train.py experiment=swh_1h_lstm data.seq_len=48 trainer.devices=2"
-    # Multi-Head GAT (6-8) - TODO (node)
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=auto data.max_nodes=500 test=false predict=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=auto data.max_nodes=250 test=false predict=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=auto data.max_nodes=50  test=false predict=false"
-    # Multi-Head GAT VN (09-12) - INPROGRESS (node)
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto test=false seed=101"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto test=false model.backbone.heads=1 seed=101"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto data.max_nodes=250 test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=auto data.max_nodes=50 test=false"
-    # Multi-Head LSTM GAT VN (13-18) - TODO
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=auto test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=6 trainer.devices=auto test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=6 trainer.devices=auto test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=auto test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=48 trainer.devices=auto test=false"
-    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=48 trainer.devices=auto test=false"
+    # Multi-Head GAT (6-8) - INPROGRESS (node)
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=4 data.max_nodes=500 test=false predict=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=4 data.max_nodes=250 test=false predict=false"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat.yaml trainer.devices=4 data.max_nodes=50  test=false predict=false"
+    # Multi-Head GAT VN (09-11) - INPROGRESS (node)
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=4 data.max_nodes=500 test=false seed=210856"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=4 data.max_nodes=250 test=false seed=210857"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn.yaml trainer.devices=4 data.max_nodes=50 test=false seed=210858"
+    # Multi-Head LSTM GAT VN (12-17) - TODO
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=4 test=false seed=210813"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=6 trainer.devices=4 test=false seed=210814"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=6 trainer.devices=4 test=false seed=210815"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=4 test=false seed=210816"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=48 trainer.devices=4 test=false seed=210817"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=48 trainer.devices=4 test=false seed=210818"
 
 )
 
