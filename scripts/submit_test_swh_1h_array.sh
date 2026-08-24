@@ -12,9 +12,9 @@
 
 COMMANDS=(
     # DenseNet (0)
-    "uv run python src/predict.py experiment=swh_1h_densenet logger.wandb.id=9m79pxc0 'ckpt_path=\"logs/train/swh_1h_densenet/runs/2026-07-23_09-53-43/wwm-emulator-hourly-final/9m79pxc0/checkpoints/epoch=51-step=188812.ckpt\"'"
+    "uv run python src/predict.py experiment=swh_1h_mlp test_metrics=true paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-mlp' logger.wandb.id=9m79pxc0 'ckpt_path=\"logs/train/swh_1h_densenet/runs/2026-07-23_09-53-43/wwm-emulator-hourly-final/9m79pxc0/checkpoints/epoch=51-step=188812.ckpt\"'"
     # LSTM (1-5)
-    # TODO "uv run python src/predict.py --config-name=predict_lstm experiment=swh_1h_lstm data.seq_len=3
+    "uv run python src/predict.py --config-name=predict_lstm experiment=swh_1h_lstm data.seq_len=3 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-lstm-3' logger.wandb.id=pxvonspr 'ckpt_path=\"logs/train/swh_1h_lstm/runs/2026-07-22_05-59-48/wwm-emulator-hourly-final/pxvonspr/checkpoints/epoch=63-step=464384.ckpt\"'"
     # TODO "uv run python src/predict.py --config-name=predict_lstm experiment=swh_1h_lstm data.seq_len=6
     # TODO "uv run python src/predict.py --config-name=predict_lstm experiment=swh_1h_lstm data.seq_len=12
     # TODO "uv run python src/predict.py --config-name=predict_lstm experiment=swh_1h_lstm data.seq_len=24
