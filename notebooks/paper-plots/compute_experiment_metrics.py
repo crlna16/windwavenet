@@ -31,7 +31,7 @@ from src.utils.plot_functions import compute_binned_scores, compute_binned_chang
 
 VARIABLE = "sigWaveHeight"
 
-PREDICT_FINAL_DIR = Path("/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final")
+PREDICT_FINAL_DIR = Path("/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_2020")
 GROUND_TRUTH_ZARR = "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr"
 BOUNDARY_NODES_CSV = REPO_ROOT / "src/data/node_selection/boundary_nodes.csv"
 OUTPUT_DIR = Path(__file__).resolve().parent / "metrics"

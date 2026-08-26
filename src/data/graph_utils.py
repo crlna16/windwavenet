@@ -292,9 +292,39 @@ def partition_domain(
     return partitions
 
 
+def _subgraph_center(
+    subgraph_nodes: np.ndarray,
+    node_x: np.ndarray,
+    node_y: np.ndarray,
+) -> int:
+    """Return the patch node closest to the midpoint of its x/y bounding box.
+
+    Picks the node nearest to the centre of the axis-aligned bounding box that
+    encloses the patch, i.e. a geometrically central node rather than the
+    region-growing seed (which sits on the patch edge).  Suitable because the
+    center node is connected to every other node in the sub-graph.
+
+    Args:
+        subgraph_nodes: Array of global 0-indexed node positions in the patch.
+        node_x: Full-domain node x-coordinates.
+        node_y: Full-domain node y-coordinates.
+
+    Returns:
+        Global 0-indexed position of the chosen center node.
+    """
+    xs = node_x[subgraph_nodes]
+    ys = node_y[subgraph_nodes]
+    mid_x = 0.5 * (xs.min() + xs.max())
+    mid_y = 0.5 * (ys.min() + ys.max())
+    dist_sq = (xs - mid_x) ** 2 + (ys - mid_y) ** 2
+    return int(subgraph_nodes[int(np.argmin(dist_sq))])
+
+
 def partition_domain_disjoint(
     n_nodes: int,
     adjacency: Dict[int, List[int]],
+    node_x: np.ndarray,
+    node_y: np.ndarray,
     target_nodes: int,
     tolerance: float = 0.1,
 ) -> List[Tuple[int, np.ndarray, torch.Tensor, int]]:
@@ -308,16 +338,21 @@ def partition_domain_disjoint(
     cannot be tiled exactly into equal fixed-count patches.
 
     Greedy region growing: iterate nodes 0..n_nodes-1, pick the first
-    uncovered node as center, BFS-expand *only into still-uncovered nodes*
+    uncovered node as a seed, BFS-expand *only into still-uncovered nodes*
     until the upper size bound is reached or the local uncovered region is
     exhausted, then mark the patch covered.  Undersized leftover patches
     (below the lower bound) are merged into an adjacent patch; a merge may
     push that patch above the upper bound, which is accepted to preserve
-    exact, single coverage.
+    exact, single coverage.  The reported center of each patch is *not* the
+    seed (which lies on the patch edge) but the node closest to the midpoint of
+    the patch's x/y bounding box, so it is geometrically central like the
+    BFS-ball center used in overlap-allowing inference.
 
     Args:
         n_nodes: Total number of mesh nodes.
         adjacency: 0-indexed adjacency list.
+        node_x: Full-domain node x-coordinates (for geometric center selection).
+        node_y: Full-domain node y-coordinates (for geometric center selection).
         target_nodes: Desired node count per sub-graph.
         tolerance: Fractional size slack; bounds are
             ``[target_nodes * (1 - tolerance), target_nodes * (1 + tolerance)]``.
@@ -331,7 +366,8 @@ def partition_domain_disjoint(
     max_nodes = int(round(target_nodes * (1.0 + tolerance)))
 
     covered = np.zeros(n_nodes, dtype=bool)
-    # Each entry: {"center": int, "nodes": set[int] | None}; None marks merged-away.
+    # Each entry: {"nodes": set[int] | None}; None marks a merged-away patch.
+    # The center node is chosen later (post-merge) as the graph-central node.
     patches: List[Dict] = []
 
     for seed in range(n_nodes):
@@ -352,7 +388,7 @@ def partition_domain_disjoint(
                 if len(visited) >= max_nodes:
                     break
 
-        patches.append({"center": seed, "nodes": visited})
+        patches.append({"nodes": visited})
 
     # Map each node to its patch so undersized patches can find a neighbour.
     node_to_patch: Dict[int, int] = {}
@@ -390,9 +426,12 @@ def partition_domain_disjoint(
         if patch["nodes"] is None:
             continue
         subgraph_nodes = np.sort(np.fromiter(patch["nodes"], dtype=int))
+        # Relabel the center to the geometrically central node (closest to the
+        # patch's x/y bounding-box midpoint), matching real BFS-ball inference.
+        center = _subgraph_center(subgraph_nodes, node_x, node_y)
         edge_index, global_to_local = build_edge_index(subgraph_nodes, adjacency)
-        center_local_idx = int(global_to_local[patch["center"]])
-        partitions.append((patch["center"], subgraph_nodes, edge_index, center_local_idx))
+        center_local_idx = int(global_to_local[center])
+        partitions.append((center, subgraph_nodes, edge_index, center_local_idx))
 
     total = sum(len(sn) for _, sn, _, _ in partitions)
     log.info(

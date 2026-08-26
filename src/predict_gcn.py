@@ -206,6 +206,8 @@ def _predict_single_range_gcn(
         partitions = gu.partition_domain_disjoint(
             n_nodes=n_nodes,
             adjacency=adjacency,
+            node_x=node_x,
+            node_y=node_y,
             target_nodes=max_nodes,
             tolerance=tolerance,
         )
