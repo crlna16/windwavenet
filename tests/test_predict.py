@@ -103,8 +103,8 @@ def test_predict_returns_xarray_dataset(
     mock_trainer,
 ):
     """Test that predict function returns an xarray Dataset."""
-    # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    # Setup mocks (predict() instantiates model, then trainer, then datamodule)
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(minimal_predict_config)
 
@@ -123,7 +123,7 @@ def test_predict_creates_required_objects(
 ):
     """Test that predict function creates all required objects."""
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     _ = predict(minimal_predict_config)
 
@@ -143,7 +143,7 @@ def test_predict_calls_trainer_predict(
 ):
     """Test that trainer.predict is called."""
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     predict(minimal_predict_config)
 
@@ -162,7 +162,7 @@ def test_predict_verifies_target_names(
 ):
     """Test that predict verifies target names match between config and checkpoint."""
     # Setup mocks with matching targets
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     # Should not raise an error with matching targets
     result = predict(minimal_predict_config)
@@ -182,7 +182,7 @@ def test_predict_raises_error_on_target_mismatch(
     """Test that predict raises error when targets don't match."""
     # Setup model with different target names
     mock_model.target_names = ["different_target"]
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     with pytest.raises(ValueError, match="Target mismatch"):
         predict(minimal_predict_config)
@@ -200,7 +200,7 @@ def test_predict_saves_netcdf_file(
 ):
     """Test that predictions are saved to netCDF file."""
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(minimal_predict_config)
 
@@ -241,7 +241,7 @@ def test_predict_with_delta_target(
     mock_model.parameters.return_value = []
 
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(cfg)
 
@@ -261,7 +261,7 @@ def test_predict_output_has_correct_dimensions(
 ):
     """Test that prediction output has correct dimensions."""
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(minimal_predict_config)
 
@@ -284,7 +284,7 @@ def test_predict_output_has_metadata(
 ):
     """Test that prediction output includes metadata attributes."""
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(minimal_predict_config)
 
@@ -344,7 +344,7 @@ def test_predict_with_multiple_targets(
     mock_trainer.predict.return_value = mock_predictions
 
     # Setup mocks
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(cfg)
 
@@ -370,7 +370,7 @@ def test_predict_unscales_target_when_also_feature(
         "sigWaveHeight": {"mean": 2.0, "std": 4.0},
     }
     mock_trainer.predict.return_value = [torch.full((50, 1), 0.5)]
-    mock_instantiate.side_effect = [mock_datamodule, mock_model, mock_trainer]
+    mock_instantiate.side_effect = [mock_model, mock_trainer, mock_datamodule]
 
     result = predict(minimal_predict_config)
 
