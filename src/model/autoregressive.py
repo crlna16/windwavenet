@@ -81,17 +81,39 @@ class AutoregressiveMixin:
         self.feedback_std = torch.tensor(stds, dtype=torch.float32, device=device)
         self._feedback_map_ready = True
 
+    def _forward_step(self, x_buf: torch.Tensor, s: int) -> torch.Tensor:
+        """Extract inputs for rollout step ``s`` from ``x_buf`` and run forward.
+
+        Default implementation for pointwise (``window_len == 1``) and
+        sequence/LSTM (``window_len == seq_len``) models: slices a plain
+        tensor and forwards it directly. Graph models override this to wrap
+        the slice into a PyG ``Data``/``Batch`` object before forwarding
+        (see ``ARGraphWWMEmulator``).
+
+        Args:
+            x_buf: Rolling input buffer, see ``_rollout``.
+            s: Current rollout step index (0-indexed).
+
+        Returns:
+            Predictions for step ``s``, shape ``(rows, n_targets)``.
+        """
+        window_len = self.window_len
+        x_step = x_buf[:, s, :] if window_len == 1 else x_buf[:, s : s + window_len, :]
+        return self.forward(x_step)
+
     def _rollout(self, x_buf: torch.Tensor) -> torch.Tensor:
         """Roll out ``rollout_steps`` predictions, feeding each back into ``x_buf``.
 
         Args:
-            x_buf: Rolling input buffer of shape ``(batch, window_len + T - 1,
-                n_features)``. For pointwise models (``window_len == 1``) this
-                is simply ``(batch, T, n_features)``. A clone is mutated
-                internally with fed-back predictions; the input is not modified.
+            x_buf: Rolling input buffer of shape ``(rows, window_len + T - 1,
+                n_features)``, where ``rows`` is ``batch`` for pointwise/LSTM
+                models or ``total_nodes_in_pyg_batch`` for graph models. For
+                pointwise models (``window_len == 1``) this is simply
+                ``(rows, T, n_features)``. A clone is mutated internally with
+                fed-back predictions; the input is not modified.
 
         Returns:
-            Predictions of shape ``(batch, T, n_targets)``.
+            Predictions of shape ``(rows, T, n_targets)``.
         """
         if not self._feedback_map_ready:
             raise RuntimeError("Feedback map not loaded; autoregressive training requires `trainer.fit`.")
@@ -101,8 +123,7 @@ class AutoregressiveMixin:
         has_feedback = self.feedback_feat_idx.numel() > 0
         preds = []
         for s in range(self.rollout_steps):
-            x_step = x_buf[:, s, :] if window_len == 1 else x_buf[:, s : s + window_len, :]
-            pred = self.forward(x_step)
+            pred = self._forward_step(x_buf, s)
             preds.append(pred)
 
             # Last step's prediction feeds no further step, so it needs no write-back.
@@ -114,6 +135,52 @@ class AutoregressiveMixin:
                 x_buf[:, s + window_len, self.feedback_feat_idx] = scaled
 
         return torch.stack(preds, dim=1)
+
+    def _compute_ar_loss(
+        self, x_buf: torch.Tensor, y_win: torch.Tensor, sample_weights: torch.Tensor
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+        """Roll out predictions and average the loss over all ``rollout_steps``.
+
+        Shared by the tuple-batch ``model_step`` below and graph AR emulators,
+        which unpack their PyG ``Batch`` into the same ``(x_buf, y_win,
+        sample_weights)`` shapes before calling this.
+
+        Args:
+            x_buf: Rolling input buffer, see ``_rollout``.
+            y_win: Targets, shape ``(rows, T, n_targets)``.
+            sample_weights: Per-step sample weights, shape ``(rows, T, n_targets)``.
+
+        Returns:
+            Tuple of (total_loss, per_variable_losses, predictions, targets), with
+            predictions/targets flattened to ``(rows * T, num_targets)`` so that
+            the base class's logging methods (which expect 2D tensors) work unchanged.
+        """
+        preds = self._rollout(x_buf)  # (rows, T, C)
+        # Stashed for validation_step's single-step (lead time 0) loss log.
+        self._last_ar_preds = preds
+        self._last_ar_targets = y_win
+
+        per_sample_loss = self.criterion(preds, y_win)  # (rows, T, C)
+
+        # Focal-style regression (GraphWWMEmulator only): weight each sample's
+        # MSE by |error|^gamma so that large-error samples contribute more.
+        # No-op for non-graph subclasses, which never set `self.focal_gamma`.
+        focal_gamma = getattr(self, "focal_gamma", None)
+        if focal_gamma is not None and focal_gamma > 0.0:
+            with torch.no_grad():
+                focal_weight = (preds - y_win).abs().pow(focal_gamma)
+            per_sample_loss = per_sample_loss * focal_weight
+
+        weighted_loss = per_sample_loss * sample_weights
+
+        per_variable_losses = {}
+        for i, name in enumerate(self.target_names):
+            per_variable_losses[name] = weighted_loss[:, :, i].mean()
+
+        total_loss = sum(per_variable_losses[name] * self.loss_weights[name] for name in self.target_names)
+
+        b, t, c = preds.shape
+        return total_loss, per_variable_losses, preds.reshape(b * t, c), y_win.reshape(b * t, c)
 
     def model_step(
         self, batch: Tuple[torch.Tensor, ...]
@@ -135,22 +202,7 @@ class AutoregressiveMixin:
             x_buf, y_win = batch
             sample_weights = torch.ones_like(y_win)
 
-        preds = self._rollout(x_buf)  # (B, T, C)
-        # Stashed for validation_step's single-step (lead time 0) loss log.
-        self._last_ar_preds = preds
-        self._last_ar_targets = y_win
-
-        per_sample_loss = self.criterion(preds, y_win)  # (B, T, C)
-        weighted_loss = per_sample_loss * sample_weights
-
-        per_variable_losses = {}
-        for i, name in enumerate(self.target_names):
-            per_variable_losses[name] = weighted_loss[:, :, i].mean()
-
-        total_loss = sum(per_variable_losses[name] * self.loss_weights[name] for name in self.target_names)
-
-        b, t, c = preds.shape
-        return total_loss, per_variable_losses, preds.reshape(b * t, c), y_win.reshape(b * t, c)
+        return self._compute_ar_loss(x_buf, y_win, sample_weights)
 
     def validation_step(self, batch: Tuple[torch.Tensor, ...], batch_idx: int) -> None:
         """Run the T-step validation step, plus log the single-step (lead time 0) loss.

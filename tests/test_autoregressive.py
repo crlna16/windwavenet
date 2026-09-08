@@ -355,3 +355,66 @@ class TestAutoregressiveTrainE2E:
 
         assert "train/loss" in metric_dict or "val/loss" in metric_dict
         assert "val/loss_step0" in metric_dict
+
+    def test_fast_dev_run_ar_lstm(self, cicd_data_path):
+        """AR LSTM config should train, validate, and test without error."""
+        config_dir = Path(__file__).parent.parent / "configs" / "cicd"
+
+        with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
+            cfg = compose(
+                config_name="cicd_train_ar_lstm.yaml",
+                overrides=[
+                    f"data.data_dir={cicd_data_path}",
+                    "logger=null",
+                    "callbacks=null",
+                    f"paths.root_dir={tempfile.gettempdir()}",
+                    f"paths.output_dir={tempfile.mkdtemp()}",
+                ],
+            )
+
+        metric_dict, object_dict = train(cfg)
+
+        assert "train/loss" in metric_dict or "val/loss" in metric_dict
+        assert "val/loss_step0" in metric_dict
+
+    def test_fast_dev_run_ar_multihead_gat_vn(self, cicd_data_path):
+        """AR pointwise graph (MultiHeadGATVN) config should train, validate, and test without error."""
+        config_dir = Path(__file__).parent.parent / "configs" / "cicd"
+
+        with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
+            cfg = compose(
+                config_name="cicd_train_ar_multihead_gat_vn.yaml",
+                overrides=[
+                    f"data.data_dir={cicd_data_path}",
+                    "logger=null",
+                    "callbacks=null",
+                    f"paths.root_dir={tempfile.gettempdir()}",
+                    f"paths.output_dir={tempfile.mkdtemp()}",
+                ],
+            )
+
+        metric_dict, object_dict = train(cfg)
+
+        assert "train/loss" in metric_dict or "val/loss" in metric_dict
+        assert "val/loss_step0" in metric_dict
+
+    def test_fast_dev_run_ar_dual_path_gat_vn(self, cicd_data_path):
+        """AR center-history graph (MultiHeadGATLSTMVN) config should train, validate, and test without error."""
+        config_dir = Path(__file__).parent.parent / "configs" / "cicd"
+
+        with initialize_config_dir(version_base="1.3", config_dir=str(config_dir.absolute())):
+            cfg = compose(
+                config_name="cicd_train_ar_dual_path_gat_vn.yaml",
+                overrides=[
+                    f"data.data_dir={cicd_data_path}",
+                    "logger=null",
+                    "callbacks=null",
+                    f"paths.root_dir={tempfile.gettempdir()}",
+                    f"paths.output_dir={tempfile.mkdtemp()}",
+                ],
+            )
+
+        metric_dict, object_dict = train(cfg)
+
+        assert "train/loss" in metric_dict or "val/loss" in metric_dict
+        assert "val/loss_step0" in metric_dict
