@@ -38,13 +38,14 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "metrics"
 
 SUMMER_FILE = "predictions_183-213.nc"
 WINTER_FILE = "predictions_336-366.nc"
+
 # start 2 days into each period, past every model's LSTM warm-up lag, so all
 # experiments are compared over the exact same timestamps
 SUMMER_START = "2020-07-03"
 WINTER_START = "2020-12-03"
 CHUNKS = "auto"
 
-VALUE_BINS = [0, 0.5, 1.0, 2.0, 4.0]
+VALUE_BINS = [0, 0.5, 1.0, 2.0, 4.0, 100]
 CHANGE_BINS = [-2, -1, -0.5, 0, 0.5, 1, 2]
 
 
