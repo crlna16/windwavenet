@@ -28,8 +28,8 @@ data:
   scaling_config: src/data/scaling/scale_2020_8months_hourly.yaml
   node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
   boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
-  batch_size: 512
-  num_workers: 0
+  batch_size: 256
+  num_workers: 4
   pin_memory: true
   persistent_workers: true
   max_nodes: 500
@@ -49,7 +49,7 @@ model:
     output_dim: 1        # must match len(data.targets)
     hidden_dim: 64
     num_layers: 9
-    heads: 4            # attention heads (hidden_dim must be divisible)
+    heads: 1            # attention heads (hidden_dim must be divisible)
     edge_encoding: scalar # scalar | none (edge-weight ablation)
     dropout: 0.3
     attn_dropout: 0.1
@@ -61,7 +61,7 @@ model:
     sigWaveHeight: semipositive
 
 trainer:
-  devices: 1
+  devices: 4 # if 2, set accumulate_grad_batches for effective batch size of 1024
 
 logger:
   wandb:

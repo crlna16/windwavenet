@@ -21,6 +21,10 @@ Supported backbones and their required data modules:
 Center-history mode is detected automatically from ``data._target_``: any data
 module whose class name contains ``CenterHistory`` enables it.
 
+If ``data.test_days`` is a list of ``[start, end]`` ranges (e.g. ``[[183, 213], [336, 366]]``),
+prediction runs once per range and each result is saved to its own
+``predictions_<start>-<end>.nc`` file.
+
 Usage example::
 
     # Single-step GAT-VN
@@ -33,7 +37,7 @@ Usage example::
 """
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import hydra
 import importlib
@@ -63,7 +67,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 # ---------------------------------------------------------------------------
 
 
-def predict_gcn(cfg: DictConfig) -> xr.Dataset:
+def predict_gcn(cfg: DictConfig) -> Union[xr.Dataset, List[xr.Dataset]]:
     """Predict over the full mesh domain using a trained attention-based graph model.
 
     Supported backbones:
@@ -77,18 +81,82 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     from ``cfg.data._target_``: class names containing ``CenterHistory`` enable it.
     No manual ``center_history_only`` flag is needed in the config.
 
+    If ``cfg.data.test_days`` specifies multiple day ranges, the model is
+    loaded once and inference runs once per range (mesh partitioning and the
+    output array both assume a single contiguous range), saving each result
+    to its own ``predictions_<start>-<end>.nc`` file.
+
     Args:
         cfg: Hydra configuration.  Pass an experiment config via
             ``experiment=<name>`` to set model architecture and data fields.
 
     Returns:
-        xr.Dataset with predictions for all nodes and test-set time steps.
+        xr.Dataset (or list thereof, one per test day range) with predictions
+        for all nodes and test-set time steps.
     """
     assert cfg.ckpt_path, "ckpt_path must be provided"
 
     log.info("Printing config tree")
     print_config_tree(cfg, resolve=True, save_to_file=True)
 
+    test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
+
+    # ------------------------------------------------------------------
+    # Load model from checkpoint (shared across all day ranges)
+    # ------------------------------------------------------------------
+    log.info(f"Loading model from checkpoint: {cfg.ckpt_path}")
+    model_cls_path: str = cfg.model._target_
+    module_path, class_name = model_cls_path.rsplit(".", 1)
+
+    model_module = importlib.import_module(module_path)
+    model_cls = getattr(model_module, class_name)
+
+    backbone = hydra.utils.instantiate(cfg.model.backbone)
+    model = model_cls.load_from_checkpoint(
+        cfg.ckpt_path,
+        backbone=backbone,
+        strict=False,
+    )
+    model.eval()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    log.info(f"Model loaded on {device}")
+
+    # Verify target names match checkpoint
+    config_targets = list(cfg.data.targets)
+    model_targets = model.target_names
+    if config_targets != model_targets:
+        raise ValueError(
+            f"Target mismatch: config specifies {config_targets} but model was trained on {model_targets}."
+        )
+
+    is_multi_range = len(test_ranges) > 1
+    results = [_predict_single_range_gcn(cfg, day_range, model, device, is_multi_range) for day_range in test_ranges]
+
+    return results[0] if len(results) == 1 else results
+
+
+def _predict_single_range_gcn(
+    cfg: DictConfig,
+    test_days: List[int],
+    model: torch.nn.Module,
+    device: torch.device,
+    is_multi_range: bool,
+) -> xr.Dataset:
+    """Runs full-domain graph inference for a single contiguous day range and saves the result.
+
+    Args:
+        cfg: Hydra configuration.
+        test_days: Single ``[start_day, end_day]`` range to predict on.
+        model: Loaded and device-placed model, shared across ranges.
+        device: Device the model was placed on.
+        is_multi_range: Whether multiple ranges are being processed, which
+            determines the output filename.
+
+    Returns:
+        xr.Dataset with predictions for all nodes and this range's time steps.
+    """
     # ------------------------------------------------------------------
     # 1.  Open and preprocess dataset
     # ------------------------------------------------------------------
@@ -96,14 +164,8 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     features: List[str] = list(cfg.data.features)
     targets: List[str] = list(cfg.data.targets)
     graph_features: List[str] = list(cfg.data.graph_features)
-    test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
-    if len(test_ranges) > 1:
-        raise NotImplementedError(
-            "predict_gcn.py assumes a contiguous test range; run once per range instead, e.g. data.test_days=[212,242]."
-        )
-    test_days: List[int] = test_ranges[0]
 
-    log.info(f"Opening dataset from {data_dir}")
+    log.info(f"Opening dataset from {data_dir} for day range {test_days}")
     ds, _ = du.open_and_slice_dataset(data_dir, test_days)
 
     ds, n_nodes = du.preprocess_variables(ds, features, targets, extra_keep_vars=graph_features)
@@ -138,12 +200,24 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
     # ------------------------------------------------------------------
     max_nodes: int = int(cfg.data.max_nodes)
 
-    log.info(f"Partitioning domain with max_nodes={max_nodes} ...")
-    partitions = gu.partition_domain(
-        n_nodes=n_nodes,
-        adjacency=adjacency,
-        max_nodes=max_nodes,
-    )
+    if cfg.get("disjoint_partition", False):
+        tolerance: float = float(cfg.get("disjoint_partition_tolerance", 0.1))
+        log.info(f"Partitioning domain (disjoint) with target_nodes={max_nodes}, tolerance={tolerance} ...")
+        partitions = gu.partition_domain_disjoint(
+            n_nodes=n_nodes,
+            adjacency=adjacency,
+            node_x=node_x,
+            node_y=node_y,
+            target_nodes=max_nodes,
+            tolerance=tolerance,
+        )
+    else:
+        log.info(f"Partitioning domain with max_nodes={max_nodes} ...")
+        partitions = gu.partition_domain(
+            n_nodes=n_nodes,
+            adjacency=adjacency,
+            max_nodes=max_nodes,
+        )
 
     # Precompute edge weights for every partition
     edge_weight_scale: float = float(cfg.data.edge_weight_scale)
@@ -153,35 +227,6 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         for _, subgraph_nodes, edge_index, _ in partitions
     ]
 
-    # ------------------------------------------------------------------
-    # 4.  Load model from checkpoint
-    # ------------------------------------------------------------------
-    log.info(f"Loading model from checkpoint: {cfg.ckpt_path}")
-    model_cls_path: str = cfg.model._target_
-    module_path, class_name = model_cls_path.rsplit(".", 1)
-
-    model_module = importlib.import_module(module_path)
-    model_cls = getattr(model_module, class_name)
-
-    backbone = hydra.utils.instantiate(cfg.model.backbone)
-    model = model_cls.load_from_checkpoint(
-        cfg.ckpt_path,
-        backbone=backbone,
-        strict=False,
-    )
-    model.eval()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    log.info(f"Model loaded on {device}")
-
-    # Verify target names match checkpoint
-    config_targets = list(cfg.data.targets)
-    model_targets = model.target_names
-    if config_targets != model_targets:
-        raise ValueError(
-            f"Target mismatch: config specifies {config_targets} but model was trained on {model_targets}."
-        )
     n_targets = len(targets)
 
     # ------------------------------------------------------------------
@@ -416,7 +461,8 @@ def predict_gcn(cfg: DictConfig) -> xr.Dataset:
         },
     )
 
-    output_path = f"{cfg.paths.output_dir}/predictions.nc"
+    output_name = f"predictions_{test_days[0]}-{test_days[1]}.nc" if is_multi_range else "predictions.nc"
+    output_path = f"{cfg.paths.output_dir}/{output_name}"
     log.info(f"Saving predictions to {output_path}")
     ds_pred.to_netcdf(output_path)
     log.info(f"Predictions saved successfully to {output_path}")

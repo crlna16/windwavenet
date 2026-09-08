@@ -213,6 +213,9 @@ def print_config_tree(
 
     # save config tree to file
     if save_to_file:
+        # paths.output_dir may be overridden away from hydra's own run dir, which
+        # Hydra would otherwise have created automatically.
+        Path(cfg.paths.output_dir).mkdir(parents=True, exist_ok=True)
         with open(Path(cfg.paths.output_dir, "config_tree.log"), "w") as file:
             rich.print(tree, file=file)
 

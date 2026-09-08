@@ -9,15 +9,20 @@ Invoked via Hydra using ``configs/predict.yaml`` as the base config. Loads a tra
 checkpoint, runs single-step or teacher-forced sequence prediction over the requested
 day ranges, and assembles the results into an ``xarray.Dataset``. For graph-based
 backbones (GAT/GAT-VN/GAT-LSTM-VN), use ``src/predict_gcn.py`` instead.
+
+If ``data.test_days`` is a list of ``[start, end]`` ranges (e.g. ``[[183, 213], [336, 366]]``),
+prediction runs once per range and each result is saved to its own
+``predictions_<start>-<end>.nc`` file.
 """
 
-from typing import Any, List, cast
+import copy
+from typing import Any, List, Union, cast
 
 import hydra
 import numpy as np
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 
 import warnings
 
@@ -34,28 +39,27 @@ log = RankedLogger(__name__, rank_zero_only=True)
 warnings.filterwarnings("ignore")
 
 
-def predict(cfg: DictConfig) -> xr.Dataset:
+def predict(cfg: DictConfig) -> Union[xr.Dataset, List[xr.Dataset]]:
     """Predicts given checkpoint on a datamodule testset.
+
+    If ``cfg.data.test_days`` specifies multiple day ranges, the prediction
+    pipeline runs once per range (each with its own datamodule instance,
+    since the reshaping logic assumes a single contiguous range) and each
+    result is saved to its own ``predictions_<start>-<end>.nc`` file.
 
     Args:
       cfg (DictConfig): Configuration composed by hydra.
 
     Returns:
-      xr.Dataset: Dataset with predictions.
+      xr.Dataset or List[xr.Dataset]: Dataset(s) with predictions, one per
+        test day range.
     """
     assert cfg.ckpt_path
 
-    if len(du.normalize_day_ranges(list(cfg.data.test_days))) > 1:
-        raise NotImplementedError(
-            "predict.py assumes a contiguous test range when reshaping predictions; "
-            "run once per range instead, e.g. data.test_days=[212,242]."
-        )
+    test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
 
     log.info("Printing config tree with Rich <cfg.extras.print_config=True>")
     print_config_tree(cfg, resolve=True, save_to_file=True)
-
-    log.info(f"Instantiating datamodule <{cfg.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
@@ -66,28 +70,55 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
 
-    object_dict = {
-        "cfg": cfg,
-        "datamodule": datamodule,
-        "model": model,
-        "logger": logger,
-        "trainer": trainer,
-    }
-
     if logger:
         log.info("Logging hyperparameters")
-        log_hyperparameters(object_dict)
+        log_hyperparameters({"cfg": cfg, "model": model, "logger": logger, "trainer": trainer})
 
-    log.info("Starting predictions")
+    results = [
+        _predict_single_range(cfg, model, trainer, day_range, is_multi_range=len(test_ranges) > 1)
+        for day_range in test_ranges
+    ]
+
+    return results[0] if len(results) == 1 else results
+
+
+def _predict_single_range(
+    cfg: DictConfig,
+    model: LightningModule,
+    trainer: Trainer,
+    day_range: List[int],
+    is_multi_range: bool,
+) -> xr.Dataset:
+    """Runs prediction for a single contiguous day range and saves the result.
+
+    Args:
+        cfg: Base Hydra configuration (``data.test_days`` is overridden per range).
+        model: Instantiated Lightning model, shared across ranges.
+        trainer: Instantiated Lightning trainer, shared across ranges.
+        day_range: Single ``[start_day, end_day]`` range to predict on.
+        is_multi_range: Whether multiple ranges are being processed, which
+            determines the output filename.
+
+    Returns:
+        xr.Dataset: Dataset with predictions for this range.
+    """
+    range_cfg = copy.deepcopy(cfg)
+    with open_dict(range_cfg.data):
+        range_cfg.data.test_days = day_range
+
+    log.info(f"Instantiating datamodule <{range_cfg.data._target_}> for day range {day_range}")
+    datamodule: LightningDataModule = hydra.utils.instantiate(range_cfg.data)
+
+    log.info(f"Starting predictions for day range {day_range}")
     predictions = cast(
         list[torch.Tensor],
-        trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path),
+        trainer.predict(model=model, datamodule=datamodule, ckpt_path=range_cfg.ckpt_path),
     )
     predictions = torch.concatenate(predictions)  # Shape: (n_samples, n_targets)
 
     # run test metrics that are synced to wandb
-    if cfg.test_metrics:
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    if range_cfg.test_metrics:
+        trainer.test(model=model, datamodule=datamodule, ckpt_path=range_cfg.ckpt_path)
 
     log.info("Retrieving metadata from source dataset")
     datamodule_data = cast(Any, datamodule)
@@ -121,7 +152,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     log.info(f"Prediction dimensions: pred_n_time={pred_n_time}, n_nodes={n_nodes}")
 
     # Get target names from config and verify they match the model checkpoint
-    config_targets = cfg.data.targets
+    config_targets = range_cfg.data.targets
     model_targets = model.target_names
 
     log.info(f"Config targets: {config_targets}")
@@ -139,7 +170,7 @@ def predict(cfg: DictConfig) -> xr.Dataset:
     predictions_np = predictions.cpu().numpy().reshape(pred_n_time, n_nodes, len(target_names))
 
     # NaN-out boundary nodes if configured (fair comparison with graph models)
-    boundary_nodes_csv = cfg.data.get("boundary_nodes_csv", None)
+    boundary_nodes_csv = range_cfg.data.get("boundary_nodes_csv", None)
     if boundary_nodes_csv is not None:
         boundary_node_ids = du.load_node_indices(boundary_nodes_csv)
         ds_node_ids = ds.nSCHISM_hgrid_node.values
@@ -160,14 +191,18 @@ def predict(cfg: DictConfig) -> xr.Dataset:
         scaling_params=scaling_params,
         time_coords=ds.time,
         extra_attrs={
-            "checkpoint": cfg.ckpt_path,
-            "model": cfg.model._target_,
+            "checkpoint": range_cfg.ckpt_path,
+            "model": range_cfg.model._target_,
             "seq_len": seq_len,
         },
     )
 
     # Save predictions to netCDF
-    output_path = f"{cfg.paths.output_dir}/predictions.nc"
+    if is_multi_range:
+        output_name = f"predictions_{day_range[0]}-{day_range[1]}.nc"
+    else:
+        output_name = "predictions.nc"
+    output_path = f"{range_cfg.paths.output_dir}/{output_name}"
     log.info(f"Saving predictions to {output_path}")
     ds_pred.to_netcdf(output_path)
     log.info(f"Predictions saved successfully to {output_path}")
