@@ -46,6 +46,7 @@ class WWMEmulator(L.LightningModule):
         loss_weights: Optional[Dict[str, float]] = None,
         target_bins: Optional[Dict[str, List[float]]] = None,
         output_constraints: Optional[Dict[str, str]] = None,
+        focal_gamma: Optional[bool] = True,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -61,6 +62,7 @@ class WWMEmulator(L.LightningModule):
                         Supported types: 'semipositive' (ReLU, >=0), 'positive' (softplus, >0),
                         'angle_deg' (mod 360), 'angle_rad' (mod 2*pi), 'sigmoid' ((0,1)).
                         E.g., {'sigWaveHeight': 'semipositive', 'meanWaveDirection': 'angle_deg'}
+            focal_gamma: Kept for legacy so that existing ckpts can be loaded.
 
         Note:
             Sample weights are now computed and stored in the dataset. Configure them via the data module
