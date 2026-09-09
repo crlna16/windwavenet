@@ -202,7 +202,12 @@ def print_config_tree(
 
         config_group = cfg[field]
         if isinstance(config_group, DictConfig):
-            branch_content = OmegaConf.to_yaml(config_group, resolve=resolve)
+            try:
+                branch_content = OmegaConf.to_yaml(config_group, resolve=resolve)
+            except Exception:
+                # Some fields (e.g. "hydra", or "paths" with ${hydra:...} refs) can only be
+                # resolved inside a real Hydra runtime (not when composed via hydra.compose()).
+                branch_content = OmegaConf.to_yaml(config_group, resolve=False)
         else:
             branch_content = str(config_group)
 

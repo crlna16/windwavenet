@@ -16,6 +16,12 @@ from hydra import compose, initialize_config_dir
 from src.predict import predict
 
 
+@pytest.fixture(autouse=True)
+def _mock_print_config_tree(monkeypatch):
+    """print_config_tree resolves ${hydra:...} refs that only exist under a real Hydra run."""
+    monkeypatch.setattr("src.predict.print_config_tree", MagicMock())
+
+
 @pytest.fixture
 def mock_dataset():
     """Create a mock xarray dataset for predictions."""
@@ -97,9 +103,7 @@ def minimal_predict_config():
     return cfg
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_returns_xarray_dataset(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -110,9 +114,7 @@ def test_predict_returns_xarray_dataset(
     assert isinstance(result, xr.Dataset), "predict should return an xarray Dataset"
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_loads_model_from_checkpoint(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -124,9 +126,7 @@ def test_predict_loads_model_from_checkpoint(
     mock_model_loading.eval.assert_called_once()
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_calls_model_forward(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -137,9 +137,7 @@ def test_predict_calls_model_forward(
     assert mock_model_loading.forward.called
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_verifies_target_names(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -149,9 +147,7 @@ def test_predict_verifies_target_names(
     assert isinstance(result, xr.Dataset)
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_raises_error_on_target_mismatch(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -163,9 +159,7 @@ def test_predict_raises_error_on_target_mismatch(
         predict(minimal_predict_config)
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_saves_netcdf_file(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -178,9 +172,7 @@ def test_predict_saves_netcdf_file(
     assert isinstance(result, xr.Dataset)
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_with_delta_target(
-    mock_print_config,
     mock_data_pipeline,
     mock_model,
 ):
@@ -215,9 +207,7 @@ def test_predict_with_delta_target(
     assert "sigWaveHeight" in result.data_vars or "delta_sigWaveHeight" in result.data_vars
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_output_has_correct_dimensions(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -231,9 +221,7 @@ def test_predict_output_has_correct_dimensions(
     assert result.sizes["nSCHISM_hgrid_node"] == 5
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_output_has_metadata(
-    mock_print_config,
     minimal_predict_config,
     mock_data_pipeline,
     mock_model_loading,
@@ -254,9 +242,7 @@ def test_predict_requires_checkpoint_path(minimal_predict_config):
         predict(minimal_predict_config)
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_with_multiple_targets(
-    mock_print_config,
     mock_data_pipeline,
     mock_model,
 ):
@@ -292,9 +278,7 @@ def test_predict_with_multiple_targets(
     assert len(result.data_vars) > 0
 
 
-@patch("src.predict.print_config_tree")
 def test_predict_unscales_target_when_also_feature(
-    mock_print_config,
     minimal_predict_config,
     mock_dataset,
     mock_model,
