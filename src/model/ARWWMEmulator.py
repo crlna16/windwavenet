@@ -29,7 +29,6 @@ class ARWWMEmulator(AutoregressiveMixin, WWMEmulator):
         optimizer: torch.optim.Optimizer,
         rollout_steps: int,
         window_len: int = 1,
-        rollout_detach: bool = True,
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         loss_weights: Optional[Dict[str, float]] = None,
         target_bins: Optional[Dict[str, List[float]]] = None,
@@ -44,8 +43,6 @@ class ARWWMEmulator(AutoregressiveMixin, WWMEmulator):
             rollout_steps: Number of future steps (T) to roll out and average the loss over.
             window_len: Number of input time steps consumed per rollout iteration
                 (1 for pointwise/MLP models, ``seq_len`` for LSTM models).
-            rollout_detach: If True (default), stop gradients through fed-back predictions
-                (cheaper, more stable). If False, backpropagate through the full rollout (BPTT).
             scheduler: PyTorch learning rate scheduler (partially instantiated via Hydra).
             loss_weights: Optional dict mapping target names to loss weights.
             target_bins: Optional dict mapping target names to bin edges for binned metrics.
@@ -61,5 +58,5 @@ class ARWWMEmulator(AutoregressiveMixin, WWMEmulator):
             output_constraints=output_constraints,
         )
         self.window_len = window_len
-        self._init_autoregressive(rollout_steps=rollout_steps, rollout_detach=rollout_detach)
-        self.save_hyperparameters("rollout_steps", "window_len", "rollout_detach", logger=False)
+        self._init_autoregressive(rollout_steps=rollout_steps)
+        self.save_hyperparameters("rollout_steps", "window_len", logger=False)

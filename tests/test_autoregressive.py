@@ -200,7 +200,7 @@ class TestARWWMDataModule:
 # ---------------------------------------------------------------------------
 
 
-def _make_ar_emulator(rollout_steps: int, rollout_detach: bool, mock_optimizer) -> ARWWMEmulator:
+def _make_ar_emulator(rollout_steps: int, mock_optimizer) -> ARWWMEmulator:
     """Build an ARWWMEmulator with a tiny linear backbone and a manually-registered feedback map."""
     backbone = nn.Linear(2, 1, bias=False)
     with torch.no_grad():
@@ -212,7 +212,6 @@ def _make_ar_emulator(rollout_steps: int, rollout_detach: bool, mock_optimizer) 
         optimizer=mock_optimizer,
         rollout_steps=rollout_steps,
         window_len=1,
-        rollout_detach=rollout_detach,
     )
     # Bypass on_fit_start (no real Trainer/datamodule): register the feedback
     # map directly, as if feature 1 (prev_sigWaveHeight) is fed from target 0.
@@ -234,7 +233,7 @@ class TestAutoregressiveMixin:
         with torch.no_grad():
             backbone_ar.weight.copy_(torch.tensor([[2.0, 3.0]]))
 
-        ar_model = _make_ar_emulator(rollout_steps=1, rollout_detach=True, mock_optimizer=mock_optimizer)
+        ar_model = _make_ar_emulator(rollout_steps=1, mock_optimizer=mock_optimizer)
 
         base_model = WWMEmulator(
             backbone=backbone_ar,
@@ -257,7 +256,7 @@ class TestAutoregressiveMixin:
 
     def test_feedback_writes_predictions_into_next_step(self, mock_optimizer):
         """Step s+1's feature 1 should be fed by step s's (rescaled) prediction."""
-        model = _make_ar_emulator(rollout_steps=2, rollout_detach=True, mock_optimizer=mock_optimizer)
+        model = _make_ar_emulator(rollout_steps=2, mock_optimizer=mock_optimizer)
 
         x0 = torch.tensor([[1.0, 100.0]])  # step 0 feature 1 is untouched (ground truth)
         x1 = torch.tensor([[5.0, 100.0]])  # step 1 feature 1 will be overwritten by feedback
@@ -278,7 +277,7 @@ class TestAutoregressiveMixin:
 
     def test_loss_averages_over_all_rollout_steps(self, mock_optimizer):
         """Total loss should equal the mean per-sample MSE across all T steps."""
-        model = _make_ar_emulator(rollout_steps=3, rollout_detach=True, mock_optimizer=mock_optimizer)
+        model = _make_ar_emulator(rollout_steps=3, mock_optimizer=mock_optimizer)
 
         torch.manual_seed(1)
         x_win = torch.randn(4, 3, 2)
@@ -294,9 +293,9 @@ class TestAutoregressiveMixin:
         torch.testing.assert_close(per_var_losses["sigWaveHeight"], expected_loss)
 
     def test_detach_blocks_gradient_through_feedback(self, mock_optimizer):
-        """With rollout_detach=True, earlier-step outputs get no gradient contribution
-        from later steps' loss (only their own step's loss contributes)."""
-        model = _make_ar_emulator(rollout_steps=2, rollout_detach=True, mock_optimizer=mock_optimizer)
+        """Earlier-step outputs get no gradient contribution from later steps' loss
+        (only their own step's loss contributes) since feedback is always detached."""
+        model = _make_ar_emulator(rollout_steps=2, mock_optimizer=mock_optimizer)
         x_win = torch.tensor([[[1.0, 1.0], [1.0, 1.0]]], requires_grad=False)
         y_win = torch.zeros(1, 2, 1)
 
@@ -306,25 +305,6 @@ class TestAutoregressiveMixin:
         # Gradient w.r.t. weight[1] (coefficient on feature 1, the feedback slot) should
         # only reflect direct contributions since the feedback value was detached.
         assert model.backbone.weight.grad is not None
-
-    def test_bptt_vs_detach_gradients_differ(self, mock_optimizer):
-        """Disabling detach should change the backbone gradient (extra path through feedback)."""
-        torch.manual_seed(2)
-        x_win = torch.randn(2, 3, 2)
-        y_win = torch.randn(2, 3, 1)
-
-        model_detach = _make_ar_emulator(rollout_steps=3, rollout_detach=True, mock_optimizer=mock_optimizer)
-        model_bptt = _make_ar_emulator(rollout_steps=3, rollout_detach=False, mock_optimizer=mock_optimizer)
-        with torch.no_grad():
-            model_bptt.backbone.weight.copy_(model_detach.backbone.weight)
-
-        loss_detach, *_ = model_detach.model_step((x_win, y_win))
-        loss_detach.backward()
-
-        loss_bptt, *_ = model_bptt.model_step((x_win, y_win))
-        loss_bptt.backward()
-
-        assert not torch.allclose(model_detach.backbone.weight.grad, model_bptt.backbone.weight.grad)
 
 
 # ---------------------------------------------------------------------------

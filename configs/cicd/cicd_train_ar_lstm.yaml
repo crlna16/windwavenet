@@ -72,7 +72,6 @@ model:
   target_names: ${data.targets} # automatically use target names from data config
   rollout_steps: ${data.rollout_steps}
   window_len: ${data.seq_len} # one LSTM window consumed per rollout iteration
-  rollout_detach: true
 
   loss_weights: null
   target_bins: null

@@ -56,7 +56,6 @@ model:
   target_names: ${data.targets}
   rollout_steps: ${data.rollout_steps}
   window_len: ${data.seq_len}
-  rollout_detach: true
 
   loss_weights: null
   target_bins: null

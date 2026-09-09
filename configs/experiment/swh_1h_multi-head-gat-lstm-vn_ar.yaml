@@ -46,9 +46,6 @@ model:
   target_names: ${data.targets}
   rollout_steps: ${data.rollout_steps}
   window_len: ${data.seq_len} # must match the center node's LSTM history length
-  # Stop gradients through fed-back predictions (cheaper, more stable). Set
-  # to false to backpropagate through the full rollout (BPTT) instead.
-  rollout_detach: true
 
   target_bins:
     sigWaveHeight: [0.5, 1.0, 2.0, 4.0]

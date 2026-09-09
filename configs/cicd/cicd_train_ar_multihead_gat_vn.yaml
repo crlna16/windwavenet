@@ -54,7 +54,6 @@ model:
   _target_: src.model.ARGraphWWMEmulator.ARGraphWWMEmulator
   target_names: ${data.targets}
   rollout_steps: ${data.rollout_steps}
-  rollout_detach: true
 
   loss_weights: null
   target_bins: null

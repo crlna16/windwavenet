@@ -36,20 +36,16 @@ class AutoregressiveMixin:
 
     window_len: int = 1
 
-    def _init_autoregressive(self, rollout_steps: int, rollout_detach: bool = True) -> None:
+    def _init_autoregressive(self, rollout_steps: int) -> None:
         """Store rollout config and placeholder feedback-map buffers.
 
         Args:
             rollout_steps: Number of future steps (T) to roll out and average
                 the loss over.
-            rollout_detach: If True (default), stop gradients through fed-back
-                predictions (cheaper, more stable). If False, backpropagate
-                through the full rollout (BPTT).
         """
         if rollout_steps < 1:
             raise ValueError(f"rollout_steps must be >= 1, got {rollout_steps}")
         self.rollout_steps = rollout_steps
-        self.rollout_detach = rollout_detach
         self._feedback_map_ready = False
         self.register_buffer("feedback_feat_idx", torch.zeros(0, dtype=torch.long), persistent=False)
         self.register_buffer("feedback_target_idx", torch.zeros(0, dtype=torch.long), persistent=False)
@@ -128,9 +124,7 @@ class AutoregressiveMixin:
 
             # Last step's prediction feeds no further step, so it needs no write-back.
             if has_feedback and s < self.rollout_steps - 1:
-                fed_back = pred[:, self.feedback_target_idx]
-                if self.rollout_detach:
-                    fed_back = fed_back.detach()
+                fed_back = pred[:, self.feedback_target_idx].detach()
                 scaled = (fed_back - self.feedback_mean) / self.feedback_std
                 x_buf[:, s + window_len, self.feedback_feat_idx] = scaled
 

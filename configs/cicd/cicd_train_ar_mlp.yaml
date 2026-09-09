@@ -71,7 +71,6 @@ model:
   target_names: ${data.targets} # automatically use target names from data config
   rollout_steps: ${data.rollout_steps}
   window_len: 1 # one time step consumed per rollout iteration (pointwise model)
-  rollout_detach: true
 
   loss_weights: null
   target_bins: null
