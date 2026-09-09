@@ -461,6 +461,151 @@ def plot_binned_scores(
     return fig
 
 
+def compute_spatial_grid(
+    node_x: np.ndarray,
+    node_y: np.ndarray,
+    node_values: np.ndarray,
+    resolution: float = 10000,
+    x_range: Optional[tuple] = None,
+    y_range: Optional[tuple] = None,
+) -> dict:
+    """Interpolate per-node values onto a regular grid for spatial plotting.
+
+    Args:
+        node_x: Node x-coordinates, shape (n_nodes,).
+        node_y: Node y-coordinates, shape (n_nodes,).
+        node_values: Per-node scalar values (e.g. RMSE, bias, or a time-mean field),
+            shape (n_nodes,), aligned with node_x/node_y.
+        resolution: Bin length in the same units as the node coordinates. The number of
+            grid points along each axis is derived as ``ceil((max - min) / resolution)``.
+        x_range: Optional (x_min, x_max) tuple to restrict the domain before interpolating
+            (in the same units as node_x).
+        y_range: Optional (y_min, y_max) tuple to restrict the domain before interpolating
+            (in the same units as node_y).
+
+    Returns:
+        Dict with 'xi', 'yi' (1-D grid axes) and 'zi' (2-D interpolated grid,
+        shape (len(yi), len(xi))).
+    """
+    try:
+        from scipy.interpolate import griddata
+    except ImportError as exc:
+        raise ImportError("scipy is required for compute_spatial_grid.") from exc
+
+    mask = np.ones(len(node_x), dtype=bool)
+    if x_range is not None:
+        mask &= (node_x >= x_range[0]) & (node_x <= x_range[1])
+    if y_range is not None:
+        mask &= (node_y >= y_range[0]) & (node_y <= y_range[1])
+
+    node_x, node_y, node_values = node_x[mask], node_y[mask], node_values[mask]
+
+    nx = max(2, int(np.ceil((node_x.max() - node_x.min()) / resolution)))
+    ny = max(2, int(np.ceil((node_y.max() - node_y.min()) / resolution)))
+    xi = np.linspace(node_x.min(), node_x.max(), nx)
+    yi = np.linspace(node_y.min(), node_y.max(), ny)
+    xi_grid, yi_grid = np.meshgrid(xi, yi)
+
+    zi = griddata((node_x, node_y), node_values, (xi_grid, yi_grid), method="linear")
+    return {"xi": xi, "yi": yi, "zi": zi}
+
+
+def plot_spatial_grids(
+    grids: dict,
+    title: str,
+    cbar_label: str,
+    cmap: str = "YlOrRd",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    fig: plt.Figure = None,
+) -> plt.Figure:
+    """Cartopy heatmap(s) of precomputed (xi, yi, zi) grids, one subplot per entry.
+
+    Shares the map layout/styling with `plot_spatial_error`, but operates on
+    already-interpolated grids (e.g. loaded from a file produced by a
+    precompute script) instead of raw per-node data, so the expensive
+    griddata interpolation does not need to be redone just to plot.
+
+    Args:
+        grids: Mapping of panel name -> dict with 'xi', 'yi', 'zi' (as returned
+            by `compute_spatial_grid`), e.g. {'experiment_a': {...}, 'ground_truth': {...}}.
+        title: Figure-wide title.
+        cbar_label: Label for the shared colorbar.
+        cmap: Matplotlib colormap name.
+        vmin: Optional colorbar lower bound (auto-detected from the grids if not given).
+        vmax: Optional colorbar upper bound (auto-detected from the grids if not given).
+        fig: Optional existing Figure to draw on (only used for a single panel). A new
+            figure is always created for multiple panels.
+
+    Returns:
+        The matplotlib Figure with the plot(s).
+    """
+    try:
+        import cartopy.crs as ccrs
+        import cartopy.feature as cfeature
+    except ImportError as exc:
+        raise ImportError("cartopy is required for plot_spatial_grids.") from exc
+
+    names = list(grids)
+    if vmin is None:
+        vmin = float(min(np.nanmin(g["zi"]) for g in grids.values()))
+    if vmax is None:
+        vmax = float(max(np.nanmax(g["zi"]) for g in grids.values()))
+
+    n = len(names)
+    ncols = min(n, 3)
+    nrows = int(np.ceil(n / ncols))
+    projection = ccrs.Orthographic(central_longitude=4.5, central_latitude=53.5)
+
+    if n == 1 and fig is not None:
+        axes = [fig.gca()]
+        _own_fig = False
+    else:
+        fig, axes_arr = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(6 * ncols + 1, 6 * nrows),
+            subplot_kw={"projection": projection},
+            squeeze=False,
+        )
+        axes = axes_arr.ravel().tolist()
+        _own_fig = True
+        fig.subplots_adjust(top=0.88, right=0.87, hspace=0.35, wspace=0.1)
+
+    pcm = None
+    for ax, name in zip(axes, names):
+        g = grids[name]
+        pcm = ax.pcolormesh(
+            g["xi"],
+            g["yi"],
+            g["zi"],
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            transform=ccrs.UTM(32),
+            zorder=1,
+        )
+        ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=2)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="black", zorder=3)
+        ax.coastlines(zorder=4)
+        ax.set_title(name)
+
+    # Hide unused axes (when n is not a multiple of ncols).
+    for ax in axes[n:]:
+        ax.set_visible(False)
+
+    # Single shared colorbar in a dedicated strip on the right.
+    if pcm is not None:
+        if _own_fig:
+            cbar_ax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
+        else:
+            cbar_ax = None
+        fig.colorbar(pcm, cax=cbar_ax, ax=None if cbar_ax else axes[:n], label=cbar_label)
+
+    fig.suptitle(title, y=0.98)
+    return fig
+
+
 def plot_spatial_error(
     ds: xr.Dataset,
     experiment,
@@ -505,16 +650,6 @@ def plot_spatial_error(
     Returns:
         The matplotlib Figure with the plot(s).
     """
-    try:
-        import cartopy.crs as ccrs
-        import cartopy.feature as cfeature
-    except ImportError as exc:
-        raise ImportError("cartopy is required for plot_spatial_error.") from exc
-    try:
-        from scipy.interpolate import griddata
-    except ImportError as exc:
-        raise ImportError("scipy is required for plot_spatial_error.") from exc
-
     if metric not in ("rmse", "bias"):
         raise ValueError(f"metric must be 'rmse' or 'bias', got '{metric}'.")
 
@@ -546,103 +681,32 @@ def plot_spatial_error(
         node_y_da = node_y_da.isel(experiment=0)
     node_y = node_y_da.values
 
-    # Optional sub-domain mask (same for all experiments).
-    mask = np.ones(len(node_x), dtype=bool)
-    if x_range is not None:
-        mask &= (node_x >= x_range[0]) & (node_x <= x_range[1])
-    if y_range is not None:
-        mask &= (node_y >= y_range[0]) & (node_y <= y_range[1])
-
-    node_x = node_x[mask]
-    node_y = node_y[mask]
-
-    # Regular grid (shared across experiments).
-    nx = max(2, int(np.ceil((node_x.max() - node_x.min()) / resolution)))
-    ny = max(2, int(np.ceil((node_y.max() - node_y.min()) / resolution)))
-    xi = np.linspace(node_x.min(), node_x.max(), nx)
-    yi = np.linspace(node_y.min(), node_y.max(), ny)
-    xi_grid, yi_grid = np.meshgrid(xi, yi)
-
     gt = ds[variable].sel(experiment="ground_truth").isel(time=t_slice).values  # (n_time, n_nodes)
 
     # --- Compute per-experiment interpolated grids ---------------------------
-    grids = []
+    grids = {}
     for exp in experiments:
         pred = ds[variable].sel(experiment=exp).isel(time=t_slice).values
         error = pred - gt
 
-        if metric == "rmse":
-            node_error = np.sqrt(np.nanmean(error**2, axis=0))[mask]
-        else:
-            node_error = np.nanmean(error, axis=0)[mask]
-
-        zi = griddata((node_x, node_y), node_error, (xi_grid, yi_grid), method="linear")
-        grids.append(zi)
+        node_error = np.sqrt(np.nanmean(error**2, axis=0)) if metric == "rmse" else np.nanmean(error, axis=0)
+        grids[exp] = compute_spatial_grid(
+            node_x, node_y, node_error, resolution=resolution, x_range=x_range, y_range=y_range
+        )
 
     # --- Common color range --------------------------------------------------
     if metric == "rmse":
         cmap = "YlOrRd"
         vmin = 0.0
-        vmax = float(max(np.nanmax(z) for z in grids))
+        vmax = float(max(np.nanmax(g["zi"]) for g in grids.values()))
     else:
         cmap = "RdBu_r"
-        max_abs = float(max(np.nanmax(np.abs(z)) for z in grids))
+        max_abs = float(max(np.nanmax(np.abs(g["zi"])) for g in grids.values()))
         vmin, vmax = -max_abs, max_abs
 
-    # --- Layout --------------------------------------------------------------
-    n_exp = len(experiments)
-    ncols = min(n_exp, 3)
-    nrows = int(np.ceil(n_exp / ncols))
-    projection = ccrs.Orthographic(central_longitude=4.5, central_latitude=53.5)
-
-    if n_exp == 1 and fig is not None:
-        axes = [fig.gca()]
-        _own_fig = False
-    else:
-        fig, axes_arr = plt.subplots(
-            nrows,
-            ncols,
-            figsize=(6 * ncols + 1, 6 * nrows),
-            subplot_kw={"projection": projection},
-            squeeze=False,
-        )
-        axes = axes_arr.ravel().tolist()
-        _own_fig = True
-        fig.subplots_adjust(top=0.88, right=0.87, hspace=0.35, wspace=0.1)
-
-    pcm = None
-    for ax, exp, zi in zip(axes, experiments, grids):
-        pcm = ax.pcolormesh(
-            xi,
-            yi,
-            zi,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            transform=ccrs.UTM(32),
-            zorder=1,
-        )
-        ax.add_feature(cfeature.LAND, facecolor="lightgray", zorder=2)
-        ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="black", zorder=3)
-        ax.coastlines(zorder=4)
-        ax.set_title(exp)
-
-    # Hide unused axes (when n_exp is not a multiple of ncols).
-    for ax in axes[n_exp:]:
-        ax.set_visible(False)
-
-    # Single shared colorbar in a dedicated strip on the right.
     unit_str = f" ({unit})" if unit else ""
     cbar_label = f"{metric.upper()} ({variable}){unit_str}"
-    if pcm is not None:
-        if _own_fig:
-            cbar_ax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
-        else:
-            cbar_ax = None
-        fig.colorbar(pcm, cax=cbar_ax, ax=None if cbar_ax else axes[:n_exp], label=cbar_label)
-
-    # Figure-wide title.
     time_str = t0_label if t1_label is None else f"{t0_label} … {t1_label}"
-    fig.suptitle(f"{metric.upper()} ({variable}){unit_str}\n{time_str}", y=0.98)
+    title = f"{metric.upper()} ({variable}){unit_str}\n{time_str}"
 
-    return fig
+    return plot_spatial_grids(grids, title=title, cbar_label=cbar_label, cmap=cmap, vmin=vmin, vmax=vmax, fig=fig)
