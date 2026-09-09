@@ -162,15 +162,6 @@ class AutoregressiveMixin:
 
         per_sample_loss = self.criterion(preds, y_win)  # (rows, T, C)
 
-        # Focal-style regression (GraphWWMEmulator only): weight each sample's
-        # MSE by |error|^gamma so that large-error samples contribute more.
-        # No-op for non-graph subclasses, which never set `self.focal_gamma`.
-        focal_gamma = getattr(self, "focal_gamma", None)
-        if focal_gamma is not None and focal_gamma > 0.0:
-            with torch.no_grad():
-                focal_weight = (preds - y_win).abs().pow(focal_gamma)
-            per_sample_loss = per_sample_loss * focal_weight
-
         weighted_loss = per_sample_loss * sample_weights
 
         per_variable_losses = {}

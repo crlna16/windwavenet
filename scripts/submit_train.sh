@@ -130,10 +130,14 @@ COMMANDS=(
     "uv run python src/train.py experiment=swh_1h_mlp_ar trainer.devices=1 data.rollout_steps=3  logger.wandb.project=wwm-emulator-sweeps seed=25826"
     "uv run python src/train.py experiment=swh_1h_mlp_ar trainer.devices=1 data.rollout_steps=6  logger.wandb.project=wwm-emulator-sweeps seed=25826"
     "uv run python src/train.py experiment=swh_1h_mlp_ar trainer.devices=1 data.rollout_steps=24 logger.wandb.project=wwm-emulator-sweeps seed=25826"
-    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=1  logger.wandb.project=wwm-emulator-sweeps seed=25826 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
-    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=3  logger.wandb.project=wwm-emulator-sweeps seed=25826 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
-    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=6  logger.wandb.project=wwm-emulator-sweeps seed=25826 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
-    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=24 logger.wandb.project=wwm-emulator-sweeps seed=25826 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=1  logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=3  logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=6  logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_lstm_ar trainer.devices=1 data.rollout_steps=24 logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn_ar trainer.devices=1 data.rollout_steps=1 data.batch_size=64 logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-vn_ar trainer.devices=1 data.rollout_steps=6 data.batch_size=64 logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn_ar trainer.devices=1 data.rollout_steps=1 data.batch_size=64 logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
+    "uv run python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn_ar trainer.devices=1 data.rollout_steps=6 data.batch_size=64 logger.wandb.project=wwm-emulator-sweeps seed=25826 trainer.max_epochs=5 data.node_idx_csv=src/data/node_selection/node_idx_closest_center_graph-tuning.csv"
 
 
 

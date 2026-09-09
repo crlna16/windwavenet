@@ -37,7 +37,6 @@ class ARGraphWWMEmulator(AutoregressiveMixin, GraphWWMEmulator):
         loss_weights: Optional[Dict[str, float]] = None,
         target_bins: Optional[Dict[str, List[float]]] = None,
         output_constraints: Optional[Dict[str, str]] = None,
-        focal_gamma: Optional[float] = None,
     ) -> None:
         """Initialize the autoregressive graph WWM Emulator.
 
@@ -52,7 +51,6 @@ class ARGraphWWMEmulator(AutoregressiveMixin, GraphWWMEmulator):
             loss_weights: Optional dict mapping target names to loss weights.
             target_bins: Optional dict mapping target names to bin edges for binned metrics.
             output_constraints: Optional dict mapping target names to constraint types.
-            focal_gamma: Optional focal-regression exponent (see ``GraphWWMEmulator``).
         """
         super().__init__(
             backbone=backbone,
@@ -62,7 +60,6 @@ class ARGraphWWMEmulator(AutoregressiveMixin, GraphWWMEmulator):
             loss_weights=loss_weights,
             target_bins=target_bins,
             output_constraints=output_constraints,
-            focal_gamma=focal_gamma,
         )
         self._init_autoregressive(rollout_steps=rollout_steps, rollout_detach=rollout_detach)
         self.save_hyperparameters("rollout_steps", "rollout_detach", logger=False)

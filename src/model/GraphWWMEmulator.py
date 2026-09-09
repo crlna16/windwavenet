@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import torch
 
@@ -18,10 +18,8 @@ class GraphWWMEmulator(WWMEmulator):
     responsible for extracting x, edge_index, etc.
     """
 
-    def __init__(self, *args, focal_gamma: Optional[float] = None, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.focal_gamma = focal_gamma
-        self.save_hyperparameters("focal_gamma", logger=False)
 
     def forward(self, data) -> torch.Tensor:
         """Forward pass — delegates the PyG Batch to the backbone.
@@ -62,13 +60,6 @@ class GraphWWMEmulator(WWMEmulator):
         sample_weight = getattr(batch, "sample_weight", None)
         if sample_weight is not None:
             per_sample_loss = per_sample_loss * sample_weight
-
-        # Focal-style regression: weight each sample's MSE by |error|^gamma
-        # so that large-error (rare/extreme) samples contribute more.
-        if self.focal_gamma is not None and self.focal_gamma > 0.0:
-            with torch.no_grad():
-                focal_weight = (preds - y).abs().pow(self.focal_gamma)
-            per_sample_loss = per_sample_loss * focal_weight
 
         per_variable_losses = {}
         for i, name in enumerate(self.target_names):
