@@ -28,9 +28,10 @@ Supported model families (auto-detected from ``data._target_``):
 - ``SequenceGraphWWMDataModule``      → graph models with sequences at all nodes
 - ``CenterHistoryGraphWWMDataModule`` → MultiHeadGATLSTMVN
 
-Graph models are evaluated over the full mesh with the same domain
-partitioning options as ``predict_gcn.py`` (overlapping BFS-ball by default,
-or disjoint via ``rollout.disjoint_partition=true``).
+Graph models are evaluated over the full mesh with the same disjoint domain
+partitioning as ``predict_gcn.py``: every node belongs to exactly one
+sub-graph, sized within ``+/- rollout.disjoint_partition_tolerance`` of
+``data.max_nodes``.
 
 Usage::
 
@@ -299,26 +300,18 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
         ds = ds.drop_vars([v for v in graph_features if v in ds], errors="ignore")
 
         max_nodes_per_partition = int(cfg.data.max_nodes)
-        if bool(cfg.rollout.get("disjoint_partition", False)):
-            tolerance = float(cfg.rollout.get("disjoint_partition_tolerance", 0.1))
-            log.info(
-                f"Partitioning domain (disjoint) with target_nodes={max_nodes_per_partition}, tolerance={tolerance} ..."
-            )
-            partitions = gu.partition_domain_disjoint(
-                n_nodes=n_nodes,
-                adjacency=adjacency,
-                node_x=node_x,
-                node_y=node_y,
-                target_nodes=max_nodes_per_partition,
-                tolerance=tolerance,
-            )
-        else:
-            log.info("Partitioning domain ...")
-            partitions = gu.partition_domain(
-                n_nodes=n_nodes,
-                adjacency=adjacency,
-                max_nodes=max_nodes_per_partition,
-            )
+        tolerance = float(cfg.rollout.get("disjoint_partition_tolerance", 0.1))
+        log.info(
+            f"Partitioning domain (disjoint) with target_nodes={max_nodes_per_partition}, tolerance={tolerance} ..."
+        )
+        partitions = gu.partition_domain_disjoint(
+            n_nodes=n_nodes,
+            adjacency=adjacency,
+            node_x=node_x,
+            node_y=node_y,
+            target_nodes=max_nodes_per_partition,
+            tolerance=tolerance,
+        )
         edge_weight_scale = float(cfg.data.edge_weight_scale)
         edge_weights = [
             gu.compute_edge_weights(edge_index, subgraph_nodes, node_x, node_y, scale=edge_weight_scale)

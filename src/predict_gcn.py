@@ -196,28 +196,20 @@ def _predict_single_range_gcn(
     ds = ds.drop_vars([v for v in graph_features if v in ds], errors="ignore")
 
     # ------------------------------------------------------------------
-    # 3.  Partition domain into covering sub-graphs
+    # 3.  Partition domain into disjoint sub-graphs
     # ------------------------------------------------------------------
     max_nodes: int = int(cfg.data.max_nodes)
+    tolerance: float = float(cfg.get("disjoint_partition_tolerance", 0.1))
 
-    if cfg.get("disjoint_partition", False):
-        tolerance: float = float(cfg.get("disjoint_partition_tolerance", 0.1))
-        log.info(f"Partitioning domain (disjoint) with target_nodes={max_nodes}, tolerance={tolerance} ...")
-        partitions = gu.partition_domain_disjoint(
-            n_nodes=n_nodes,
-            adjacency=adjacency,
-            node_x=node_x,
-            node_y=node_y,
-            target_nodes=max_nodes,
-            tolerance=tolerance,
-        )
-    else:
-        log.info(f"Partitioning domain with max_nodes={max_nodes} ...")
-        partitions = gu.partition_domain(
-            n_nodes=n_nodes,
-            adjacency=adjacency,
-            max_nodes=max_nodes,
-        )
+    log.info(f"Partitioning domain with target_nodes={max_nodes}, tolerance={tolerance} ...")
+    partitions = gu.partition_domain_disjoint(
+        n_nodes=n_nodes,
+        adjacency=adjacency,
+        node_x=node_x,
+        node_y=node_y,
+        target_nodes=max_nodes,
+        tolerance=tolerance,
+    )
 
     # Precompute edge weights for every partition
     edge_weight_scale: float = float(cfg.data.edge_weight_scale)

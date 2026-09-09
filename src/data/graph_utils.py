@@ -251,47 +251,6 @@ def compute_edge_weights(
 # ---------------------------------------------------------------------------
 
 
-def partition_domain(
-    n_nodes: int,
-    adjacency: Dict[int, List[int]],
-    max_nodes: int,
-) -> List[Tuple[int, np.ndarray, torch.Tensor, int]]:
-    """Partition all mesh nodes into a covering set of BFS sub-graphs.
-
-    Greedy set-cover: iterate nodes in order 0..n_nodes-1, pick the first
-    uncovered node as center, BFS-expand its sub-graph, mark all nodes in the
-    sub-graph as covered (including any overlap at the boundaries), repeat
-    until every node is covered.
-
-    Args:
-        n_nodes: Total number of mesh nodes.
-        adjacency: 0-indexed adjacency list.
-        max_nodes: BFS node count cap per sub-graph.
-
-    Returns:
-        List of ``(center_pos, subgraph_nodes, edge_index, center_local_idx)``
-        tuples, one per partition.
-    """
-    covered = np.zeros(n_nodes, dtype=bool)
-    partitions = []
-
-    for node in range(n_nodes):
-        if covered[node]:
-            continue
-
-        subgraph_nodes, edge_index, center_local_idx = build_subgraph(
-            center_pos=node,
-            adjacency=adjacency,
-            max_nodes=max_nodes,
-        )
-
-        covered[subgraph_nodes] = True
-        partitions.append((node, subgraph_nodes, edge_index, center_local_idx))
-
-    log.info(f"Domain partitioned into {len(partitions)} sub-graphs covering {covered.sum()}/{n_nodes} nodes.")
-    return partitions
-
-
 def _subgraph_center(
     subgraph_nodes: np.ndarray,
     node_x: np.ndarray,
@@ -330,12 +289,12 @@ def partition_domain_disjoint(
 ) -> List[Tuple[int, np.ndarray, torch.Tensor, int]]:
     """Partition all mesh nodes into *disjoint* BFS sub-graphs.
 
-    Unlike :func:`partition_domain`, every node belongs to exactly one
-    sub-graph (no overlap), so full-domain metrics are not biased by nodes
-    being overwritten with predictions from a far-away center.  This comes at
-    the cost of a fuzzy sub-graph size: each patch targets ``target_nodes``
-    nodes but is allowed to vary within ``+/- tolerance`` because the mesh
-    cannot be tiled exactly into equal fixed-count patches.
+    Every node belongs to exactly one sub-graph (no overlap), so full-domain
+    metrics are not biased by nodes being overwritten with predictions from a
+    far-away center.  This comes at the cost of a fuzzy sub-graph size: each
+    patch targets ``target_nodes`` nodes but is allowed to vary within
+    ``+/- tolerance`` because the mesh cannot be tiled exactly into equal
+    fixed-count patches.
 
     Greedy region growing: iterate nodes 0..n_nodes-1, pick the first
     uncovered node as a seed, BFS-expand *only into still-uncovered nodes*
@@ -345,8 +304,7 @@ def partition_domain_disjoint(
     push that patch above the upper bound, which is accepted to preserve
     exact, single coverage.  The reported center of each patch is *not* the
     seed (which lies on the patch edge) but the node closest to the midpoint of
-    the patch's x/y bounding box, so it is geometrically central like the
-    BFS-ball center used in overlap-allowing inference.
+    the patch's x/y bounding box, so it is geometrically central.
 
     Args:
         n_nodes: Total number of mesh nodes.

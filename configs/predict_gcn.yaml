@@ -35,17 +35,10 @@ test_metrics: true
 # number of sub-graphs packed into a single PyG Batch per forward pass
 batch_size_graphs: 32
 
-# domain partitioning strategy for full-domain inference:
-#   false -> overlap-allowing greedy set cover (default; each sub-graph has
-#            exactly max_nodes nodes, boundary nodes may appear in several
-#            sub-graphs and are resolved by first-seen ownership)
-#   true  -> disjoint partitioning (every node belongs to exactly one
-#            sub-graph; sub-graph size varies within +/- disjoint_partition_tolerance
-#            of max_nodes). Avoids overwriting far-from-center nodes in
-#            whole-domain test metrics.
-disjoint_partition: false
-
-# fractional size slack for disjoint partitioning (only used when disjoint_partition=true)
+# domain partitioning strategy for full-domain inference: disjoint BFS
+# sub-graphs (every node belongs to exactly one sub-graph; sub-graph size
+# varies within +/- disjoint_partition_tolerance of max_nodes). Avoids
+# overwriting far-from-center nodes in whole-domain test metrics.
 disjoint_partition_tolerance: 0.1
 
 

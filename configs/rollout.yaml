@@ -51,12 +51,9 @@ rollout:
   # Roughly doubles inference cost; set false to skip.
   teacher_forced: true
 
-  # Graph models only. false (default) -> overlapping BFS-ball partitioning
-  # (same as predict_gcn.py's default): sub-graphs may overlap at the
-  # boundaries, resolved via first-seen-wins ownership. true -> disjoint
-  # partitioning: every node belongs to exactly one sub-graph; sub-graph size
-  # varies within +/- disjoint_partition_tolerance of data.max_nodes.
-  disjoint_partition: true
+  # Graph models only. Disjoint domain partitioning: every node belongs to
+  # exactly one sub-graph; sub-graph size varies within
+  # +/- disjoint_partition_tolerance of data.max_nodes.
   disjoint_partition_tolerance: 0.1
 
 ## ------------------------------------

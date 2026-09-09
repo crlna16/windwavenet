@@ -510,6 +510,24 @@ def compute_spatial_grid(
     return {"xi": xi, "yi": yi, "zi": zi}
 
 
+def spatial_grid_from_dataarray(da: xr.DataArray) -> dict:
+    """Convert a 2-D (y, x) DataArray with 'x'/'y' coordinates into the {'xi', 'yi',
+    'zi'} format expected by `plot_spatial_grids` (e.g. a grid loaded from a file
+    produced by a precompute script such as `compute_spatial_metrics.py`, where
+    grids are stored as named data variables/coordinates rather than 'zi').
+
+    Args:
+        da: 2-D DataArray with dims ('y', 'x') and matching 'x'/'y' coordinates.
+
+    Returns:
+        Dict with 'xi', 'yi' (1-D grid axes) and 'zi' (2-D grid values), ready to
+        pass (e.g. as one entry of `grids`) to `plot_spatial_grids`.
+    """
+    if set(da.dims) != {"y", "x"}:
+        raise ValueError(f"Expected dims ('y', 'x'), got {da.dims}")
+    return {"xi": da["x"].values, "yi": da["y"].values, "zi": da.values}
+
+
 def plot_spatial_grids(
     grids: dict,
     title: str,
