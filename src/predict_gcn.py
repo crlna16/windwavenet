@@ -209,6 +209,7 @@ def _predict_single_range_gcn(
         node_y=node_y,
         target_nodes=max_nodes,
         tolerance=tolerance,
+        excluded_nodes=boundary_positions,
     )
 
     # Precompute edge weights for every partition
@@ -360,10 +361,16 @@ def _predict_single_range_gcn(
         Y_all = Y_all[time_start:]  # align with trimmed predictions
         # Y_all shape: (n_valid_time, n_nodes, n_targets)  — same space as all_predictions
 
-        # Exclude boundary nodes (NaN positions) from metrics
+        # Exclude nodes that no partition owns (boundary nodes) — they stay NaN.
         valid_mask = ~np.isnan(all_predictions[:, :, 0])
-        n_excluded = n_nodes - valid_mask[0].sum() if boundary_positions is not None else 0
-        log.info(f"Metrics exclude {n_excluded} boundary nodes ({valid_mask.sum()} valid samples).")
+        n_excluded = int(n_nodes - valid_mask[0].sum())
+        n_boundary = 0 if boundary_positions is None else len(boundary_positions)
+        log.info(f"Metrics exclude {n_excluded} unpredicted nodes ({valid_mask.sum()} valid samples).")
+        if n_excluded != n_boundary:
+            log.warning(
+                f"{n_excluded} nodes are unpredicted but {n_boundary} boundary nodes were configured — "
+                "the mesh has nodes outside every partition."
+            )
 
         metrics: Dict[str, float] = {}
         for target_idx, target_name in enumerate(targets):

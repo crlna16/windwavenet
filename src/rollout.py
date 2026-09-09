@@ -311,6 +311,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             node_y=node_y,
             target_nodes=max_nodes_per_partition,
             tolerance=tolerance,
+            excluded_nodes=boundary_positions,
         )
         edge_weight_scale = float(cfg.data.edge_weight_scale)
         edge_weights = [

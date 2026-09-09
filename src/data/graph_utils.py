@@ -11,7 +11,7 @@ prediction scripts share the same logic.
 """
 
 from collections import defaultdict, deque
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -286,6 +286,7 @@ def partition_domain_disjoint(
     node_y: np.ndarray,
     target_nodes: int,
     tolerance: float = 0.1,
+    excluded_nodes: Optional[np.ndarray] = None,
 ) -> List[Tuple[int, np.ndarray, torch.Tensor, int]]:
     """Partition all mesh nodes into *disjoint* BFS sub-graphs.
 
@@ -314,16 +315,27 @@ def partition_domain_disjoint(
         target_nodes: Desired node count per sub-graph.
         tolerance: Fractional size slack; bounds are
             ``[target_nodes * (1 - tolerance), target_nodes * (1 + tolerance)]``.
+        excluded_nodes: Optional array of 0-indexed node positions to leave out
+            of the partitioning entirely — pass the same boundary nodes that
+            were removed from *adjacency*.  Without this they would each be
+            seeded as their own single-node patch (their neighbours are gone,
+            so BFS cannot grow) and would be predicted from their own features
+            alone, a configuration the model never sees in training.
 
     Returns:
         List of ``(center_pos, subgraph_nodes, edge_index, center_local_idx)``
         tuples, one per partition.  The partitions' ``subgraph_nodes`` are
-        mutually disjoint and their union is all ``n_nodes`` nodes.
+        mutually disjoint and their union is every node except *excluded_nodes*.
     """
     min_nodes = max(1, int(round(target_nodes * (1.0 - tolerance))))
     max_nodes = int(round(target_nodes * (1.0 + tolerance)))
 
     covered = np.zeros(n_nodes, dtype=bool)
+    # Marking excluded nodes as covered keeps them out of both the seed loop and
+    # BFS growth, so no partition ever contains or owns them.
+    if excluded_nodes is not None and len(excluded_nodes) > 0:
+        covered[np.asarray(excluded_nodes, dtype=int)] = True
+    n_excluded = int(covered.sum())
     # Each entry: {"nodes": set[int] | None}; None marks a merged-away patch.
     # The center node is chosen later (post-merge) as the graph-central node.
     patches: List[Dict] = []
@@ -394,6 +406,15 @@ def partition_domain_disjoint(
     total = sum(len(sn) for _, sn, _, _ in partitions)
     log.info(
         f"Disjoint partitioning: {len(partitions)} sub-graphs, {n_merged} undersized patches merged, "
-        f"covering {total}/{n_nodes} nodes (target {target_nodes} +/- {tolerance:.0%})."
+        f"covering {total}/{n_nodes - n_excluded} partitionable nodes ({n_excluded} excluded) "
+        f"(target {target_nodes} +/- {tolerance:.0%})."
     )
+
+    n_singletons = sum(1 for _, sn, _, _ in partitions if len(sn) == 1)
+    if n_singletons:
+        log.warning(
+            f"{n_singletons} single-node sub-graph(s) remain: those nodes have no neighbours left in the "
+            "adjacency, so their prediction rests on their own features alone. Pass them via "
+            "`excluded_nodes` if they should not be predicted at all."
+        )
     return partitions
