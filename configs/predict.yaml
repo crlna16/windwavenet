@@ -37,6 +37,9 @@ seed: null
 
 test_metrics: false # run additional test pass
 
+# nodes per forward pass (vectorized inference, no DataLoader batching)
+node_chunk_size: 65536
+
 ## ------------------------------------
 ## Default configuration for evaluating
 ## ------------------------------------
@@ -107,6 +110,7 @@ logger:
     entity: wwm-emulator
     log_model: False # upload lightning ckpts
 
+# Present so experiment configs can override it; the script itself does not use a Lightning Trainer.
 trainer:
   _target_: lightning.pytorch.trainer.Trainer
   min_epochs: 1
