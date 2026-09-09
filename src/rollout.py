@@ -13,7 +13,12 @@ emulator's OWN prediction at the previous step instead of from ground truth.
 
 The rollout starts from a ground-truth initial state and runs over the test
 day range.  Errors are reported per lead time (hours since the last observed
-wave state), next to a persistence baseline that holds the initial state.
+wave state), next to two baselines:
+
+- persistence: holds the last observed state constant for all lead times.
+- teacher-forced: same model, but ``prev_<target>`` features always come
+  from ground truth instead of the model's own rolled-forward prediction —
+  isolates the one-step model error from the compounding autoregressive error.
 
 Supported model families (auto-detected from ``data._target_``):
 
@@ -23,8 +28,9 @@ Supported model families (auto-detected from ``data._target_``):
 - ``SequenceGraphWWMDataModule``      → graph models with sequences at all nodes
 - ``CenterHistoryGraphWWMDataModule`` → MultiHeadGATLSTMVN
 
-Graph models are evaluated over the full mesh with the same greedy domain
-partitioning as ``predict_gcn.py``.
+Graph models are evaluated over the full mesh with the same domain
+partitioning options as ``predict_gcn.py`` (overlapping BFS-ball by default,
+or disjoint via ``rollout.disjoint_partition=true``).
 
 Usage::
 
@@ -292,12 +298,27 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             adjacency = gu.remove_boundary_nodes(adjacency, boundary_positions)
         ds = ds.drop_vars([v for v in graph_features if v in ds], errors="ignore")
 
-        log.info("Partitioning domain ...")
-        partitions = gu.partition_domain(
-            n_nodes=n_nodes,
-            adjacency=adjacency,
-            max_nodes=int(cfg.data.max_nodes),
-        )
+        max_nodes_per_partition = int(cfg.data.max_nodes)
+        if bool(cfg.rollout.get("disjoint_partition", False)):
+            tolerance = float(cfg.rollout.get("disjoint_partition_tolerance", 0.1))
+            log.info(
+                f"Partitioning domain (disjoint) with target_nodes={max_nodes_per_partition}, tolerance={tolerance} ..."
+            )
+            partitions = gu.partition_domain_disjoint(
+                n_nodes=n_nodes,
+                adjacency=adjacency,
+                node_x=node_x,
+                node_y=node_y,
+                target_nodes=max_nodes_per_partition,
+                tolerance=tolerance,
+            )
+        else:
+            log.info("Partitioning domain ...")
+            partitions = gu.partition_domain(
+                n_nodes=n_nodes,
+                adjacency=adjacency,
+                max_nodes=max_nodes_per_partition,
+            )
         edge_weight_scale = float(cfg.data.edge_weight_scale)
         edge_weights = [
             gu.compute_edge_weights(edge_index, subgraph_nodes, node_x, node_y, scale=edge_weight_scale)
@@ -362,6 +383,31 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             center_history,
         )
 
+    # Teacher-forced predictor: identical model, but bound to a frozen copy of
+    # the ground-truth buffer so prev_* feedback is never overwritten with
+    # the model's own predictions.
+    teacher_forced = bool(cfg.rollout.get("teacher_forced", True))
+    step_tf = None
+    if teacher_forced:
+        X_all_truth = X_all.copy()
+        if mode == "pointwise":
+            step_tf = make_pointwise_predictor(model, X_all_truth, device, node_chunk_size)
+        elif mode == "sequence":
+            step_tf = make_sequence_predictor(model, X_all_truth, seq_len, device, node_chunk_size)
+        else:
+            step_tf = make_graph_predictor(
+                model,
+                X_all_truth,
+                partitions,
+                edge_weights,
+                owned_map,
+                n_targets,
+                device,
+                batch_size_graphs,
+                seq_len,
+                center_history,
+            )
+
     # ------------------------------------------------------------------
     # 6.  Rollout loop
     # ------------------------------------------------------------------
@@ -376,11 +422,14 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     log.info(f"Rollout: {n_leads} steps starting at time index {t_first} (anchor at {t_first - 1}).")
 
     preds_out = np.full((n_time_eff, n_nodes, n_targets), np.nan, dtype=np.float32)
+    preds_tf_out = np.full((n_time_eff, n_nodes, n_targets), np.nan, dtype=np.float32) if teacher_forced else None
 
     with torch.no_grad():
         for t in range(t_first, n_time_eff):
             y_hat = step(t)  # (n_nodes, n_targets), physical units
             preds_out[t] = y_hat
+            if teacher_forced:
+                preds_tf_out[t] = step_tf(t)
 
             if t + 1 < n_time_eff:
                 for f_idx, t_idx, mean, std in feedback:
@@ -404,6 +453,8 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     # NaN-out boundary node predictions for fair comparison and metrics.
     if boundary_positions is not None:
         preds_out[:, boundary_positions, :] = np.nan
+        if teacher_forced:
+            preds_tf_out[:, boundary_positions, :] = np.nan
 
     # ------------------------------------------------------------------
     # 7.  Lead-time metrics (model vs persistence-of-initial-state)
@@ -428,6 +479,9 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             row[f"mae_{name}"] = float(np.nanmean(np.abs(err)))
             row[f"bias_{name}"] = float(np.nanmean(err))
             row[f"rmse_persistence_{name}"] = float(np.sqrt(np.nanmean((persist - truth) ** 2)))
+            if teacher_forced:
+                pred_tf = preds_tf_out[t, valid_nodes, t_idx]
+                row[f"rmse_teacher_forced_{name}"] = float(np.sqrt(np.nanmean((pred_tf - truth) ** 2)))
 
             if name in target_bins:
                 bins = list(target_bins[name])
@@ -475,6 +529,18 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
                 )
             )
         )
+        if teacher_forced:
+            summary[f"rollout/rmse_teacher_forced_{name}"] = float(
+                np.sqrt(
+                    np.nanmean(
+                        (
+                            preds_tf_out[t_first:, valid_nodes, targets.index(name)]
+                            - Y_all[t_first:n_time_eff, valid_nodes, targets.index(name)]
+                        )
+                        ** 2
+                    )
+                )
+            )
     for key, val in summary.items():
         log.info(f"  {key}: {val:.6f}")
 

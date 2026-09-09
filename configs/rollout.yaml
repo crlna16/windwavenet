@@ -45,6 +45,20 @@ rollout:
   # Save the full rollout prediction buffer as netCDF (can be large).
   save_predictions: true
 
+  # Also compute a teacher-forced baseline (prev_* features always from
+  # ground truth instead of the model's own fed-back prediction), reported
+  # as rmse_teacher_forced_<target> alongside the persistence baseline.
+  # Roughly doubles inference cost; set false to skip.
+  teacher_forced: true
+
+  # Graph models only. false (default) -> overlapping BFS-ball partitioning
+  # (same as predict_gcn.py's default): sub-graphs may overlap at the
+  # boundaries, resolved via first-seen-wins ownership. true -> disjoint
+  # partitioning: every node belongs to exactly one sub-graph; sub-graph size
+  # varies within +/- disjoint_partition_tolerance of data.max_nodes.
+  disjoint_partition: true
+  disjoint_partition_tolerance: 0.1
+
 ## ------------------------------------
 ## Default data / model configuration
 ## (overridden by the experiment config)
