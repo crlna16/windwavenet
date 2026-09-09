@@ -31,8 +31,11 @@ tags: ["dev"]
 # set False to skip model training
 train: True
 
-# evaluate on test set, using best model weights achieved during training (as per checkpoint callback metric)
-test: True
+# evaluate on test set, using best model weights achieved during training (as per checkpoint callback metric).
+# Off by default: the test split covers the full mesh and building it alongside the train/val datasets is
+# expensive in RAM. Run `src/predict.py` (or `src/predict_gcn.py` / `src/rollout.py`) as a separate process
+# on the saved checkpoint instead, and compute metrics from the netCDF output.
+test: False
 
 # simply provide checkpoint path to resume training
 ckpt_path: null
