@@ -35,7 +35,7 @@ command:
   - python
   - ${program}
   - ${args_no_hyphens}
-  - experiment=swh_1h_multi-head-gat-lstm-vn
+  - experiment=swh_1h_gat-lstm-vn
   - logger.wandb.project=wwm-emulator-sweeps
   - data.seq_len=6
   - data.max_nodes=500

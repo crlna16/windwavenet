@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "swh_mwp_mwd_1h_multi-head-gat-vn"
+experiment_name: "swh_1h_gat"
 
 data:
   _target_: src.data.GraphWWMDataModule.GraphWWMDataModule
@@ -18,14 +18,8 @@ data:
     - depthAverageVelY
     - depth
     - prev_sigWaveHeight
-    - prev_meanWavePeriod
-    - prev_sin_meanWaveDirection
-    - prev_cos_meanWaveDirection
   targets:
     - sigWaveHeight
-    - meanWavePeriod
-    - sin_meanWaveDirection
-    - cos_meanWaveDirection
   graph_features:
     - SCHISM_hgrid_edge_nodes
   sample_weight_strategy: histogram
@@ -50,9 +44,9 @@ model:
     sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
   backbone:
-    _target_: src.model.backbones.MultiHeadGATVN.MultiHeadGATVN
-    input_dim: 10         # must match len(data.features)
-    output_dim: 4        # must match len(data.targets)
+    _target_: src.model.backbones.MultiHeadGAT.MultiHeadGAT
+    input_dim: 7         # must match len(data.features)
+    output_dim: 1        # must match len(data.targets)
     hidden_dim: 64
     num_layers: 9
     heads: 1            # attention heads (hidden_dim must be divisible)
@@ -65,13 +59,11 @@ model:
 
   output_constraints:
     sigWaveHeight: semipositive
-    sin_meanWaveDirection: unit_circle
-    cos_meanWaveDirection: unit_circle
 
 trainer:
-  devices: 4
+  devices: 4 # if 2, set accumulate_grad_batches for effective batch size of 1024
 
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-    tags: ["swh-mwp-mwd-1h", "gat-vn"]
+    tags: ["swh-1h", "gat"]

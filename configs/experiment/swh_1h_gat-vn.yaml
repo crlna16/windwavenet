@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "swh_1h_multi-head-gat"
+experiment_name: "swh_1h_gat-vn"
 
 data:
   _target_: src.data.GraphWWMDataModule.GraphWWMDataModule
@@ -44,7 +44,7 @@ model:
     sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
   backbone:
-    _target_: src.model.backbones.MultiHeadGAT.MultiHeadGAT
+    _target_: src.model.backbones.MultiHeadGATVN.MultiHeadGATVN
     input_dim: 7         # must match len(data.features)
     output_dim: 1        # must match len(data.targets)
     hidden_dim: 64
@@ -61,9 +61,9 @@ model:
     sigWaveHeight: semipositive
 
 trainer:
-  devices: 4 # if 2, set accumulate_grad_batches for effective batch size of 1024
+  devices: 4
 
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-    tags: ["swh-1h", "gat"]
+    tags: ["swh-1h", "gat-vn"]

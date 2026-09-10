@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "swh_1h_multi-head-gat_ar"
+experiment_name: "swh_1h_gat_ar"
 
 data:
   _target_: src.data.GraphARWWMDataModule.GraphARWWMDataModule

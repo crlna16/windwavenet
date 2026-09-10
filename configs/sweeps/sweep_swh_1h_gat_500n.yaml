@@ -34,7 +34,7 @@ command:
   - python
   - ${program}
   - ${args_no_hyphens}
-  - experiment=swh_1h_multi-head-gat
+  - experiment=swh_1h_gat
   - logger.wandb.project=wwm-emulator-sweeps
   - data.max_nodes=500
   # Reduced patience for sweep economy (final training uses the longer

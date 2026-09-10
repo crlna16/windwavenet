@@ -2,10 +2,10 @@
 
 predict: false
 
-experiment_name: "swh_mwp_mwd_1h_densenet"
+experiment_name: "multi_1h_lstm"
 
 data:
-  _target_: src.data.WWMDataModule.WWMDataModule
+  _target_: src.data.SequenceWWMDataModule.SequenceWWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
   train_days: [[1, 152], [214, 305]]
   val_days: [[153, 182], [306, 335]]
@@ -26,13 +26,14 @@ data:
     - meanWavePeriod
     - sin_meanWaveDirection
     - cos_meanWaveDirection
+  seq_len: 24
   sample_weight_strategy: histogram
   sample_weight_power: 0.2
   sample_weight_variable: delta_sigWaveHeight
   scaling_config: src/data/scaling/scale_2020_8months_hourly.yaml
   node_idx_csv: src/data/node_selection/node_idx_closest_center_10000.csv
   boundary_nodes_csv: src/data/node_selection/boundary_nodes.csv
-  batch_size: 4096
+  batch_size: 1024
   # SimpleWWMDataset/SequenceWWMDataset fully preload X/y into RAM at
   # construction time, so DataLoader workers have no I/O to parallelize --
   # only duplication risk. num_workers=0 avoids that risk for free.
@@ -47,16 +48,16 @@ model:
     sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
   backbone:
-    _target_: src.model.backbones.MLP.MLP
-    input_dim: 10 # must match len(data.features)
-    output_dim: 4 # must match len(data.targets)
-    num_hidden_layers: 2 # number of hidden layers
-    first_layer_neurons: 1024 # neurons in first hidden layer
-    layer_scaling: halving # "constant" or "halving"
-    dropout_rate: 0.03 # dropout probability (0.0 = no dropout)
+    _target_: src.model.backbones.LSTMNet.LSTMNet
+    input_dim: 10
+    output_dim: 4
+    hidden_dim: 128
+    num_layers: 1
+    dropout: 0.0
+    bidirectional: false
 
   optimizer:
-    lr: 0.0004
+    lr: 0.002
 
   output_constraints:
     sigWaveHeight: semipositive
@@ -69,4 +70,4 @@ trainer:
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-    tags: ["swh-mwp-mwd-1h", "densenet"]
+    tags: ["multi-1h", "lstm"]

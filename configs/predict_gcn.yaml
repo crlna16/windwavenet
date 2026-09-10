@@ -4,7 +4,7 @@ defaults:
   - _self_ # put this here so following configs overwrite the defaults below
 
   # experiment configs drive model architecture and data fields
-  # e.g. python src/predict_gcn.py experiment=swh_1h_multi-head-gat-vn
+  # e.g. python src/predict_gcn.py experiment=swh_1h_gat-vn
   - experiment: null
 
   # config for hyperparameter optimization

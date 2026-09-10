@@ -85,17 +85,17 @@ override any field on the command line (e.g. `trainer.max_epochs=50`).
 # Train
 python src/train.py experiment=swh_1h_mlp
 python src/train.py experiment=swh_1h_lstm
-python src/train.py experiment=swh_1h_multi-head-gat-vn
-python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn
+python src/train.py experiment=swh_1h_gat-vn
+python src/train.py experiment=swh_1h_gat-lstm-vn
 
 # Evaluate / predict a checkpoint
 python src/eval.py experiment=swh_1h_mlp ckpt_path=<ckpt>
 python src/predict.py experiment=swh_1h_lstm ckpt_path=<ckpt>
-python src/predict_gcn.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
+python src/predict_gcn.py experiment=swh_1h_gat-vn ckpt_path=<ckpt>
 ```
 
 The available experiment configs (see `configs/experiment/`) cover single-target
-`swh_1h_*` and multi-target `swh_mwp_mwd_1h_*` variants for each backbone.
+`swh_1h_*` and multi-target `multi_1h_*` variants for each backbone.
 
 # Technical notes
 
@@ -142,8 +142,8 @@ how errors accumulate in the wave channel over lead time, which one-step
 ```bash
 python src/rollout.py experiment=swh_1h_mlp ckpt_path=<ckpt>
 python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt>
-python src/rollout.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
-python src/rollout.py experiment=swh_1h_multi-head-gat-lstm-vn ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_gat-vn ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_gat-lstm-vn ckpt_path=<ckpt>
 
 # limit the horizon to 48 steps
 python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt> rollout.steps=48

@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "swh_1h_multi-head-gat-lstm-vn_ar"
+experiment_name: "swh_1h_gat-lstm-vn_ar"
 
 data:
   _target_: src.data.CenterHistoryARWWMDataModule.CenterHistoryARWWMDataModule
