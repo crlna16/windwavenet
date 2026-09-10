@@ -37,10 +37,9 @@ Usage example::
 """
 
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import List, Tuple, Union
 
 import hydra
-import importlib
 import numpy as np
 import torch
 import xarray as xr
@@ -51,9 +50,9 @@ from torch_geometric.data import Batch, Data as GData
 from src.data import dataset_utils as du
 from src.data import graph_utils as gu
 from src.data.WWMDatasets import WWMGraphData
+from src.utils import predict_utils as pu
 from src.utils.pylogger import RankedLogger
-from src.utils.instantiators import instantiate_loggers
-from src.utils.utils import get_bin_mask, print_config_tree, circular_mae, circular_rmse
+from src.utils.utils import print_config_tree
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -104,32 +103,8 @@ def predict_gcn(cfg: DictConfig) -> Union[xr.Dataset, List[xr.Dataset]]:
     # ------------------------------------------------------------------
     # Load model from checkpoint (shared across all day ranges)
     # ------------------------------------------------------------------
-    log.info(f"Loading model from checkpoint: {cfg.ckpt_path}")
-    model_cls_path: str = cfg.model._target_
-    module_path, class_name = model_cls_path.rsplit(".", 1)
-
-    model_module = importlib.import_module(module_path)
-    model_cls = getattr(model_module, class_name)
-
-    backbone = hydra.utils.instantiate(cfg.model.backbone)
-    model = model_cls.load_from_checkpoint(
-        cfg.ckpt_path,
-        backbone=backbone,
-        strict=False,
-    )
-    model.eval()
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    log.info(f"Model loaded on {device}")
-
-    # Verify target names match checkpoint
-    config_targets = list(cfg.data.targets)
-    model_targets = model.target_names
-    if config_targets != model_targets:
-        raise ValueError(
-            f"Target mismatch: config specifies {config_targets} but model was trained on {model_targets}."
-        )
+    model = pu.load_model_from_checkpoint(cfg, device)
 
     is_multi_range = len(test_ranges) > 1
     results = [_predict_single_range_gcn(cfg, day_range, model, device, is_multi_range) for day_range in test_ranges]
@@ -355,92 +330,9 @@ def _predict_single_range_gcn(
     # ------------------------------------------------------------------
     # 6.  Compute test metrics (optional, numpy-only — no extra GPU pass)
     # ------------------------------------------------------------------
-    if cfg.get("test_metrics", False):
-        log.info("Computing test metrics from prediction buffer ...")
-        Y_all = np.stack([ds[t].values for t in targets], axis=-1).astype(np.float32)
-        Y_all = Y_all[time_start:]  # align with trimmed predictions
-        # Y_all shape: (n_valid_time, n_nodes, n_targets)  — same space as all_predictions
-
-        # Exclude nodes that no partition owns (boundary nodes) — they stay NaN.
-        valid_mask = ~np.isnan(all_predictions[:, :, 0])
-        n_excluded = int(n_nodes - valid_mask[0].sum())
-        n_boundary = 0 if boundary_positions is None else len(boundary_positions)
-        log.info(f"Metrics exclude {n_excluded} unpredicted nodes ({valid_mask.sum()} valid samples).")
-        if n_excluded != n_boundary:
-            log.warning(
-                f"{n_excluded} nodes are unpredicted but {n_boundary} boundary nodes were configured — "
-                "the mesh has nodes outside every partition."
-            )
-
-        metrics: Dict[str, float] = {}
-        for target_idx, target_name in enumerate(targets):
-            pred = all_predictions[:, :, target_idx][valid_mask]
-            truth = Y_all[:, :, target_idx][valid_mask]
-            rmse = float(np.sqrt(np.mean((pred - truth) ** 2)))
-            mae = float(np.mean(np.abs(pred - truth)))
-            bias = float(np.mean(pred - truth))
-            metrics[f"test/rmse_{target_name}"] = rmse
-            metrics[f"test/mae_{target_name}"] = mae
-            metrics[f"test/bias_{target_name}"] = bias
-            log.info(f"  {target_name}:  RMSE={rmse:.6f}  MAE={mae:.6f}  bias={bias:.6f}")
-
-        # Per-bin RMSE (if target_bins are configured)
-        target_bins = cfg.model.get("target_bins") or {}
-        for target_idx, target_name in enumerate(targets):
-            if target_name not in target_bins:
-                continue
-            bins = list(target_bins[target_name])
-            pred = all_predictions[:, :, target_idx][valid_mask]
-            truth = Y_all[:, :, target_idx][valid_mask]
-            for bin_idx in range(len(bins) + 1):
-                mask = get_bin_mask(truth, bins, bin_idx)
-                if mask.sum() == 0:
-                    continue
-                if bin_idx == 0:
-                    bin_label = f"<{bins[0]}"
-                elif bin_idx == len(bins):
-                    bin_label = f">={bins[-1]}"
-                else:
-                    bin_label = f"[{bins[bin_idx - 1]},{bins[bin_idx]})"
-                rmse_bin = float(np.sqrt(np.mean((pred[mask] - truth[mask]) ** 2)))
-                metrics[f"test/rmse_{target_name}_{bin_label}"] = rmse_bin
-                log.info(f"  {target_name} {bin_label}:  RMSE={rmse_bin:.6f}  (n={int(mask.sum())})")
-
-        # Circular metrics for sin/cos target pairs (e.g. sin_meanWaveDirection + cos_meanWaveDirection).
-        # Reconstructs the angle via atan2 and computes circular MAE/RMSE against the original
-        # angle variable kept in ds by preprocess_variables.
-        target_name_to_idx = {n: i for i, n in enumerate(targets)}
-        sin_targets = {n[len("sin_") :]: n for n in targets if n.startswith("sin_")}
-        cos_targets = {n[len("cos_") :]: n for n in targets if n.startswith("cos_")}
-        for base_var in sin_targets:
-            if base_var not in cos_targets:
-                continue
-            sin_name = sin_targets[base_var]
-            cos_name = cos_targets[base_var]
-            sin_pred = all_predictions[:, :, target_name_to_idx[sin_name]][valid_mask]
-            cos_pred = all_predictions[:, :, target_name_to_idx[cos_name]][valid_mask]
-            angle_pred = np.degrees(np.arctan2(sin_pred, cos_pred)) % 360.0
-            if base_var in ds:
-                angle_truth_all = ds[base_var].isel(time=slice(time_start, None)).values.astype(np.float32)
-                angle_truth = angle_truth_all[valid_mask]
-                c_mae = circular_mae(angle_pred, angle_truth)
-                c_rmse = circular_rmse(angle_pred, angle_truth)
-                metrics[f"test/circular_mae_{base_var}"] = c_mae
-                metrics[f"test/circular_rmse_{base_var}"] = c_rmse
-                log.info(f"  {base_var} (reconstructed):  circular RMSE={c_rmse:.4f}°  circular MAE={c_mae:.4f}°")
-            else:
-                log.warning(f"  Cannot compute circular metrics for {base_var}: not found in dataset.")
-
-        # Log to wandb if a logger is configured
-        loggers = instantiate_loggers(cfg.get("logger"))
-        for lgr in loggers:
-            if hasattr(lgr, "experiment"):
-                run = lgr.experiment
-                # Use summary for test metrics — not tied to training step axis
-                run.summary.update(metrics)
-                if hasattr(run, "finish"):
-                    run.finish()
-        log.info("Test metrics logged.")
+    n_boundary = 0 if boundary_positions is None else len(boundary_positions)
+    ds_out = ds.isel(time=slice(time_start, None))
+    pu.compute_test_metrics(cfg, all_predictions, ds_out, targets, n_nodes, n_boundary=n_boundary)
 
     # ------------------------------------------------------------------
     # 7.  Post-process and build output xarray Dataset
@@ -460,11 +352,7 @@ def _predict_single_range_gcn(
         },
     )
 
-    output_name = f"predictions_{test_days[0]}-{test_days[1]}.nc" if is_multi_range else "predictions.nc"
-    output_path = f"{cfg.paths.output_dir}/{output_name}"
-    log.info(f"Saving predictions to {output_path}")
-    ds_pred.to_netcdf(output_path)
-    log.info(f"Predictions saved successfully to {output_path}")
+    pu.save_predictions(ds_pred, cfg, test_days, is_multi_range)
 
     return ds_pred
 

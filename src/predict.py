@@ -16,10 +16,9 @@ prediction runs once per range and each result is saved to its own
 ``predictions_<start>-<end>.nc`` file.
 """
 
-import importlib
 import warnings
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import List, Union
 
 import hydra
 import numpy as np
@@ -29,9 +28,9 @@ from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
 
 from src.data import dataset_utils as du
-from src.utils.instantiators import instantiate_loggers
+from src.utils import predict_utils as pu
 from src.utils.pylogger import RankedLogger
-from src.utils.utils import circular_mae, circular_rmse, get_bin_mask, print_config_tree
+from src.utils.utils import print_config_tree
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -63,25 +62,8 @@ def predict(cfg: DictConfig) -> Union[xr.Dataset, List[xr.Dataset]]:
 
     test_ranges = du.normalize_day_ranges(list(cfg.data.test_days))
 
-    log.info(f"Loading model from checkpoint: {cfg.ckpt_path}")
-    module_path, class_name = cfg.model._target_.rsplit(".", 1)
-    model_cls = getattr(importlib.import_module(module_path), class_name)
-
-    backbone = hydra.utils.instantiate(cfg.model.backbone)
-    model = model_cls.load_from_checkpoint(cfg.ckpt_path, backbone=backbone, strict=False)
-    model.eval()
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    log.info(f"Model loaded on {device}")
-
-    config_targets = list(cfg.data.targets)
-    model_targets = model.target_names
-    if config_targets != model_targets:
-        raise ValueError(
-            f"Target mismatch! Config specifies {config_targets} but model was trained on {model_targets}. "
-            f"Please ensure the config targets match the model checkpoint."
-        )
+    model = pu.load_model_from_checkpoint(cfg, device)
 
     is_sequence_dataset = "Sequence" in cfg.data._target_
 
@@ -177,82 +159,7 @@ def _predict_single_range(
     # ------------------------------------------------------------------
     # Compute test metrics (optional, numpy-only — no extra forward pass)
     # ------------------------------------------------------------------
-    if cfg.get("test_metrics", False):
-        log.info("Computing test metrics from prediction buffer ...")
-        Y_all = np.stack([ds_out[t].values for t in target_names], axis=-1).astype(np.float32)
-
-        valid_mask = ~np.isnan(all_predictions[:, :, 0])
-        n_excluded = int(n_nodes - valid_mask[0].sum())
-        log.info(f"Metrics exclude {n_excluded} boundary nodes ({valid_mask.sum()} valid samples).")
-
-        metrics: Dict[str, float] = {}
-        for target_idx, target_name in enumerate(target_names):
-            pred = all_predictions[:, :, target_idx][valid_mask]
-            truth = Y_all[:, :, target_idx][valid_mask]
-            rmse = float(np.sqrt(np.mean((pred - truth) ** 2)))
-            mae = float(np.mean(np.abs(pred - truth)))
-            bias = float(np.mean(pred - truth))
-            metrics[f"test/rmse_{target_name}"] = rmse
-            metrics[f"test/mae_{target_name}"] = mae
-            metrics[f"test/bias_{target_name}"] = bias
-            log.info(f"  {target_name}:  RMSE={rmse:.6f}  MAE={mae:.6f}  bias={bias:.6f}")
-
-        # Per-bin RMSE (if target_bins are configured)
-        target_bins = cfg.model.get("target_bins") or {}
-        for target_idx, target_name in enumerate(target_names):
-            if target_name not in target_bins:
-                continue
-            bins = list(target_bins[target_name])
-            pred = all_predictions[:, :, target_idx][valid_mask]
-            truth = Y_all[:, :, target_idx][valid_mask]
-            for bin_idx in range(len(bins) + 1):
-                mask = get_bin_mask(truth, bins, bin_idx)
-                if mask.sum() == 0:
-                    continue
-                if bin_idx == 0:
-                    bin_label = f"<{bins[0]}"
-                elif bin_idx == len(bins):
-                    bin_label = f">={bins[-1]}"
-                else:
-                    bin_label = f"[{bins[bin_idx - 1]},{bins[bin_idx]})"
-                rmse_bin = float(np.sqrt(np.mean((pred[mask] - truth[mask]) ** 2)))
-                metrics[f"test/rmse_{target_name}_{bin_label}"] = rmse_bin
-                log.info(f"  {target_name} {bin_label}:  RMSE={rmse_bin:.6f}  (n={int(mask.sum())})")
-
-        # Circular metrics for sin/cos target pairs (e.g. sin_meanWaveDirection + cos_meanWaveDirection).
-        # Reconstructs the angle via atan2 and computes circular MAE/RMSE against the original
-        # angle variable kept in ds by preprocess_variables.
-        target_name_to_idx = {n: i for i, n in enumerate(target_names)}
-        sin_targets = {n[len("sin_") :]: n for n in target_names if n.startswith("sin_")}
-        cos_targets = {n[len("cos_") :]: n for n in target_names if n.startswith("cos_")}
-        for base_var in sin_targets:
-            if base_var not in cos_targets:
-                continue
-            sin_name = sin_targets[base_var]
-            cos_name = cos_targets[base_var]
-            sin_pred = all_predictions[:, :, target_name_to_idx[sin_name]][valid_mask]
-            cos_pred = all_predictions[:, :, target_name_to_idx[cos_name]][valid_mask]
-            angle_pred = np.degrees(np.arctan2(sin_pred, cos_pred)) % 360.0
-            if base_var in ds_out:
-                angle_truth = ds_out[base_var].values.astype(np.float32)[valid_mask]
-                c_mae = circular_mae(angle_pred, angle_truth)
-                c_rmse = circular_rmse(angle_pred, angle_truth)
-                metrics[f"test/circular_mae_{base_var}"] = c_mae
-                metrics[f"test/circular_rmse_{base_var}"] = c_rmse
-                log.info(f"  {base_var} (reconstructed):  circular RMSE={c_rmse:.4f}°  circular MAE={c_mae:.4f}°")
-            else:
-                log.warning(f"  Cannot compute circular metrics for {base_var}: not found in dataset.")
-
-        # Log to wandb if a logger is configured
-        loggers = instantiate_loggers(cfg.get("logger"))
-        for lgr in loggers:
-            if hasattr(lgr, "experiment"):
-                run = lgr.experiment
-                # Use summary for test metrics — not tied to training step axis
-                run.summary.update(metrics)
-                if hasattr(run, "finish"):
-                    run.finish()
-        log.info("Test metrics logged.")
+    pu.compute_test_metrics(cfg, all_predictions, ds_out, target_names, n_nodes)
 
     # ------------------------------------------------------------------
     # Build output xarray Dataset
@@ -271,15 +178,7 @@ def _predict_single_range(
         },
     )
 
-    # Save predictions to netCDF
-    if is_multi_range:
-        output_name = f"predictions_{day_range[0]}-{day_range[1]}.nc"
-    else:
-        output_name = "predictions.nc"
-    output_path = f"{cfg.paths.output_dir}/{output_name}"
-    log.info(f"Saving predictions to {output_path}")
-    ds_pred.to_netcdf(output_path)
-    log.info(f"Predictions saved successfully to {output_path}")
+    pu.save_predictions(ds_pred, cfg, day_range, is_multi_range)
 
     return ds_pred
 
