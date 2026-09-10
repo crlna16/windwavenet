@@ -30,6 +30,9 @@ meanWavePeriod:
 TM10:
   mean: 4.9554
   std: 1.4408
+depth:
+  mean: 23.315
+  std: 8.7862
 prev_sigWaveHeight:
   mean: 1.3489
   std: 0.9409

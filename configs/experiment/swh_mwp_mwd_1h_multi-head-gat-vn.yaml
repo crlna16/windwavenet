@@ -16,7 +16,7 @@ data:
     - elevation
     - depthAverageVelX
     - depthAverageVelY
-    - peakPeriod
+    - depth
     - prev_sigWaveHeight
     - prev_meanWavePeriod
     - prev_sin_meanWaveDirection

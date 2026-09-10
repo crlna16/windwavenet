@@ -16,7 +16,7 @@ data:
     - elevation
     - depthAverageVelX
     - depthAverageVelY
-    - peakPeriod
+    - depth
     - prev_sigWaveHeight
   targets:
     - delta_sigWaveHeight
