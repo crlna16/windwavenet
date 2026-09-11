@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import MeanSquaredError
 
+from src.model.noise import build_prev_noise_injector
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import get_bin_mask
 
@@ -47,6 +48,7 @@ class WWMEmulator(L.LightningModule):
         target_bins: Optional[Dict[str, List[float]]] = None,
         output_constraints: Optional[Dict[str, str]] = None,
         focal_gamma: Optional[bool] = True,
+        prev_noise_std: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -63,6 +65,13 @@ class WWMEmulator(L.LightningModule):
                         'angle_deg' (mod 360), 'angle_rad' (mod 2*pi), 'sigmoid' ((0,1)).
                         E.g., {'sigWaveHeight': 'semipositive', 'meanWaveDirection': 'angle_deg'}
             focal_gamma: Kept for legacy so that existing ckpts can be loaded.
+            prev_noise_std: Optional dict mapping target names to a noise sigma in
+                        *physical* units, applied to the matching ``prev_<target>``
+                        input channel during **training only**.
+                        E.g. {'sigWaveHeight': 0.08} perturbs prev_sigWaveHeight by
+                        +/- 0.08 m. Makes the model robust to error in its own
+                        fed-back predictions at rollout time; set sigma from the
+                        model's measured one-step RMSE. None (default) disables it.
 
         Note:
             Sample weights are now computed and stored in the dataset. Configure them via the data module
@@ -81,6 +90,10 @@ class WWMEmulator(L.LightningModule):
 
         # Store which targets are delta predictions (for reconstruction during inference)
         self.is_delta_target = {name: name.startswith("delta_") for name in target_names}
+
+        # Built in on_fit_start once the datamodule's feedback_map exists.
+        self.prev_noise_std = prev_noise_std
+        self._prev_noise = None
 
         # Initialize loss weights (default to 1.0 for all targets)
         if loss_weights is None:
@@ -221,6 +234,45 @@ class WWMEmulator(L.LightningModule):
         """
         output = self.backbone(x)
         return self._apply_output_constraints(output)
+
+    def on_fit_start(self) -> None:
+        """Build the ``prev_*`` noise injector from the datamodule's feedback map."""
+        super().on_fit_start()
+        self._prev_noise = build_prev_noise_injector(
+            getattr(self.trainer, "datamodule", None), self.prev_noise_std
+        )
+
+    def _add_prev_noise(self, x: torch.Tensor) -> torch.Tensor:
+        """Perturb the ``prev_*`` channels of ``x`` if noise injection is active and we are training.
+
+        Args:
+            x: Feature tensor with features last.
+
+        Returns:
+            The perturbed tensor, or ``x`` unchanged outside the training loop.
+        """
+        # self.trainer raises when no Trainer is attached, so use the raw attribute.
+        trainer = self._trainer
+        if self._prev_noise is None or trainer is None or not trainer.training:
+            return x
+        return self._prev_noise(x)
+
+    def on_after_batch_transfer(self, batch, dataloader_idx: int = 0):
+        """Inject ``prev_*`` noise into the training batch after it reaches the device.
+
+        Validation, test and predict batches are left untouched, so ``val/loss``
+        and the RMSE metrics stay comparable with runs trained without noise.
+
+        Args:
+            batch: ``(x, y)`` or ``(x, y, sample_weights)``.
+            dataloader_idx: Index of the dataloader the batch came from.
+
+        Returns:
+            The batch, with ``x`` perturbed during training.
+        """
+        if self._prev_noise is None or not isinstance(batch, (list, tuple)):
+            return batch
+        return (self._add_prev_noise(batch[0]), *batch[1:])
 
     def model_step(
         self, batch: Tuple[torch.Tensor, ...]

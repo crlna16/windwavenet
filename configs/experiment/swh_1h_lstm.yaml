@@ -53,6 +53,13 @@ model:
   optimizer:
     lr: 0.002
 
+  # Training-time noise on the prev_<target> input channels, sigma in PHYSICAL
+  # units (m for sigWaveHeight). Applied to the TRAINING batch only, so val/test
+  # stay clean and val/loss stays comparable with runs trained without noise.
+  # Set sigma from the measured one-step validation RMSE of this model.
+  # prev_noise_std:
+  #   sigWaveHeight: 0.08
+
   output_constraints:
     sigWaveHeight: semipositive
 

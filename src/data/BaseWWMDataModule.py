@@ -6,11 +6,12 @@
 import gc
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
 
+import src.data.dataset_utils as du
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -97,6 +98,11 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         self.ds_test: Optional[Dataset] = None
         self.ds_pred: Optional[Dataset] = None
 
+        # (feature_idx, target_idx, mean, std) for every prev_<target> input.
+        # Populated in setup(stage="fit"); consumed by AutoregressiveMixin
+        # (rollout feedback) and by WWMEmulator's prev_* noise injection.
+        self.feedback_map: List[Tuple[int, int, float, float]] = []
+
         if self.num_workers == 0:
             self.prefetch_factor = None
         else:
@@ -155,6 +161,10 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 sample_weight_power=self.sample_weight_power,
                 sample_weight_variable=self.sample_weight_variable,
             )
+
+            if not self.feedback_map:
+                scaling_params = getattr(self.ds_train, "scaling_params", None)
+                self.feedback_map = du.build_feedback_map(self.features, self.targets, scaling_params)
 
         elif stage == "test":
             # Test on all nodes for full evaluation

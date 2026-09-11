@@ -21,6 +21,30 @@ class GraphWWMEmulator(WWMEmulator):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+    def on_after_batch_transfer(self, batch, dataloader_idx: int = 0):
+        """Inject ``prev_*`` noise into the training batch's node features.
+
+        Overrides the tuple-based hook in ``WWMEmulator``: graph batches carry
+        the features on ``batch.x`` (and, for the center-history backbone, on
+        ``batch.x_center_seq``). Validation, test and predict batches are left
+        untouched.
+
+        Args:
+            batch: PyG Batch object, possibly wrapped in a list.
+            dataloader_idx: Index of the dataloader the batch came from.
+
+        Returns:
+            The batch, with node features perturbed during training.
+        """
+        if self._prev_noise is None:
+            return batch
+
+        graph = batch[0] if isinstance(batch, (list, tuple)) else batch
+        graph.x = self._add_prev_noise(graph.x)
+        if getattr(graph, "x_center_seq", None) is not None:
+            graph.x_center_seq = self._add_prev_noise(graph.x_center_seq)
+        return batch
+
     def forward(self, data) -> torch.Tensor:
         """Forward pass — delegates the PyG Batch to the backbone.
 

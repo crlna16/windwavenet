@@ -194,3 +194,35 @@ to the typical (median) mesh edge length. An edge of exactly that length gets
 weight 0.5, and the weight distribution spreads over (0, 1). If the scale is
 much larger than the mesh edges, all weights cluster near 1.0 and the
 encoding carries no signal.
+
+## Noise injection on `prev_*` inputs
+
+At rollout time the `prev_<target>` inputs are the model's own predictions and
+carry error; during training they are ground truth. The model therefore learns
+to trust them more than it should, and one bad step can throw the trajectory
+off. `model.prev_noise_std` perturbs those channels during training so the model
+learns to recover the clean target from a corrupted previous state:
+
+```yaml
+model:
+  prev_noise_std:
+    sigWaveHeight: 0.08   # metres — physical units, NOT z-scored
+```
+
+Sigma is given in physical units and divided by the feature's std from
+`data.scaling_config` internally, so `data.scaling_config` is required. Set it
+from the model's measured one-step validation RMSE: that makes the corrupted
+input distribution resemble what the model actually meets at lead 1.
+
+This is the ~1x-cost counterpart to autoregressive rollout training. Because
+`AutoregressiveMixin` detaches its feedback, rollout training corrupts the same
+channels with the model's *own* errors at ~T x the cost; noise injection
+approximates that with an explicit sigma. Run it as the control that AR training
+has to beat (Sanchez-Gonzalez et al., ICML 2020).
+
+**Applied to the training batch only.** Validation, test and predict batches stay
+clean, so `val/loss` and the RMSE metrics remain comparable with runs trained
+without noise. Expect `val/loss` to get slightly *worse* — that is the price
+being paid for rollout robustness, and it means early stopping on `val/loss`
+will fight the run. Raise the patience (or disable early stopping) for these
+runs and select on rollout skill instead.
