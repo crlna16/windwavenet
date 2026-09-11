@@ -21,11 +21,13 @@ data:
     - prev_meanWavePeriod
     - prev_sin_meanWaveDirection
     - prev_cos_meanWaveDirection
+    - prev_peakPeriod
   targets:
     - sigWaveHeight
     - meanWavePeriod
     - sin_meanWaveDirection
     - cos_meanWaveDirection
+    - peakPeriod
   seq_len: 24
   sample_weight_strategy: histogram
   sample_weight_power: 0.2
@@ -47,10 +49,24 @@ model:
   target_bins:
     sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
+  # Targets are not scaled (unlike features), and their raw variances differ a
+  # lot (period-scale targets have much larger squared errors than SWH or the
+  # bounded sin/cos direction channels). Weighted ~1/Var(target) from
+  # src/data/scaling/scale_2020_8months_hourly.yaml, normalized to mean 1 so
+  # the overall loss magnitude (relevant for gradient_clip_val) is unchanged.
+  # sin/cos variance isn't measured (not z-scored) - approximated as 0.5 from
+  # sin^2+cos^2=1 under roughly symmetric directions.
+  loss_weights:
+    sigWaveHeight: 0.9512
+    meanWavePeriod: 0.4363
+    peakPeriod: 0.2435
+    sin_meanWaveDirection: 1.6845
+    cos_meanWaveDirection: 1.6845
+
   backbone:
     _target_: src.model.backbones.LSTMNet.LSTMNet
-    input_dim: 10
-    output_dim: 4
+    input_dim: 11
+    output_dim: 5
     hidden_dim: 128
     num_layers: 1
     dropout: 0.0
@@ -61,6 +77,7 @@ model:
 
   output_constraints:
     sigWaveHeight: semipositive
+    peakPeriod: semipositive
     sin_meanWaveDirection: unit_circle
     cos_meanWaveDirection: unit_circle
 
