@@ -18,11 +18,11 @@ COMMANDS=(
     # Multi-Head GAT (3)
     "uv run python src/predict_gcn.py experiment=swh_1h_gat.yaml data.max_nodes=500 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-500' logger.wandb.id=zwu7keey 'ckpt_path=\"logs/train/swh_1h_gat/runs/2026-09-10_14-22-52/wwm-emulator-hourly-final/zwu7keey/checkpoints/epoch=5-step=87126.ckpt\"'"
     # Multi-Head GAT VN (4-5)
-    "uv run python src/predict_gcn.py experiment=swh_1h_gat-vn.yaml data.max_nodes=500 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-vn-500' TODO"
+    "uv run python src/predict_gcn.py experiment=swh_1h_gat-vn.yaml data.max_nodes=500 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-vn-500' logger.wandb.id=52stxhrx 'ckpt_path=\"logs/train/swh_1h_gat-vn/runs/2026-09-11_09-41-02/wwm-emulator-hourly-final/52stxhrx/checkpoints/epoch=14-step=217815.ckpt\"'"
     "uv run python src/predict_gcn.py experiment=swh_1h_gat-vn.yaml data.max_nodes=50 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-vn-50' logger.wandb.id=k6kbc2nd 'ckpt_path=\"logs/train/swh_1h_gat-vn/runs/2026-09-10_19-03-48/wwm-emulator-hourly-final/k6kbc2nd/checkpoints/epoch=25-step=377546.ckpt\"'"
     # Multi-Head GAT LSTM VN (6-9)
     "uv run python src/predict_gcn.py experiment=swh_1h_gat-lstm-vn.yaml data.seq_len=6 data.max_nodes=500 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-lstm-vn-6-500' TODO"
-    "uv run python src/predict_gcn.py experiment=swh_1h_gat-lstm-vn.yaml data.seq_len=6 data.max_nodes=50 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-lstm-vn-6-50' TODO"
+    "uv run python src/predict_gcn.py experiment=swh_1h_gat-lstm-vn.yaml data.seq_len=6 data.max_nodes=50 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-lstm-vn-6-50' logger.wandb.id=wypqt1z9 'ckpt_path=\"logs/train/swh_1h_gat-lstm-vn/runs/2026-09-10_23-14-40/wwm-emulator-hourly-final/wypqt1z9/checkpoints/epoch=23-step=347904.ckpt\"'"
     "uv run python src/predict_gcn.py experiment=swh_1h_gat-lstm-vn.yaml data.seq_len=48 data.max_nodes=500 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-lstm-vn-48-500' TODO"
     "uv run python src/predict_gcn.py experiment=swh_1h_gat-lstm-vn.yaml data.seq_len=48 data.max_nodes=50 paths.output_dir='/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_final/swh-gat-lstm-vn-48-50' TODO"
     # END
