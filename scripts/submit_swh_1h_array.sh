@@ -22,7 +22,7 @@ COMMANDS=(
     #"uv run python src/train.py experiment=swh_1h_gat.yaml trainer.devices=4 data.max_nodes=250 test=false predict=false seed=172426"
     #"uv run python src/train.py experiment=swh_1h_gat.yaml trainer.devices=4 data.max_nodes=50  test=false predict=false seed=172426"
     # Multi-Head GAT VN (09-11)
-    "uv run python src/train.py experiment=swh_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=500 test=false seed=172426"
+    "uv run python src/train.py experiment=swh_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=500 test=false seed=172426 logger.wandb.id=52stxhrx 'ckpt_path=\"logs/train/swh_1h_gat-vn/runs/2026-09-10_17-47-24/wwm-emulator-hourly-final/52stxhrx/checkpoints/last.ckpt\"'"
     #"uv run python src/train.py experiment=swh_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=250 test=false seed=172426"
     "uv run python src/train.py experiment=swh_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=50 test=false seed=172426"
     # Multi-Head LSTM GAT VN (12-17)
