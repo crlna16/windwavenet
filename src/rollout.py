@@ -60,7 +60,6 @@ Outputs (in the Hydra run directory):
   persistence-baseline RMSE, and per-bin RMSE for configured target_bins
 """
 
-import importlib
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -79,6 +78,7 @@ from src.data.WWMDatasets import WWMGraphData
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import get_bin_mask, print_config_tree
+from src.utils.predict_utils import load_model_from_checkpoint
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -94,25 +94,6 @@ log = RankedLogger(__name__, rank_zero_only=True)
 # Re-exported for backward compatibility (moved to dataset_utils so
 # AutoregressiveMixin can share it for rollout training too).
 build_feedback_map = du.build_feedback_map
-
-
-def load_model(cfg: DictConfig, device: torch.device):
-    """Instantiate the LightningModule class from config and load checkpoint weights."""
-    module_path, class_name = cfg.model._target_.rsplit(".", 1)
-    model_cls = getattr(importlib.import_module(module_path), class_name)
-    backbone = hydra.utils.instantiate(cfg.model.backbone)
-    model = model_cls.load_from_checkpoint(cfg.ckpt_path, backbone=backbone, strict=False, map_location=device)
-    model.eval()
-    model = model.to(device)
-    log.info(f"Loaded {class_name} from {cfg.ckpt_path} on {device}")
-
-    config_targets = list(cfg.data.targets)
-    if config_targets != list(model.target_names):
-        raise ValueError(
-            f"Target mismatch: config specifies {config_targets} but model was trained on {model.target_names}."
-        )
-    return model
-
 
 # ---------------------------------------------------------------------------
 # Per-family single-step predictors
@@ -354,7 +335,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     # 5.  Load model and build the single-step predictor
     # ------------------------------------------------------------------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(cfg, device)
+    model = load_model_from_checkpoint(cfg, device)
 
     node_chunk_size = int(cfg.rollout.get("node_chunk_size", 65536))
     batch_size_graphs = int(cfg.rollout.get("batch_size_graphs", 32))
@@ -493,7 +474,8 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
         rows.append(row)
 
     metrics_df = pd.DataFrame(rows)
-    metrics_path = f"{cfg.paths.output_dir}/rollout_metrics_lead.csv"
+    forecast_start = test_days[0]
+    metrics_path = f"{cfg.paths.output_dir}/rollout_metrics_lead_from_{forecast_start}.csv"
     metrics_df.to_csv(metrics_path, index=False)
     log.info(f"Lead-time metrics saved to {metrics_path}")
 

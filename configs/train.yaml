@@ -55,9 +55,9 @@ data:
   # non-overlapping, e.g. train_days: [[1, 180], [244, 304]].
   # Derived variables (prev_*/delta_*) and sequence windows never cross
   # the gap between ranges.
-  train_days: [1, 304]
-  val_days: [305, 334]
-  test_days: [335, 365]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
