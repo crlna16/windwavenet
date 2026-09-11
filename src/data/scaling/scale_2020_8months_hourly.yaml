@@ -39,3 +39,6 @@ prev_sigWaveHeight:
 prev_meanWavePeriod:
   mean: 5.0408
   std: 1.3894
+prev_peakPeriod:
+  mean: 5.8144
+  std: 1.8600

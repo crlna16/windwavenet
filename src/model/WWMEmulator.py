@@ -451,6 +451,23 @@ class WWMEmulator(L.LightningModule):
                     sync_dist=True,
                 )
 
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Persist best-so-far tracking so it survives a resume from checkpoint."""
+        checkpoint["best_val_loss"] = self.best_val_loss
+        checkpoint["best_val_rmse"] = self.best_val_rmse
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Restore best-so-far tracking when resuming from checkpoint.
+
+        Without this, self.best_val_loss / self.best_val_rmse (plain Python
+        attributes, not part of the module's state_dict) would reset to inf
+        on resume and get overwritten by the first post-restart val epoch.
+        """
+        self.best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        self.best_val_rmse = checkpoint.get(
+            "best_val_rmse", {name: float("inf") for name in self.target_names}
+        )
+
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data.
 
