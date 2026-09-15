@@ -26,10 +26,10 @@ COMMANDS=(
     #"uv run python src/train.py experiment=swh_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=250 test=false seed=172426"
     "uv run python src/train.py experiment=swh_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=50 test=false seed=172426"
     # Multi-Head LSTM GAT VN (12-17)
-    "uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=4 test=false seed=172426 logger.wandb.id=p5bi2bnv 'ckpt_path=\"logs/train/swh_1h_gat-lstm-vn/runs/2026-09-10_22-53-57/wwm-emulator-hourly-final/p5bi2bnv/checkpoints/last.ckpt\"'"
+    "uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=4 test=false seed=172426 logger.wandb.id=p5bi2bnv 'ckpt_path=\"logs/train/swh_1h_gat-lstm-vn/runs/2026-09-11_16-56-08/wwm-emulator-hourly-final/p5bi2bnv/checkpoints/last.ckpt\"'"
     #"uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=6 trainer.devices=4 test=false seed=172426"
     "uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=6 trainer.devices=4 test=false seed=172426"
-    "uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=4 test=false seed=172426"
+    "uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=4 test=false seed=172426 logger.wandb.id=n1ye9zqj 'ckpt_path=\"logs/train/swh_1h_gat-lstm-vn/runs/2026-09-11_17-04-00/wwm-emulator-hourly-final/n1ye9zqj/checkpoints/last.ckpt\"'"
     #"uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=48 trainer.devices=4 test=false seed=172426"
     "uv run python src/train.py experiment=swh_1h_gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=48 trainer.devices=4 test=false seed=172426"
 
