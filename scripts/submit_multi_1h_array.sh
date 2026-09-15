@@ -26,7 +26,7 @@ COMMANDS=(
     "uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=4 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=6 trainer.devices=4 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=6 trainer.devices=4 test=false seed=172426"
-    "uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=4 test=false seed=172426"
+    #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=4 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=48 trainer.devices=4 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=48 trainer.devices=4 test=false seed=172426"
 

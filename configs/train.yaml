@@ -177,6 +177,7 @@ callbacks:
     # generous patience only costs compute, never checkpoint quality.
     patience: 15
     mode: "min"
+    min_delta: 0.0001
 
   model_summary:
     _target_: lightning.pytorch.callbacks.RichModelSummary

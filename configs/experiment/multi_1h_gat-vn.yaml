@@ -21,13 +21,11 @@ data:
     - prev_meanWavePeriod
     - prev_sin_meanWaveDirection
     - prev_cos_meanWaveDirection
-    - prev_peakPeriod
   targets:
     - sigWaveHeight
     - meanWavePeriod
     - sin_meanWaveDirection
     - cos_meanWaveDirection
-    - peakPeriod
   graph_features:
     - SCHISM_hgrid_edge_nodes
   sample_weight_strategy: histogram
@@ -59,16 +57,15 @@ model:
   # sin/cos variance isn't measured (not z-scored) - approximated as 0.5 from
   # sin^2+cos^2=1 under roughly symmetric directions.
   loss_weights:
-    sigWaveHeight: 0.9512
-    meanWavePeriod: 0.4363
-    peakPeriod: 0.2435
-    sin_meanWaveDirection: 1.6845
-    cos_meanWaveDirection: 1.6845
+    sigWaveHeight: 1.4347
+    meanWavePeriod: 0.6579
+    sin_meanWaveDirection: 1.2701
+    cos_meanWaveDirection: 1.2701
 
   backbone:
     _target_: src.model.backbones.MultiHeadGATVN.MultiHeadGATVN
-    input_dim: 11         # must match len(data.features)
-    output_dim: 5        # must match len(data.targets)
+    input_dim: 10         # must match len(data.features)
+    output_dim: 4        # must match len(data.targets)
     hidden_dim: 64
     num_layers: 9
     heads: 1            # attention heads (hidden_dim must be divisible)
@@ -81,7 +78,7 @@ model:
 
   output_constraints:
     sigWaveHeight: semipositive
-    peakPeriod: semipositive
+    meanWavePeriod: semipositive
     sin_meanWaveDirection: unit_circle
     cos_meanWaveDirection: unit_circle
 
