@@ -238,9 +238,7 @@ class WWMEmulator(L.LightningModule):
     def on_fit_start(self) -> None:
         """Build the ``prev_*`` noise injector from the datamodule's feedback map."""
         super().on_fit_start()
-        self._prev_noise = build_prev_noise_injector(
-            getattr(self.trainer, "datamodule", None), self.prev_noise_std
-        )
+        self._prev_noise = build_prev_noise_injector(getattr(self.trainer, "datamodule", None), self.prev_noise_std)
 
     def _add_prev_noise(self, x: torch.Tensor) -> torch.Tensor:
         """Perturb the ``prev_*`` channels of ``x`` if noise injection is active and we are training.
@@ -516,9 +514,7 @@ class WWMEmulator(L.LightningModule):
         on resume and get overwritten by the first post-restart val epoch.
         """
         self.best_val_loss = checkpoint.get("best_val_loss", float("inf"))
-        self.best_val_rmse = checkpoint.get(
-            "best_val_rmse", {name: float("inf") for name in self.target_names}
-        )
+        self.best_val_rmse = checkpoint.get("best_val_rmse", {name: float("inf") for name in self.target_names})
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data.
