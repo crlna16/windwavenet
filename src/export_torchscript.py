@@ -19,7 +19,11 @@ checkpoint this script:
 3. Wraps the model (graph models need a thin adapter, see
    ``GraphExportWrapper``, since ``torch.jit.trace`` cannot safely trace a
    forward that takes a PyG ``Data``/``Batch`` object) and traces it with
-   ``torch.jit.trace``.
+   ``torch.jit.trace``. Feature standardization and target un-standardization
+   (from ``cfg.data.scaling_config``) are baked into the wrapper as buffers,
+   so the exported module takes and returns PHYSICAL-unit tensors -- callers
+   (e.g. a coupled Fortran/FTorch application) never need to know about the
+   training-time z-score statistics.
 4. Saves the traced module with ``torch.jit.save``.
 5. Verifies the export: reloads it with ``torch.jit.load`` and compares its
    output against the eager model's output on the SECOND, independent batch
@@ -46,6 +50,7 @@ import torch.nn as nn
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
 
+from src.data import dataset_utils as du
 from src.model.WWMEmulator import WWMEmulator
 from src.utils import predict_utils as pu
 from src.utils.pylogger import RankedLogger
@@ -182,7 +187,7 @@ EXPERIMENTS: List[ExperimentSpec] = [
 
 
 class _BackboneExportBase(nn.Module):
-    """Holds only the emulator's backbone plus the metadata its output constraints need.
+    """Holds the emulator's backbone plus everything needed to run it on PHYSICAL-unit tensors.
 
     The ``WWMEmulator`` (a ``LightningModule``) must NOT be registered as a submodule here:
     ``torch.jit.trace`` recursively probes every submodule's attributes with ``hasattr`` (looking
@@ -190,18 +195,40 @@ class _BackboneExportBase(nn.Module):
     (not ``AttributeError``) when no ``Trainer`` is attached. So the plain ``nn.Module`` backbone
     is traced directly and ``WWMEmulator._apply_output_constraints`` is re-used on this object,
     which carries the three attributes that method reads.
+
+    Feature standardization and target un-standardization (``src.data.dataset_utils.apply_scaling``
+    / ``unscale_predictions``) are baked in as buffers so the exported module takes and returns
+    physical-unit tensors: callers (e.g. the coupled Fortran/FTorch application) never see the
+    training-time z-score statistics.
     """
 
     CONSTRAINT_FUNCTIONS = WWMEmulator.CONSTRAINT_FUNCTIONS
 
-    def __init__(self, model: WWMEmulator) -> None:
+    def __init__(
+        self,
+        model: WWMEmulator,
+        feature_mean: torch.Tensor,
+        feature_std: torch.Tensor,
+        target_mean: torch.Tensor,
+        target_std: torch.Tensor,
+    ) -> None:
         super().__init__()
         self.backbone = model.backbone
         self.target_names = list(model.target_names)
         self.output_constraints = dict(model.output_constraints)
+        self.register_buffer("feature_mean", feature_mean)
+        self.register_buffer("feature_std", feature_std)
+        self.register_buffer("target_mean", target_mean)
+        self.register_buffer("target_std", target_std)
 
-    def _apply_output_constraints(self, preds: torch.Tensor) -> torch.Tensor:
-        return WWMEmulator._apply_output_constraints(self, preds)
+    def _scale_features(self, x: torch.Tensor) -> torch.Tensor:
+        """Standardizes physical-unit features: ``(x - mean) / std`` (identity where unscaled)."""
+        return (x - self.feature_mean) / self.feature_std
+
+    def _finalize(self, preds: torch.Tensor) -> torch.Tensor:
+        """Applies output constraints, then reverts target standardization to physical units."""
+        preds = WWMEmulator._apply_output_constraints(self, preds)
+        return preds * self.target_std + self.target_mean
 
 
 class GraphExportWrapper(_BackboneExportBase):
@@ -217,8 +244,16 @@ class GraphExportWrapper(_BackboneExportBase):
     for the wrapped model to consume.
     """
 
-    def __init__(self, model: WWMEmulator, needs_x_center_seq: bool) -> None:
-        super().__init__(model)
+    def __init__(
+        self,
+        model: WWMEmulator,
+        needs_x_center_seq: bool,
+        feature_mean: torch.Tensor,
+        feature_std: torch.Tensor,
+        target_mean: torch.Tensor,
+        target_std: torch.Tensor,
+    ) -> None:
+        super().__init__(model, feature_mean, feature_std, target_mean, target_std)
         self.needs_x_center_seq = needs_x_center_seq
 
     def forward(
@@ -229,24 +264,77 @@ class GraphExportWrapper(_BackboneExportBase):
         batch: torch.Tensor,
         x_center_seq: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        data = SimpleNamespace(x=x, edge_index=edge_index, edge_weight=edge_weight, batch=batch)
+        data = SimpleNamespace(x=self._scale_features(x), edge_index=edge_index, edge_weight=edge_weight, batch=batch)
         if self.needs_x_center_seq:
-            data.x_center_seq = x_center_seq
-        return self._apply_output_constraints(self.backbone(data))
+            data.x_center_seq = self._scale_features(x_center_seq)
+        return self._finalize(self.backbone(data))
 
 
 class DenseLSTMExportWrapper(_BackboneExportBase):
     """Mirrors ``WWMEmulator.forward`` (backbone + output constraints) without the LightningModule."""
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self._apply_output_constraints(self.backbone(x))
+        return self._finalize(self.backbone(self._scale_features(x)))
 
 
-def build_traceable_module(model: WWMEmulator, family: str) -> nn.Module:
+def load_scaling_tensors(cfg: DictConfig) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Builds the per-feature/per-target (mean, std) tensors to bake into the exported module.
+
+    Mirrors ``src.data.dataset_utils.apply_scaling`` (features: identity if no scaling params are
+    found for a variable) and ``unscale_predictions`` (targets: only reverted if the target name
+    ALSO appears in ``cfg.data.features`` and has scaling params -- identity otherwise, which is the
+    common case since targets like ``sigWaveHeight`` are trained/predicted directly in physical units).
+
+    Returns:
+        ``(feature_mean, feature_std, target_mean, target_std)``, shaped ``(n_features,)`` /
+        ``(n_targets,)``, matching ``cfg.data.features`` / ``cfg.data.targets`` order.
+    """
+    scaling_params = du.load_scaling_config(cfg.data.scaling_config) if cfg.data.scaling_config else {}
+    features = list(cfg.data.features)
+    targets = list(cfg.data.targets)
+
+    feature_mean = torch.tensor([scaling_params.get(f, {}).get("mean", 0.0) for f in features], dtype=torch.float32)
+    feature_std = torch.tensor([scaling_params.get(f, {}).get("std", 1.0) for f in features], dtype=torch.float32)
+    target_mean = torch.tensor(
+        [scaling_params[t]["mean"] if t in features and t in scaling_params else 0.0 for t in targets],
+        dtype=torch.float32,
+    )
+    target_std = torch.tensor(
+        [scaling_params[t]["std"] if t in features and t in scaling_params else 1.0 for t in targets],
+        dtype=torch.float32,
+    )
+    return feature_mean, feature_std, target_mean, target_std
+
+
+def to_physical_units(batch: Any, family: str, feature_mean: torch.Tensor, feature_std: torch.Tensor) -> Any:
+    """Reverts the datamodule's feature standardization so a fetched batch holds physical units.
+
+    The dataloader yields already-scaled features (the dataset applies ``apply_scaling`` to
+    ``cfg.data.features`` on load), but the exported module now expects raw physical-unit inputs
+    (scaling is baked in). This undoes that scaling in place before the batch is used for
+    tracing/verification, so both see the same physical-unit inputs the coupled application will
+    provide.
+    """
+    if family in ("dense", "lstm"):
+        return batch * feature_std + feature_mean
+    batch.x = batch.x * feature_std + feature_mean
+    if family == "gat_lstm_vn":
+        batch.x_center_seq = batch.x_center_seq * feature_std + feature_mean
+    return batch
+
+
+def build_traceable_module(
+    model: WWMEmulator,
+    family: str,
+    feature_mean: torch.Tensor,
+    feature_std: torch.Tensor,
+    target_mean: torch.Tensor,
+    target_std: torch.Tensor,
+) -> nn.Module:
     """Wraps the loaded model so it can be handed to ``torch.jit.trace`` with plain tensors."""
     if family in ("dense", "lstm"):
-        return DenseLSTMExportWrapper(model)
-    return GraphExportWrapper(model, needs_x_center_seq=(family == "gat_lstm_vn"))
+        return DenseLSTMExportWrapper(model, feature_mean, feature_std, target_mean, target_std)
+    return GraphExportWrapper(model, family == "gat_lstm_vn", feature_mean, feature_std, target_mean, target_std)
 
 
 def build_example_inputs(family: str, batch: Any) -> Tuple[torch.Tensor, ...]:
@@ -381,12 +469,16 @@ def export_one(
 ) -> bool:
     """Loads, traces, saves, and verifies a single checkpoint."""
     model = pu.load_model_from_checkpoint(cfg, device)
+    feature_mean, feature_std, target_mean, target_std = load_scaling_tensors(cfg)
 
     batches = get_batches(cfg, n=1 + num_verify_batches)
+    batches = [to_physical_units(b, spec.family, feature_mean, feature_std) for b in batches]
     trace_batch = batches[0].to(device)
     verify_batches = batches[1:]
 
-    traceable = build_traceable_module(model, spec.family)
+    traceable = build_traceable_module(model, spec.family, feature_mean, feature_std, target_mean, target_std)
+    traceable = traceable.to(device)
+    traceable.eval()
     example_inputs = build_example_inputs(spec.family, trace_batch)
 
     log.info(f"[{spec.label}] tracing ...")
