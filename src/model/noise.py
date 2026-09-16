@@ -12,11 +12,11 @@ can throw the whole trajectory off. Corrupting them during training closes
 that gap: the model is trained to recover the clean target from a perturbed
 previous state, so it leans on the forcings rather than on persistence.
 
-This is the cheap counterpart to autoregressive rollout training. With
-detached feedback (as in :class:`~src.model.autoregressive.AutoregressiveMixin`)
-rollout training corrupts the same channels with the model's *own* errors at
-~T x the cost; noise injection approximates that with an explicit sigma at
-~1x the cost.
+This is a cheap approximation of the error a model would accumulate from its
+own compounding mistakes during multi-step rollout, without the T x cost of
+actually rolling out multiple steps during training. See
+``AutoregressiveTraining.md`` at the repo root for background on that
+(removed) approach.
 
 References:
     Sanchez-Gonzalez et al., "Learning to Simulate Complex Physics with Graph

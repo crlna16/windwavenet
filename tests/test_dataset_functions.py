@@ -869,6 +869,46 @@ class TestComputeSincos:
         ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "cos_meanWaveDirection"])
         assert "meanWaveDirection" in ds
 
+
+class TestBuildFeedbackMap:
+    """Test suite for build_feedback_map (shared by rollout eval and noise injection)."""
+
+    def test_maps_prev_feature_to_target(self):
+        """A `prev_<target>` feature should map to its target's index."""
+        feedback = du.build_feedback_map(
+            features=["windSpeedX", "prev_sigWaveHeight"],
+            targets=["sigWaveHeight"],
+            scaling_params={"prev_sigWaveHeight": {"mean": 1.0, "std": 2.0}},
+        )
+        assert feedback == [(1, 0, 1.0, 2.0)]
+
+    def test_no_scaling_params_defaults_to_identity(self):
+        """Without scaling params, mean=0/std=1 (no rescaling)."""
+        feedback = du.build_feedback_map(
+            features=["prev_sigWaveHeight"],
+            targets=["sigWaveHeight"],
+            scaling_params=None,
+        )
+        assert feedback == [(0, 0, 0.0, 1.0)]
+
+    def test_unmatched_prev_feature_is_skipped(self):
+        """A `prev_*` feature with no matching target is skipped, not an error."""
+        feedback = du.build_feedback_map(
+            features=["prev_windSpeedX"],
+            targets=["sigWaveHeight"],
+            scaling_params=None,
+        )
+        assert feedback == []
+
+    def test_non_prev_features_are_ignored(self):
+        """Features without the `prev_` prefix never appear in the feedback map."""
+        feedback = du.build_feedback_map(
+            features=["windSpeedX", "windSpeedY"],
+            targets=["sigWaveHeight"],
+            scaling_params=None,
+        )
+        assert feedback == []
+
     def test_prev_sincos_created_by_compute_prevT(self, angle_dataset):
         """After compute_sincos, compute_prevT correctly shifts sin_/cos_ variables."""
         ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "prev_sin_meanWaveDirection"])

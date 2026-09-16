@@ -502,8 +502,7 @@ def build_feedback_map(
 ) -> List[Tuple[int, int, float, float]]:
     """Map ``prev_<target>`` features to the prediction channels that feed them.
 
-    Used to close the autoregressive loop, both for rollout evaluation
-    (``src/rollout.py``) and rollout training (``AutoregressiveMixin``):
+    Used to close the feedback loop for rollout evaluation (``src/rollout.py``):
     a prediction at step *t* is written back as the ``prev_<target>`` feature
     for step *t+1*.
 

@@ -99,8 +99,8 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         self.ds_pred: Optional[Dataset] = None
 
         # (feature_idx, target_idx, mean, std) for every prev_<target> input.
-        # Populated in setup(stage="fit"); consumed by AutoregressiveMixin
-        # (rollout feedback) and by WWMEmulator's prev_* noise injection.
+        # Populated in setup(stage="fit"); consumed by rollout evaluation
+        # (src/rollout.py) and by WWMEmulator's prev_* noise injection.
         self.feedback_map: List[Tuple[int, int, float, float]] = []
 
         if self.num_workers == 0:

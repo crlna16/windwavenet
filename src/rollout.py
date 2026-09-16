@@ -91,8 +91,8 @@ log = RankedLogger(__name__, rank_zero_only=True)
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Re-exported for backward compatibility (moved to dataset_utils so
-# AutoregressiveMixin can share it for rollout training too).
+# Re-exported for backward compatibility (lives in dataset_utils since it is
+# also used by src/model/noise.py for prev_* noise injection).
 build_feedback_map = du.build_feedback_map
 
 # ---------------------------------------------------------------------------

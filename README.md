@@ -214,11 +214,12 @@ Sigma is given in physical units and divided by the feature's std from
 from the model's measured one-step validation RMSE: that makes the corrupted
 input distribution resemble what the model actually meets at lead 1.
 
-This is the ~1x-cost counterpart to autoregressive rollout training. Because
-`AutoregressiveMixin` detaches its feedback, rollout training corrupts the same
-channels with the model's *own* errors at ~T x the cost; noise injection
-approximates that with an explicit sigma. Run it as the control that AR training
-has to beat (Sanchez-Gonzalez et al., ICML 2020).
+This is a cheap (~1x-cost) way to make the model robust to compounding rollout
+error, without the T x cost of rolling out multiple steps during training and
+feeding back the model's own (detached) predictions. That autoregressive
+training approach was removed from this repository for clarity; see
+[AutoregressiveTraining.md](AutoregressiveTraining.md) if you need to
+reinstate it (Sanchez-Gonzalez et al., ICML 2020).
 
 **Applied to the training batch only.** Validation, test and predict batches stay
 clean, so `val/loss` and the RMSE metrics remain comparable with runs trained
