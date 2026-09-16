@@ -46,6 +46,7 @@ import torch.nn as nn
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig
 
+from src.model.WWMEmulator import WWMEmulator
 from src.utils import predict_utils as pu
 from src.utils.pylogger import RankedLogger
 
@@ -180,7 +181,30 @@ EXPERIMENTS: List[ExperimentSpec] = [
 # ---------------------------------------------------------------------------
 
 
-class GraphExportWrapper(nn.Module):
+class _BackboneExportBase(nn.Module):
+    """Holds only the emulator's backbone plus the metadata its output constraints need.
+
+    The ``WWMEmulator`` (a ``LightningModule``) must NOT be registered as a submodule here:
+    ``torch.jit.trace`` recursively probes every submodule's attributes with ``hasattr`` (looking
+    for ``@torch.jit.export`` methods), and ``LightningModule.trainer`` raises ``RuntimeError``
+    (not ``AttributeError``) when no ``Trainer`` is attached. So the plain ``nn.Module`` backbone
+    is traced directly and ``WWMEmulator._apply_output_constraints`` is re-used on this object,
+    which carries the three attributes that method reads.
+    """
+
+    CONSTRAINT_FUNCTIONS = WWMEmulator.CONSTRAINT_FUNCTIONS
+
+    def __init__(self, model: WWMEmulator) -> None:
+        super().__init__()
+        self.backbone = model.backbone
+        self.target_names = list(model.target_names)
+        self.output_constraints = dict(model.output_constraints)
+
+    def _apply_output_constraints(self, preds: torch.Tensor) -> torch.Tensor:
+        return WWMEmulator._apply_output_constraints(self, preds)
+
+
+class GraphExportWrapper(_BackboneExportBase):
     """Adapts a ``GraphWWMEmulator`` (PyG-``Data``-object forward) to explicit tensor args.
 
     ``torch.jit.trace`` cannot safely trace a model whose forward takes a
@@ -193,9 +217,8 @@ class GraphExportWrapper(nn.Module):
     for the wrapped model to consume.
     """
 
-    def __init__(self, model: nn.Module, needs_x_center_seq: bool) -> None:
-        super().__init__()
-        self.model = model
+    def __init__(self, model: WWMEmulator, needs_x_center_seq: bool) -> None:
+        super().__init__(model)
         self.needs_x_center_seq = needs_x_center_seq
 
     def forward(
@@ -209,28 +232,17 @@ class GraphExportWrapper(nn.Module):
         data = SimpleNamespace(x=x, edge_index=edge_index, edge_weight=edge_weight, batch=batch)
         if self.needs_x_center_seq:
             data.x_center_seq = x_center_seq
-        return self.model(data)
+        return self._apply_output_constraints(self.backbone(data))
 
 
-class DenseLSTMExportWrapper(nn.Module):
-    """Wraps a ``WWMEmulator`` (a ``LightningModule``) in a plain ``nn.Module`` for tracing.
-
-    ``torch.jit.trace`` inspects the top-level traced module with ``hasattr`` to look for
-    ``@torch.jit.export``-marked methods. ``LightningModule.trainer`` is a property that raises
-    ``RuntimeError`` (not ``AttributeError``) when no ``Trainer`` is attached, which ``hasattr``
-    does not swallow and crashes the trace. Tracing a plain wrapper instead avoids that property
-    ever being probed.
-    """
-
-    def __init__(self, model: nn.Module) -> None:
-        super().__init__()
-        self.model = model
+class DenseLSTMExportWrapper(_BackboneExportBase):
+    """Mirrors ``WWMEmulator.forward`` (backbone + output constraints) without the LightningModule."""
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
+        return self._apply_output_constraints(self.backbone(x))
 
 
-def build_traceable_module(model: nn.Module, family: str) -> nn.Module:
+def build_traceable_module(model: WWMEmulator, family: str) -> nn.Module:
     """Wraps the loaded model so it can be handed to ``torch.jit.trace`` with plain tensors."""
     if family in ("dense", "lstm"):
         return DenseLSTMExportWrapper(model)
