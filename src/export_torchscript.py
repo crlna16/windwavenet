@@ -367,6 +367,10 @@ def build_overrides(spec: ExperimentSpec, repo_root: Path) -> List[str]:
         # Dataset structure is time-invariant and seq_len maxes out at 48h, so a 5-day slice of the
         # configured test range is enough for tracing/verification without loading the full 2 months.
         "data.test_days=[336,341]",
+        # Trace on batch size 1: predict_gcn.yaml keys this as a top-level "batch_size_graphs",
+        # while predict/predict_lstm.yaml key it under "data.batch_size".
+        "batch_size_graphs=1" if spec.config_name == "predict_gcn" else "data.batch_size=1",
+        "data.batch_size=1",  # just to be sure
     ]
     if spec.seq_len is not None:
         overrides.append(f"data.seq_len={spec.seq_len}")
