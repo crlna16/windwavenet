@@ -251,7 +251,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     graph_features: List[str] = list(cfg.data.get("graph_features", [])) if is_graph else []
 
     log.info(f"Opening dataset from {data_dir}")
-    ds, _ = du.open_and_slice_dataset(data_dir, test_days)
+    ds, samples_per_day = du.open_and_slice_dataset(data_dir, test_days)
     ds, n_nodes = du.preprocess_variables(ds, features, targets, extra_keep_vars=graph_features)
     ds, scaling_params = du.scale_variables(ds, features, cfg.data.get("scaling_config", None))
     n_time = ds.sizes["time"]
@@ -387,14 +387,26 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     # 6.  Rollout loop
     # ------------------------------------------------------------------
     # First predicted step: needs a full ground-truth history window and at
-    # least one anchor step before it for the persistence baseline.
-    t_first = max(seq_len - 1, 1)
+    # least one anchor step before it for the persistence baseline. An
+    # optional offset_hours shifts this later within the loaded test range,
+    # e.g. test_days=[5, 10] with offset_hours=5 starts at step 5 of day 5.
+    offset_hours = int(cfg.rollout.get("offset_hours", 0))
+    steps_per_hour = samples_per_day / 24
+    offset_steps = int(round(offset_hours * steps_per_hour))
+    if abs(offset_steps - offset_hours * steps_per_hour) > 1e-6:
+        raise ValueError(
+            f"offset_hours={offset_hours} does not align with the dataset's {samples_per_day} samples/day."
+        )
+    t_first = max(seq_len - 1, 1) + offset_steps
     steps_cap = cfg.rollout.get("steps", None)
     n_time_eff = n_time if steps_cap is None else min(n_time, t_first + int(steps_cap))
     n_leads = n_time_eff - t_first
     if n_leads <= 0:
         raise ValueError(f"No rollout steps to run: t_first={t_first}, n_time={n_time_eff}.")
-    log.info(f"Rollout: {n_leads} steps starting at time index {t_first} (anchor at {t_first - 1}).")
+    log.info(
+        f"Rollout: {n_leads} steps starting at time index {t_first} (anchor at {t_first - 1}), "
+        f"offset_hours={offset_hours}."
+    )
 
     preds_out = np.full((n_time_eff, n_nodes, n_targets), np.nan, dtype=np.float32)
     preds_tf_out = np.full((n_time_eff, n_nodes, n_targets), np.nan, dtype=np.float32) if teacher_forced else None
@@ -475,7 +487,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
 
     metrics_df = pd.DataFrame(rows)
     forecast_start = test_days[0]
-    metrics_path = f"{cfg.paths.output_dir}/rollout_metrics_lead_from_{forecast_start}.csv"
+    metrics_path = f"{cfg.paths.output_dir}/rollout_metrics_lead_from_{forecast_start}_{offset_hours}.csv"
     metrics_df.to_csv(metrics_path, index=False)
     log.info(f"Lead-time metrics saved to {metrics_path}")
 

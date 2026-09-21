@@ -19,6 +19,7 @@ plans/
 outputs/
 evaluation/*.csv
 notebooks/paper-plots/*/*.csv
+notebooks/paper-plots/*.csv
 notebooks/paper-plots/*/*.nc
 *.png
 *.npy

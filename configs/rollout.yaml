@@ -31,6 +31,11 @@ rollout:
   # Number of autoregressive steps (null = roll out over the full test range).
   steps: 240
 
+  # Hourly offset into the test range's first day before the rollout starts,
+  # e.g. data.test_days=[5, 10] with offset_hours=5 starts at step 5 of day 5
+  # instead of step 0 of day 5 (must align with the dataset's sampling rate).
+  offset_hours: 0
+
   # Nodes per forward pass for pointwise / sequence models.
   node_chunk_size: 65536
 
@@ -49,7 +54,7 @@ rollout:
   # ground truth instead of the model's own fed-back prediction), reported
   # as rmse_teacher_forced_<target> alongside the persistence baseline.
   # Roughly doubles inference cost; set false to skip.
-  teacher_forced: true
+  teacher_forced: false
 
   # Graph models only. Disjoint domain partitioning: every node belongs to
   # exactly one sub-graph; sub-graph size varies within
