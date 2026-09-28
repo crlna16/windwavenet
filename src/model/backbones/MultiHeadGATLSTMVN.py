@@ -234,8 +234,10 @@ class MultiHeadGATLSTMVN(nn.Module):
                 q = self.collect_queries[i](vn)[batch]  # (total_nodes, hidden_dim)
                 k = self.collect_keys[i](x)  # (total_nodes, hidden_dim)
                 scores = (q * k).sum(dim=-1) * self._scale
-                attn = pyg_softmax(scores, batch)
-                vn_agg = global_add_pool(x * attn.unsqueeze(-1), batch)  # (batch_size, hidden_dim)
+                # num_nodes/size derived from vn's shape (not `batch`) so torch.jit.trace keeps the
+                # graph count dynamic instead of freezing it to the export batch's graph count.
+                attn = pyg_softmax(scores, batch, num_nodes=vn.size(0))
+                vn_agg = global_add_pool(x * attn.unsqueeze(-1), batch, size=vn.size(0))  # (batch_size, hidden_dim)
                 vn = self.vn_grus[i](vn_agg, vn)
 
         # ---- Stage 3: Decode ----

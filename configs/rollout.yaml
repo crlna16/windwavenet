@@ -29,7 +29,12 @@ seed: null
 ## ------------------------------------
 rollout:
   # Number of autoregressive steps (null = roll out over the full test range).
-  steps: null
+  steps: 240
+
+  # Hourly offset into the test range's first day before the rollout starts,
+  # e.g. data.test_days=[5, 10] with offset_hours=5 starts at step 5 of day 5
+  # instead of step 0 of day 5 (must align with the dataset's sampling rate).
+  offset_hours: 0
 
   # Nodes per forward pass for pointwise / sequence models.
   node_chunk_size: 65536
@@ -43,7 +48,18 @@ rollout:
   boundary_from_truth: true
 
   # Save the full rollout prediction buffer as netCDF (can be large).
-  save_predictions: true
+  save_predictions: false
+
+  # Also compute a teacher-forced baseline (prev_* features always from
+  # ground truth instead of the model's own fed-back prediction), reported
+  # as rmse_teacher_forced_<target> alongside the persistence baseline.
+  # Roughly doubles inference cost; set false to skip.
+  teacher_forced: false
+
+  # Graph models only. Disjoint domain partitioning: every node belongs to
+  # exactly one sub-graph; sub-graph size varies within
+  # +/- disjoint_partition_tolerance of data.max_nodes.
+  disjoint_partition_tolerance: 0.1
 
 ## ------------------------------------
 ## Default data / model configuration
@@ -52,9 +68,9 @@ rollout:
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr
-  train_days: [1, 304]
-  val_days: [305, 334]
-  test_days: [335, 365]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [336, 366] #[[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
@@ -99,15 +115,8 @@ trainer:
   accelerator: auto
   devices: auto
 
-logger:
-  wandb: # wandb.ai
-    _target_: lightning.pytorch.loggers.wandb.WandbLogger
-    save_dir: "${paths.output_dir}"
-    offline: False
-    id: null
-    project: simple-wwm-emulator
-    entity: wwm-emulator
-    log_model: False
+# do not log in rollout
+logger: null
 
 paths:
   root_dir: ${hydra:runtime.cwd}

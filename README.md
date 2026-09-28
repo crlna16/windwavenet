@@ -28,7 +28,6 @@ supports several model families that share one data/preprocessing pipeline:
 | Graph attention | `MultiHeadGAT` | `GraphWWMEmulator` | `GraphWWMDataModule` |
 | Graph + virtual node | `MultiHeadGATVN` | `GraphWWMEmulator` | `GraphWWMDataModule` |
 | Graph + temporal virtual node | `MultiHeadGATLSTMVN` | `GraphWWMEmulator` | `CenterHistoryGraphWWMDataModule` |
-| Classical ML | XGBoost / scikit-learn estimator | `MLModelWrapper` | `WWMDataModule` |
 
 Key capabilities:
 
@@ -74,7 +73,6 @@ override any field on the command line (e.g. `trainer.max_epochs=50`).
 | Script | Base config | Purpose |
 | --- | --- | --- |
 | `src/train.py` | `configs/train.yaml` | Train a deep-learning model (MLP / LSTM / GAT). |
-| `src/train_ml.py` | `configs/train_ml.yaml` | Train a classical ML model (XGBoost / scikit-learn). |
 | `src/eval.py` | `configs/eval.yaml` | Teacher-forced one-step testing of a checkpoint. |
 | `src/predict.py` | `configs/predict.yaml` | Full-domain prediction for pointwise / sequence models. |
 | `src/predict_gcn.py` | `configs/predict_gcn.yaml` | Full-domain prediction for graph models (greedy mesh partitioning). |
@@ -85,17 +83,17 @@ override any field on the command line (e.g. `trainer.max_epochs=50`).
 # Train
 python src/train.py experiment=swh_1h_mlp
 python src/train.py experiment=swh_1h_lstm
-python src/train.py experiment=swh_1h_multi-head-gat-vn
-python src/train.py experiment=swh_1h_multi-head-gat-lstm-vn
+python src/train.py experiment=swh_1h_gat-vn
+python src/train.py experiment=swh_1h_gat-lstm-vn
 
 # Evaluate / predict a checkpoint
 python src/eval.py experiment=swh_1h_mlp ckpt_path=<ckpt>
 python src/predict.py experiment=swh_1h_lstm ckpt_path=<ckpt>
-python src/predict_gcn.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
+python src/predict_gcn.py experiment=swh_1h_gat-vn ckpt_path=<ckpt>
 ```
 
 The available experiment configs (see `configs/experiment/`) cover single-target
-`swh_1h_*` and multi-target `swh_mwp_mwd_1h_*` variants for each backbone.
+`swh_1h_*` and multi-target `multi_1h_*` variants for each backbone.
 
 # Technical notes
 
@@ -142,8 +140,8 @@ how errors accumulate in the wave channel over lead time, which one-step
 ```bash
 python src/rollout.py experiment=swh_1h_mlp ckpt_path=<ckpt>
 python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt>
-python src/rollout.py experiment=swh_1h_multi-head-gat-vn ckpt_path=<ckpt>
-python src/rollout.py experiment=swh_1h_multi-head-gat-lstm-vn ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_gat-vn ckpt_path=<ckpt>
+python src/rollout.py experiment=swh_1h_gat-lstm-vn ckpt_path=<ckpt>
 
 # limit the horizon to 48 steps
 python src/rollout.py experiment=swh_1h_lstm ckpt_path=<ckpt> rollout.steps=48
@@ -197,29 +195,35 @@ weight 0.5, and the weight distribution spreads over (0, 1). If the scale is
 much larger than the mesh edges, all weights cluster near 1.0 and the
 encoding carries no signal.
 
-## Classical ML Integration
+## Noise injection on `prev_*` inputs
 
-This describes the integration for classical machine learning models (XGBoost, RandomForest, AdaBoost, LightGBM, etc.) with the Lightning/Hydra framework.
+At rollout time the `prev_<target>` inputs are the model's own predictions and
+carry error; during training they are ground truth. The model therefore learns
+to trust them more than it should, and one bad step can throw the trajectory
+off. `model.prev_noise_std` perturbs those channels during training so the model
+learns to recover the clean target from a corrupted previous state:
 
-The ML integration is **completely separated** from the deep learning training pipeline but shares the same:
-- Data loading infrastructure (`WWMDataModule`)
-- Configuration system (Hydra)
-- Logging and metrics tracking
-- Sample weighting strategy
-
-### Train XGBoost model (default):
-```bash
-python src/train_ml.py
+```yaml
+model:
+  prev_noise_std:
+    sigWaveHeight: 0.08   # metres — physical units, NOT z-scored
 ```
 
-### Train with a different estimator:
-The estimator is configured under `model.model` in `configs/train_ml.yaml`
-(default: `xgboost.XGBRegressor`). `MLModelWrapper` accepts any
-scikit-learn-compatible estimator exposing `fit`/`predict`, so you can swap it
-via a Hydra override (dropping any XGBoost-specific keyword args):
+Sigma is given in physical units and divided by the feature's std from
+`data.scaling_config` internally, so `data.scaling_config` is required. Set it
+from the model's measured one-step validation RMSE: that makes the corrupted
+input distribution resemble what the model actually meets at lead 1.
 
-```bash
-python src/train_ml.py \
-  model.model._target_=sklearn.ensemble.RandomForestRegressor \
-  ~model.callbacks
-```
+This is a cheap (~1x-cost) way to make the model robust to compounding rollout
+error, without the T x cost of rolling out multiple steps during training and
+feeding back the model's own (detached) predictions. That autoregressive
+training approach was removed from this repository for clarity; see
+[AutoregressiveTraining.md](AutoregressiveTraining.md) if you need to
+reinstate it (Sanchez-Gonzalez et al., ICML 2020).
+
+**Applied to the training batch only.** Validation, test and predict batches stay
+clean, so `val/loss` and the RMSE metrics remain comparable with runs trained
+without noise. Expect `val/loss` to get slightly *worse* — that is the price
+being paid for rollout robustness, and it means early stopping on `val/loss`
+will fight the run. Raise the patience (or disable early stopping) for these
+runs and select on rollout skill instead.

@@ -495,6 +495,46 @@ def scale_variables(
     return ds, scaling_params
 
 
+def build_feedback_map(
+    features: List[str],
+    targets: List[str],
+    scaling_params: Optional[Dict[str, Dict[str, float]]],
+) -> List[Tuple[int, int, float, float]]:
+    """Map ``prev_<target>`` features to the prediction channels that feed them.
+
+    Used to close the feedback loop for rollout evaluation (``src/rollout.py``):
+    a prediction at step *t* is written back as the ``prev_<target>`` feature
+    for step *t+1*.
+
+    Args:
+        features: Feature names in model input order.
+        targets: Target names in model output order.
+        scaling_params: ``{var: {mean, std}}`` used to re-scale physical
+            predictions into feature space, or ``None``.
+
+    Returns:
+        List of ``(feature_idx, target_idx, mean, std)`` tuples.  Predictions
+        are written back as ``(pred - mean) / std``.
+    """
+    feedback = []
+    for f_idx, feat in enumerate(features):
+        if not feat.startswith("prev_"):
+            continue
+        base = feat[len("prev_") :]
+        if base not in targets:
+            log.warning(f"Feature '{feat}' has no matching target '{base}' — stays at ground truth during rollout.")
+            continue
+        t_idx = targets.index(base)
+        if scaling_params and feat in scaling_params:
+            mean = float(scaling_params[feat]["mean"])
+            std = float(scaling_params[feat]["std"])
+        else:
+            mean, std = 0.0, 1.0
+        feedback.append((f_idx, t_idx, mean, std))
+        log.info(f"Feedback channel: prediction '{base}' -> feature '{feat}' (mean={mean:.4f}, std={std:.4f})")
+    return feedback
+
+
 # ---------------------------------------------------------------------------
 # Data retrieval
 # ---------------------------------------------------------------------------

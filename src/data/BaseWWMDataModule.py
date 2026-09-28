@@ -8,10 +8,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import numpy as np
 import lightning as L
 from torch.utils.data import DataLoader, Dataset
 
+import src.data.dataset_utils as du
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -98,6 +98,11 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         self.ds_test: Optional[Dataset] = None
         self.ds_pred: Optional[Dataset] = None
 
+        # (feature_idx, target_idx, mean, std) for every prev_<target> input.
+        # Populated in setup(stage="fit"); consumed by rollout evaluation
+        # (src/rollout.py) and by WWMEmulator's prev_* noise injection.
+        self.feedback_map: List[Tuple[int, int, float, float]] = []
+
         if self.num_workers == 0:
             self.prefetch_factor = None
         else:
@@ -156,6 +161,10 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
                 sample_weight_power=self.sample_weight_power,
                 sample_weight_variable=self.sample_weight_variable,
             )
+
+            if not self.feedback_map:
+                scaling_params = getattr(self.ds_train, "scaling_params", None)
+                self.feedback_map = du.build_feedback_map(self.features, self.targets, scaling_params)
 
         elif stage == "test":
             # Test on all nodes for full evaluation
@@ -221,50 +230,6 @@ class BaseWWMDataModule(L.LightningDataModule, ABC):
         if freed:
             gc.collect()
             log.info(f"Freed dataset(s) for stage '{stage}'.")
-
-    def to_numpy(
-        self, stage: str = "fit"
-    ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        Optional[np.ndarray],
-        np.ndarray,
-        np.ndarray,
-        Optional[np.ndarray],
-        np.ndarray,
-        np.ndarray,
-        Optional[np.ndarray],
-    ]:
-        """Extract train / val / test data as numpy arrays.
-
-        Calls :meth:`setup` if datasets have not been created yet.
-
-        Args:
-            stage: Stage to set up (``"fit"`` creates train, val, and test).
-
-        Returns:
-            ``(X_train, y_train, w_train, X_val, y_val, w_val, X_test, y_test, w_test)``
-            where ``w_*`` is ``None`` when no sample weights are available.
-        """
-        if self.ds_train is None:
-            self.setup(stage=stage)
-
-        if self.ds_test is None:
-            self.setup(stage="test")
-
-        def _extract(ds):
-            X = ds.X.cpu().numpy()
-            y = ds.y.cpu().numpy()
-            w = ds.weights.cpu().numpy() if ds.weights is not None else None
-            return X, y, w
-
-        X_train, y_train, w_train = _extract(self.ds_train)
-        X_val, y_val, w_val = _extract(self.ds_val)
-        X_test, y_test, w_test = _extract(self.ds_test)
-
-        log.info(f"Extracted data - Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
-
-        return X_train, y_train, w_train, X_val, y_val, w_val, X_test, y_test, w_test
 
     def _make_dataloader(self, dataset, batch_size: int, shuffle: bool, worker_init_fn=None):
         """Create the appropriate DataLoader for the given dataset.

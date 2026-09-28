@@ -66,10 +66,11 @@ unit-tests:   # This job runs in the test stage.
     # install the development environment
     - uv sync --quiet --group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
+    - wget -q -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p tests/cicd_data
     - unzip -q data.zip -d tests/cicd_data
     - pwd -P
+    # legacy directory name
     - mv tests/cicd_data/work/ka1176/caroline/gitlab/wave-wind-model-emulator/tests/cicd_data/cicd.zarr tests/cicd_data/cicd.zarr
     - uv run pytest --cov-report term --cov=src tests/
   only:
@@ -86,11 +87,14 @@ deep-learning-pipeline: # runs in test
     # install the project, without the development group, mimicking production environment
     - uv sync --quiet --no-group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
+    - wget -q -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p DATA
     - unzip -q data.zip -d DATA
     - pwd -P
     - ls -l
+    # legacy directory name
+    - mv DATA/work/ka1176/caroline/gitlab/wave-wind-model-emulator DATA/work/ka1176/caroline/gitlab/wind-wave-model-emulator
+    - ls -l DATA/work/ka1176/caroline/gitlab/wind-wave-model-emulator
     - echo "This runs the deep learning pipeline for various experiments."
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
@@ -102,29 +106,6 @@ deep-learning-pipeline: # runs in test
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_multihead_gat_vn.yaml"
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_dual_path_gat_vn.yaml"
     - echo "Finished deep learning tests without errors."
-  only:
-    - merge_requests
-    - main
-
-machine-learning-pipeline: # runs in test
-  stage: test
-  image: python:3.12
-  script:
-    - pip install uv
-    # install the project, without the development group, mimicking production environment
-    - uv sync --quiet --no-group dev --active --frozen
-    # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
-    - mkdir -p DATA
-    - unzip -q data.zip -d DATA
-    - pwd -P
-    - echo "This runs the machine learning pipeline for various experiments."
-    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml"
-    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
-    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["sigWaveHeight"]' data.sample_weight_variable="sigWaveHeight"
-    # this should exit gracefully
-    - HYDRA_FULL_ERROR=1 uv run ./src/train_ml.py --config-path="../configs/cicd" --config-name="cicd_train_ml_target.yaml" data.targets='["delta_sigWaveHeight", "delta_meanWavePeriod"]'
-    - echo "Finished machine learning tests without errors."
   only:
     - merge_requests
     - main

@@ -13,7 +13,12 @@ emulator's OWN prediction at the previous step instead of from ground truth.
 
 The rollout starts from a ground-truth initial state and runs over the test
 day range.  Errors are reported per lead time (hours since the last observed
-wave state), next to a persistence baseline that holds the initial state.
+wave state), next to two baselines:
+
+- persistence: holds the last observed state constant for all lead times.
+- teacher-forced: same model, but ``prev_<target>`` features always come
+  from ground truth instead of the model's own rolled-forward prediction —
+  isolates the one-step model error from the compounding autoregressive error.
 
 Supported model families (auto-detected from ``data._target_``):
 
@@ -23,8 +28,10 @@ Supported model families (auto-detected from ``data._target_``):
 - ``SequenceGraphWWMDataModule``      → graph models with sequences at all nodes
 - ``CenterHistoryGraphWWMDataModule`` → MultiHeadGATLSTMVN
 
-Graph models are evaluated over the full mesh with the same greedy domain
-partitioning as ``predict_gcn.py``.
+Graph models are evaluated over the full mesh with the same disjoint domain
+partitioning as ``predict_gcn.py``: every node belongs to exactly one
+sub-graph, sized within ``+/- rollout.disjoint_partition_tolerance`` of
+``data.max_nodes``.
 
 Usage::
 
@@ -48,12 +55,11 @@ Notes:
 
 Outputs (in the Hydra run directory):
 
-- ``rollout_predictions.nc``   — full-domain predictions per rollout step
-- ``rollout_metrics_lead.csv`` — per-lead-time RMSE / MAE / bias per target,
+- ``rollout_predictions_from_<forecast_start>_<offset_hours>.nc``   — full-domain predictions per rollout step
+- ``rollout_metrics_lead_from_<forecast_start>_<offset_hours>.csv`` — per-lead-time RMSE / MAE / bias per target,
   persistence-baseline RMSE, and per-bin RMSE for configured target_bins
 """
 
-import importlib
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -72,6 +78,7 @@ from src.data.WWMDatasets import WWMGraphData
 from src.utils.instantiators import instantiate_loggers
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import get_bin_mask, print_config_tree
+from src.utils.predict_utils import load_model_from_checkpoint
 
 # Initialize the distributed rank so RankedLogger works without a Lightning trainer.
 if getattr(rank_zero_only, "rank", None) is None:
@@ -84,60 +91,9 @@ log = RankedLogger(__name__, rank_zero_only=True)
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def build_feedback_map(
-    features: List[str],
-    targets: List[str],
-    scaling_params: Optional[Dict[str, Dict[str, float]]],
-) -> List[Tuple[int, int, float, float]]:
-    """Map ``prev_<target>`` features to the prediction channels that feed them.
-
-    Args:
-        features: Feature names in model input order.
-        targets: Target names in model output order.
-        scaling_params: ``{var: {mean, std}}`` used to re-scale physical
-            predictions into feature space, or ``None``.
-
-    Returns:
-        List of ``(feature_idx, target_idx, mean, std)`` tuples.  Predictions
-        are written back as ``(pred - mean) / std``.
-    """
-    feedback = []
-    for f_idx, feat in enumerate(features):
-        if not feat.startswith("prev_"):
-            continue
-        base = feat[len("prev_") :]
-        if base not in targets:
-            log.warning(f"Feature '{feat}' has no matching target '{base}' — stays at ground truth during rollout.")
-            continue
-        t_idx = targets.index(base)
-        if scaling_params and feat in scaling_params:
-            mean = float(scaling_params[feat]["mean"])
-            std = float(scaling_params[feat]["std"])
-        else:
-            mean, std = 0.0, 1.0
-        feedback.append((f_idx, t_idx, mean, std))
-        log.info(f"Feedback channel: prediction '{base}' -> feature '{feat}' (mean={mean:.4f}, std={std:.4f})")
-    return feedback
-
-
-def load_model(cfg: DictConfig, device: torch.device):
-    """Instantiate the LightningModule class from config and load checkpoint weights."""
-    module_path, class_name = cfg.model._target_.rsplit(".", 1)
-    model_cls = getattr(importlib.import_module(module_path), class_name)
-    backbone = hydra.utils.instantiate(cfg.model.backbone)
-    model = model_cls.load_from_checkpoint(cfg.ckpt_path, backbone=backbone, strict=False, map_location=device)
-    model.eval()
-    model = model.to(device)
-    log.info(f"Loaded {class_name} from {cfg.ckpt_path} on {device}")
-
-    config_targets = list(cfg.data.targets)
-    if config_targets != list(model.target_names):
-        raise ValueError(
-            f"Target mismatch: config specifies {config_targets} but model was trained on {model.target_names}."
-        )
-    return model
-
+# Re-exported for backward compatibility (lives in dataset_utils since it is
+# also used by src/model/noise.py for prev_* noise injection).
+build_feedback_map = du.build_feedback_map
 
 # ---------------------------------------------------------------------------
 # Per-family single-step predictors
@@ -295,7 +251,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     graph_features: List[str] = list(cfg.data.get("graph_features", [])) if is_graph else []
 
     log.info(f"Opening dataset from {data_dir}")
-    ds, _ = du.open_and_slice_dataset(data_dir, test_days)
+    ds, samples_per_day = du.open_and_slice_dataset(data_dir, test_days)
     ds, n_nodes = du.preprocess_variables(ds, features, targets, extra_keep_vars=graph_features)
     ds, scaling_params = du.scale_variables(ds, features, cfg.data.get("scaling_config", None))
     n_time = ds.sizes["time"]
@@ -324,11 +280,19 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             adjacency = gu.remove_boundary_nodes(adjacency, boundary_positions)
         ds = ds.drop_vars([v for v in graph_features if v in ds], errors="ignore")
 
-        log.info("Partitioning domain ...")
-        partitions = gu.partition_domain(
+        max_nodes_per_partition = int(cfg.data.max_nodes)
+        tolerance = float(cfg.rollout.get("disjoint_partition_tolerance", 0.1))
+        log.info(
+            f"Partitioning domain (disjoint) with target_nodes={max_nodes_per_partition}, tolerance={tolerance} ..."
+        )
+        partitions = gu.partition_domain_disjoint(
             n_nodes=n_nodes,
             adjacency=adjacency,
-            max_nodes=int(cfg.data.max_nodes),
+            node_x=node_x,
+            node_y=node_y,
+            target_nodes=max_nodes_per_partition,
+            tolerance=tolerance,
+            excluded_nodes=boundary_positions,
         )
         edge_weight_scale = float(cfg.data.edge_weight_scale)
         edge_weights = [
@@ -371,7 +335,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     # 5.  Load model and build the single-step predictor
     # ------------------------------------------------------------------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(cfg, device)
+    model = load_model_from_checkpoint(cfg, device)
 
     node_chunk_size = int(cfg.rollout.get("node_chunk_size", 65536))
     batch_size_graphs = int(cfg.rollout.get("batch_size_graphs", 32))
@@ -394,25 +358,65 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             center_history,
         )
 
+    # Teacher-forced predictor: identical model, but bound to a frozen copy of
+    # the ground-truth buffer so prev_* feedback is never overwritten with
+    # the model's own predictions.
+    teacher_forced = bool(cfg.rollout.get("teacher_forced", True))
+    step_tf = None
+    if teacher_forced:
+        X_all_truth = X_all.copy()
+        if mode == "pointwise":
+            step_tf = make_pointwise_predictor(model, X_all_truth, device, node_chunk_size)
+        elif mode == "sequence":
+            step_tf = make_sequence_predictor(model, X_all_truth, seq_len, device, node_chunk_size)
+        else:
+            step_tf = make_graph_predictor(
+                model,
+                X_all_truth,
+                partitions,
+                edge_weights,
+                owned_map,
+                n_targets,
+                device,
+                batch_size_graphs,
+                seq_len,
+                center_history,
+            )
+
     # ------------------------------------------------------------------
     # 6.  Rollout loop
     # ------------------------------------------------------------------
     # First predicted step: needs a full ground-truth history window and at
-    # least one anchor step before it for the persistence baseline.
-    t_first = max(seq_len - 1, 1)
+    # least one anchor step before it for the persistence baseline. An
+    # optional offset_hours shifts this later within the loaded test range,
+    # e.g. test_days=[5, 10] with offset_hours=5 starts at step 5 of day 5.
+    offset_hours = int(cfg.rollout.get("offset_hours", 0))
+    steps_per_hour = samples_per_day / 24
+    offset_steps = int(round(offset_hours * steps_per_hour))
+    if abs(offset_steps - offset_hours * steps_per_hour) > 1e-6:
+        raise ValueError(
+            f"offset_hours={offset_hours} does not align with the dataset's {samples_per_day} samples/day."
+        )
+    t_first = max(seq_len - 1, 1) + offset_steps
     steps_cap = cfg.rollout.get("steps", None)
     n_time_eff = n_time if steps_cap is None else min(n_time, t_first + int(steps_cap))
     n_leads = n_time_eff - t_first
     if n_leads <= 0:
         raise ValueError(f"No rollout steps to run: t_first={t_first}, n_time={n_time_eff}.")
-    log.info(f"Rollout: {n_leads} steps starting at time index {t_first} (anchor at {t_first - 1}).")
+    log.info(
+        f"Rollout: {n_leads} steps starting at time index {t_first} (anchor at {t_first - 1}), "
+        f"offset_hours={offset_hours}."
+    )
 
     preds_out = np.full((n_time_eff, n_nodes, n_targets), np.nan, dtype=np.float32)
+    preds_tf_out = np.full((n_time_eff, n_nodes, n_targets), np.nan, dtype=np.float32) if teacher_forced else None
 
     with torch.no_grad():
         for t in range(t_first, n_time_eff):
             y_hat = step(t)  # (n_nodes, n_targets), physical units
             preds_out[t] = y_hat
+            if teacher_forced:
+                preds_tf_out[t] = step_tf(t)
 
             if t + 1 < n_time_eff:
                 for f_idx, t_idx, mean, std in feedback:
@@ -436,6 +440,8 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
     # NaN-out boundary node predictions for fair comparison and metrics.
     if boundary_positions is not None:
         preds_out[:, boundary_positions, :] = np.nan
+        if teacher_forced:
+            preds_tf_out[:, boundary_positions, :] = np.nan
 
     # ------------------------------------------------------------------
     # 7.  Lead-time metrics (model vs persistence-of-initial-state)
@@ -460,6 +466,9 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
             row[f"mae_{name}"] = float(np.nanmean(np.abs(err)))
             row[f"bias_{name}"] = float(np.nanmean(err))
             row[f"rmse_persistence_{name}"] = float(np.sqrt(np.nanmean((persist - truth) ** 2)))
+            if teacher_forced:
+                pred_tf = preds_tf_out[t, valid_nodes, t_idx]
+                row[f"rmse_teacher_forced_{name}"] = float(np.sqrt(np.nanmean((pred_tf - truth) ** 2)))
 
             if name in target_bins:
                 bins = list(target_bins[name])
@@ -477,7 +486,8 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
         rows.append(row)
 
     metrics_df = pd.DataFrame(rows)
-    metrics_path = f"{cfg.paths.output_dir}/rollout_metrics_lead.csv"
+    forecast_start = test_days[0]
+    metrics_path = f"{cfg.paths.output_dir}/rollout_metrics_lead_from_{forecast_start}_{offset_hours}.csv"
     metrics_df.to_csv(metrics_path, index=False)
     log.info(f"Lead-time metrics saved to {metrics_path}")
 
@@ -507,6 +517,18 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
                 )
             )
         )
+        if teacher_forced:
+            summary[f"rollout/rmse_teacher_forced_{name}"] = float(
+                np.sqrt(
+                    np.nanmean(
+                        (
+                            preds_tf_out[t_first:, valid_nodes, targets.index(name)]
+                            - Y_all[t_first:n_time_eff, valid_nodes, targets.index(name)]
+                        )
+                        ** 2
+                    )
+                )
+            )
     for key, val in summary.items():
         log.info(f"  {key}: {val:.6f}")
 
@@ -538,7 +560,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
                 "seq_len": seq_len,
             },
         )
-        output_path = f"{cfg.paths.output_dir}/rollout_predictions.nc"
+        output_path = f"{cfg.paths.output_dir}/rollout_predictions_from_{forecast_start}_{offset_hours}.nc"
         ds_pred.to_netcdf(output_path)
         log.info(f"Rollout predictions saved to {output_path}")
 

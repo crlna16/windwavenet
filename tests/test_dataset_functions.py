@@ -8,6 +8,7 @@ import pytest
 import xarray as xr
 
 from src.data import dataset_utils as du
+from src.data import graph_utils as gu
 from src.data.WWMDatasets import CenterHistoryGraphWWMDataset, GraphWWMDataset, SequenceWWMDataset, SimpleWWMDataset
 
 
@@ -868,6 +869,60 @@ class TestComputeSincos:
         ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "cos_meanWaveDirection"])
         assert "meanWaveDirection" in ds
 
+
+class TestBuildFeedbackMap:
+    """Test suite for build_feedback_map (shared by rollout eval and noise injection)."""
+
+    @pytest.fixture
+    def angle_dataset(self):
+        """Synthetic dataset with a meanWaveDirection variable."""
+        angles_deg = np.array(
+            [
+                [0.0, 90.0, 180.0],  # t=0
+                [270.0, 45.0, 360.0],  # t=1
+            ]
+        )
+        return xr.Dataset(
+            {"meanWaveDirection": (["time", "nSCHISM_hgrid_node"], angles_deg)},
+            coords={"time": [0, 1], "nSCHISM_hgrid_node": [0, 1, 2]},
+        )
+
+    def test_maps_prev_feature_to_target(self):
+        """A `prev_<target>` feature should map to its target's index."""
+        feedback = du.build_feedback_map(
+            features=["windSpeedX", "prev_sigWaveHeight"],
+            targets=["sigWaveHeight"],
+            scaling_params={"prev_sigWaveHeight": {"mean": 1.0, "std": 2.0}},
+        )
+        assert feedback == [(1, 0, 1.0, 2.0)]
+
+    def test_no_scaling_params_defaults_to_identity(self):
+        """Without scaling params, mean=0/std=1 (no rescaling)."""
+        feedback = du.build_feedback_map(
+            features=["prev_sigWaveHeight"],
+            targets=["sigWaveHeight"],
+            scaling_params=None,
+        )
+        assert feedback == [(0, 0, 0.0, 1.0)]
+
+    def test_unmatched_prev_feature_is_skipped(self):
+        """A `prev_*` feature with no matching target is skipped, not an error."""
+        feedback = du.build_feedback_map(
+            features=["prev_windSpeedX"],
+            targets=["sigWaveHeight"],
+            scaling_params=None,
+        )
+        assert feedback == []
+
+    def test_non_prev_features_are_ignored(self):
+        """Features without the `prev_` prefix never appear in the feedback map."""
+        feedback = du.build_feedback_map(
+            features=["windSpeedX", "windSpeedY"],
+            targets=["sigWaveHeight"],
+            scaling_params=None,
+        )
+        assert feedback == []
+
     def test_prev_sincos_created_by_compute_prevT(self, angle_dataset):
         """After compute_sincos, compute_prevT correctly shifts sin_/cos_ variables."""
         ds = du.compute_sincos(angle_dataset, ["sin_meanWaveDirection", "prev_sin_meanWaveDirection"])
@@ -915,3 +970,65 @@ class TestReconstructFromSincos:
         reconstructed = du.reconstruct_from_sincos(np.array([sin_360]), np.array([cos_360]))
         # Accept either 0.0 or 360.0 (they're equivalent), but prefer 0.0
         assert np.isclose(reconstructed[0], 0.0, atol=1e-6) or np.isclose(reconstructed[0], 360.0, atol=1e-6)
+
+
+class TestPartitionDomainDisjoint:
+    """Test suite for the disjoint partitioning used by full-domain graph inference."""
+
+    @staticmethod
+    def _chain_mesh():
+        """A 10-node chain 0-1-...-9 plus 'boundary' nodes 10 (on node 0) and 11 (on node 9)."""
+        adjacency = {i: [] for i in range(12)}
+        for i in range(9):
+            adjacency[i].append(i + 1)
+            adjacency[i + 1].append(i)
+        adjacency[0].append(10)
+        adjacency[10].append(0)
+        adjacency[9].append(11)
+        adjacency[11].append(9)
+
+        node_x = np.arange(12, dtype=float)
+        node_y = np.zeros(12, dtype=float)
+        return adjacency, node_x, node_y
+
+    def test_excluded_nodes_are_never_partitioned(self):
+        """Excluded nodes belong to no partition, and the rest are covered exactly once."""
+        adjacency, node_x, node_y = self._chain_mesh()
+        boundary = np.array([10, 11])
+        gu.remove_boundary_nodes(adjacency, boundary)
+
+        partitions = gu.partition_domain_disjoint(
+            n_nodes=12,
+            adjacency=adjacency,
+            node_x=node_x,
+            node_y=node_y,
+            target_nodes=5,
+            tolerance=0.2,
+            excluded_nodes=boundary,
+        )
+
+        owned = np.concatenate([sn for _, sn, _, _ in partitions])
+        assert sorted(owned.tolist()) == list(range(10))  # exact, single coverage
+        assert all(len(sn) > 1 for _, sn, _, _ in partitions)
+
+    def test_pruned_nodes_become_singletons_without_exclusion(self):
+        """Regression guard for the reason `excluded_nodes` exists.
+
+        Nodes pruned from the adjacency but not excluded are seeded as their own
+        single-node patch, so inference would predict them from their own
+        features alone — a configuration no training sub-graph ever contains.
+        """
+        adjacency, node_x, node_y = self._chain_mesh()
+        gu.remove_boundary_nodes(adjacency, np.array([10, 11]))
+
+        partitions = gu.partition_domain_disjoint(
+            n_nodes=12,
+            adjacency=adjacency,
+            node_x=node_x,
+            node_y=node_y,
+            target_nodes=5,
+            tolerance=0.2,
+        )
+
+        singletons = {int(sn[0]) for _, sn, _, _ in partitions if len(sn) == 1}
+        assert singletons == {10, 11}
