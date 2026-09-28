@@ -21,5 +21,6 @@ evaluation/*.csv
 notebooks/paper-plots/*/*.csv
 notebooks/paper-plots/*.csv
 notebooks/paper-plots/*/*.nc
+notebooks/local_only
 *.png
 *.npy
