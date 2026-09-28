@@ -45,7 +45,7 @@ seed: null
 ## ----------------------------------
 data:
   _target_: src.data.WWMDataModule.WWMDataModule
-  data_dir: /builds/hereon-ksn/wave-wind-model-emulator/DATA/work/ka1176/caroline/gitlab/wave-wind-model-emulator/tests/cicd_data/cicd.zarr
+  data_dir: /builds/hereon-ksn/wind-wave-model-emulator/DATA/work/ka1176/caroline/gitlab/wind-wave-model-emulator/tests/cicd_data/cicd.zarr
   train_days: [1, 3]
   val_days: [3, 4]
   test_days: [4, 5]

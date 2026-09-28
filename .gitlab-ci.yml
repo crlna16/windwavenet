@@ -70,7 +70,7 @@ unit-tests:   # This job runs in the test stage.
     - mkdir -p tests/cicd_data
     - unzip -q data.zip -d tests/cicd_data
     - pwd -P
-    - mv tests/cicd_data/work/ka1176/caroline/gitlab/wave-wind-model-emulator/tests/cicd_data/cicd.zarr tests/cicd_data/cicd.zarr
+    - mv tests/cicd_data/work/ka1176/caroline/gitlab/wind-wave-model-emulator/tests/cicd_data/cicd.zarr tests/cicd_data/cicd.zarr
     - uv run pytest --cov-report term --cov=src tests/
   only:
     - merge_requests

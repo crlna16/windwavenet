@@ -56,7 +56,7 @@ VARIABLES = list(VALUE_BINS)
 # meanWaveDirection is an angle: use wraparound-aware error instead of plain subtraction
 CIRCULAR_VARIABLES = {"meanWaveDirection"}
 
-PREDICT_FINAL_DIR = Path("/work/ka1176/caroline/gitlab/wave-wind-model-emulator/logs/predict_2020")
+PREDICT_FINAL_DIR = Path("/work/ka1176/caroline/gitlab/wind-wave-model-emulator/logs/predict_2020")
 GROUND_TRUTH_ZARR = "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr"
 BOUNDARY_NODES_CSV = REPO_ROOT / "src/data/node_selection/boundary_nodes.csv"
 OUTPUT_DIR = Path(__file__).resolve().parent / "metrics"

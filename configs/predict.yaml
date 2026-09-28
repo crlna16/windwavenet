@@ -30,7 +30,7 @@ tags: ["prediction"]
 
 # stored weights for evaluation
 #ckpt_path: ./logs/train/runs/2025-11-20_10-09-49/simple-wwm-emulator/a7lrxh82/checkpoints/epoch=2-step=262614.ckpt
-ckpt_path: /work/ka1176/caroline/gitlab/wave-wind-model-emulator/checkpoints/epoch=0-step=50-v1.ckpt
+ckpt_path: /work/ka1176/caroline/gitlab/wind-wave-model-emulator/checkpoints/epoch=0-step=50-v1.ckpt
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

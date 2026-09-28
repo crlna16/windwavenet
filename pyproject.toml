@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 [project]
-name = "wave-wind-model-emulator"
+name = "wind-wave-model-emulator"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
