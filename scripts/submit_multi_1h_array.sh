@@ -19,11 +19,11 @@ COMMANDS=(
     #"uv run python src/train.py experiment=multi_1h_gat.yaml trainer.devices=4 data.max_nodes=250 test=false predict=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat.yaml trainer.devices=4 data.max_nodes=50  test=false predict=false seed=172426"
     # Multi-Head GAT VN (09-11)
-    "uv run python src/train.py experiment=multi_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=500 test=false seed=172426"
+    "uv run python src/train.py experiment=multi_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=500 test=false seed=172426 logger.wandb.id=yst7893t 'ckpt_path=\"logs/train/multi_1h_gat-vn/runs/2026-09-15_06-25-05/wwm-emulator-hourly-final/yst7893t/checkpoints/last.ckpt\"'"
     #"uv run python src/train.py experiment=multi_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=250 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-vn.yaml trainer.devices=4 data.max_nodes=50 test=false seed=172426"
     # Multi-Head LSTM GAT VN (12-17)
-    "uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=4 test=false seed=172426"
+    "uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=6 trainer.devices=4 test=false seed=172426 logger.wandb.id=6flusa96 'ckpt_path=\"logs/train/multi_1h_gat-lstm-vn/runs/2026-09-15_06-27-44/wwm-emulator-hourly-final/6flusa96/checkpoints/last.ckpt\"'"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=250 data.seq_len=6 trainer.devices=4 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=50  data.seq_len=6 trainer.devices=4 test=false seed=172426"
     #"uv run python src/train.py experiment=multi_1h_gat-lstm-vn.yaml data.max_nodes=500 data.seq_len=48 trainer.devices=4 test=false seed=172426"

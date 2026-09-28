@@ -55,8 +55,8 @@ Notes:
 
 Outputs (in the Hydra run directory):
 
-- ``rollout_predictions.nc``   — full-domain predictions per rollout step
-- ``rollout_metrics_lead.csv`` — per-lead-time RMSE / MAE / bias per target,
+- ``rollout_predictions_from_<forecast_start>_<offset_hours>.nc``   — full-domain predictions per rollout step
+- ``rollout_metrics_lead_from_<forecast_start>_<offset_hours>.csv`` — per-lead-time RMSE / MAE / bias per target,
   persistence-baseline RMSE, and per-bin RMSE for configured target_bins
 """
 
@@ -560,7 +560,7 @@ def rollout(cfg: DictConfig) -> xr.Dataset:
                 "seq_len": seq_len,
             },
         )
-        output_path = f"{cfg.paths.output_dir}/rollout_predictions.nc"
+        output_path = f"{cfg.paths.output_dir}/rollout_predictions_from_{forecast_start}_{offset_hours}.nc"
         ds_pred.to_netcdf(output_path)
         log.info(f"Rollout predictions saved to {output_path}")
 

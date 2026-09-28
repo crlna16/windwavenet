@@ -873,6 +873,20 @@ class TestComputeSincos:
 class TestBuildFeedbackMap:
     """Test suite for build_feedback_map (shared by rollout eval and noise injection)."""
 
+    @pytest.fixture
+    def angle_dataset(self):
+        """Synthetic dataset with a meanWaveDirection variable."""
+        angles_deg = np.array(
+            [
+                [0.0, 90.0, 180.0],  # t=0
+                [270.0, 45.0, 360.0],  # t=1
+            ]
+        )
+        return xr.Dataset(
+            {"meanWaveDirection": (["time", "nSCHISM_hgrid_node"], angles_deg)},
+            coords={"time": [0, 1], "nSCHISM_hgrid_node": [0, 1, 2]},
+        )
+
     def test_maps_prev_feature_to_target(self):
         """A `prev_<target>` feature should map to its target's index."""
         feedback = du.build_feedback_map(
