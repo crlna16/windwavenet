@@ -16,10 +16,8 @@ from omegaconf import DictConfig, OmegaConf
 
 import numpy as np
 import torch
-import xarray as xr
 
 from src.utils import pylogger
-from src.data import dataset_utils as du
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -202,7 +200,12 @@ def print_config_tree(
 
         config_group = cfg[field]
         if isinstance(config_group, DictConfig):
-            branch_content = OmegaConf.to_yaml(config_group, resolve=resolve)
+            try:
+                branch_content = OmegaConf.to_yaml(config_group, resolve=resolve)
+            except Exception:
+                # Some fields (e.g. "hydra", or "paths" with ${hydra:...} refs) can only be
+                # resolved inside a real Hydra runtime (not when composed via hydra.compose()).
+                branch_content = OmegaConf.to_yaml(config_group, resolve=False)
         else:
             branch_content = str(config_group)
 
@@ -278,47 +281,3 @@ def circular_rmse(pred_deg: np.ndarray, truth_deg: np.ndarray) -> float:
     diff = np.abs(pred_deg - truth_deg) % 360.0
     diff = np.where(diff > 180.0, 360.0 - diff, diff)
     return float(np.sqrt(np.mean(diff**2)))
-
-
-def generate_predictions_ml(
-    ml_model,
-    datamodule,
-    target_names: List[str],
-    model_target: str,
-) -> xr.Dataset:
-    """Generate predictions with a machine learning model.
-
-    Args:
-        ml_model: Trained ML model wrapper
-        datamodule: Lightning DataModule
-        target_names: List of target variable names
-        model_target: Model target name for attributes
-
-    Returns:
-        xr.Dataset with predictions
-    """
-    log.info("Generating predictions on test set...")
-
-    test_dataset = datamodule.ds_test
-    X_test = test_dataset.X
-
-    predictions = ml_model.predict(X_test)  # Shape: (n_samples, n_targets)
-    if len(predictions.shape) == 1:
-        predictions = predictions[:, np.newaxis]
-
-    ds = test_dataset.ds
-    n_time = ds.sizes["time"]
-    n_nodes = ds.sizes["nSCHISM_hgrid_node"]
-    predictions = predictions.reshape(n_time, n_nodes, len(target_names))
-
-    ds_pred = du.build_prediction_dataset(
-        predictions=predictions,
-        target_names=target_names,
-        ds=ds,
-        features=[],
-        scaling_params=None,
-        time_coords=ds.time,
-        extra_attrs={"model": model_target},
-    )
-
-    return ds_pred

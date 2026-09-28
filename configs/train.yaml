@@ -31,8 +31,11 @@ tags: ["dev"]
 # set False to skip model training
 train: True
 
-# evaluate on test set, using best model weights achieved during training (as per checkpoint callback metric)
-test: True
+# evaluate on test set, using best model weights achieved during training (as per checkpoint callback metric).
+# Off by default: the test split covers the full mesh and building it alongside the train/val datasets is
+# expensive in RAM. Run `src/predict.py` (or `src/predict_gcn.py` / `src/rollout.py`) as a separate process
+# on the saved checkpoint instead, and compute metrics from the netCDF output.
+test: False
 
 # simply provide checkpoint path to resume training
 ckpt_path: null
@@ -52,9 +55,9 @@ data:
   # non-overlapping, e.g. train_days: [[1, 180], [244, 304]].
   # Derived variables (prev_*/delta_*) and sequence windows never cross
   # the gap between ranges.
-  train_days: [1, 304]
-  val_days: [305, 334]
-  test_days: [335, 365]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
@@ -137,6 +140,7 @@ trainer:
   # Performance optimizations
   # Gradient accumulation can help with memory if you want larger effective batch size
   accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
 
   # Benchmark mode finds fastest algorithms for your hardware
   benchmark: true
@@ -173,6 +177,7 @@ callbacks:
     # generous patience only costs compute, never checkpoint quality.
     patience: 15
     mode: "min"
+    min_delta: 0.0001
 
   model_summary:
     _target_: lightning.pytorch.callbacks.RichModelSummary

@@ -2,7 +2,7 @@
 
 predict: false
 
-experiment_name: "swh_mwp_mwd_1h_lstm"
+experiment_name: "multi_1h_lstm"
 
 data:
   _target_: src.data.SequenceWWMDataModule.SequenceWWMDataModule
@@ -16,7 +16,7 @@ data:
     - elevation
     - depthAverageVelX
     - depthAverageVelY
-    - peakPeriod
+    - depth
     - prev_sigWaveHeight
     - prev_meanWavePeriod
     - prev_sin_meanWaveDirection
@@ -47,6 +47,19 @@ model:
   target_bins:
     sigWaveHeight: [0.5, 1.0, 2.0, 4.0]
 
+  # Targets are not scaled (unlike features), and their raw variances differ a
+  # lot (period-scale targets have much larger squared errors than SWH or the
+  # bounded sin/cos direction channels). Weighted ~1/Var(target) from
+  # src/data/scaling/scale_2020_8months_hourly.yaml, normalized to mean 1 so
+  # the overall loss magnitude (relevant for gradient_clip_val) is unchanged.
+  # sin/cos variance isn't measured (not z-scored) - approximated as 0.5 from
+  # sin^2+cos^2=1 under roughly symmetric directions.
+  loss_weights:
+    sigWaveHeight: 1.4347
+    meanWavePeriod: 0.6579
+    sin_meanWaveDirection: 1.2701
+    cos_meanWaveDirection: 1.2701
+
   backbone:
     _target_: src.model.backbones.LSTMNet.LSTMNet
     input_dim: 10
@@ -61,6 +74,7 @@ model:
 
   output_constraints:
     sigWaveHeight: semipositive
+    meanWavePeriod: semipositive
     sin_meanWaveDirection: unit_circle
     cos_meanWaveDirection: unit_circle
 
@@ -70,4 +84,4 @@ trainer:
 logger:
   wandb:
     project: wwm-emulator-hourly-final
-    tags: ["swh-mwp-mwd-1h", "lstm"]
+    tags: ["multi-1h", "lstm"]
