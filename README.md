@@ -37,14 +37,13 @@ Key capabilities:
   `unit_circle` constraint for `sin_*`/`cos_*` direction pairs.
 - **Circular error metrics** for angular targets and **binned RMSE** over
   configurable value ranges (`target_bins`).
-- **Sample weighting** for imbalanced regression (`histogram`, preferred; `z_score`,
-  legacy), pre-computed once per training run (see below).
+- **Sample weighting** for imbalanced regression (`histogram`)
 - **Graph models over the SCHISM mesh** with physical edge-length encoding
-  via inverse-distance edge weights (see below).
+  via inverse-distance edge weights.
 - **Evaluation modes**: teacher-forced one-step testing, full-domain
   prediction, and pseudo-coupled autoregressive rollout.
 - **Reproducible experiments** via Hydra `experiment=` configs under
-  `configs/experiment/` and inference-timing benchmarks.
+  `configs/experiment/`.
 
 ## Installation
 
@@ -75,7 +74,7 @@ override any field on the command line (e.g. `trainer.max_epochs=50`).
 | `src/train.py` | `configs/train.yaml` | Train a deep-learning model (MLP / LSTM / GAT). |
 | `src/eval.py` | `configs/eval.yaml` | Teacher-forced one-step testing of a checkpoint. |
 | `src/predict.py` | `configs/predict.yaml` | Full-domain prediction for pointwise / sequence models. |
-| `src/predict_gcn.py` | `configs/predict_gcn.yaml` | Full-domain prediction for graph models (greedy mesh partitioning). |
+| `src/predict_gcn.py` | `configs/predict_gcn.yaml` | Full-domain prediction for graph models (disjoint mesh partitioning). |
 | `src/rollout.py` | `configs/rollout.yaml` | Pseudo-coupled autoregressive rollout evaluation. |
 
 ```bash
