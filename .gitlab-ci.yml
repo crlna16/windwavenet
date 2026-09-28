@@ -92,8 +92,9 @@ deep-learning-pipeline: # runs in test
     - unzip -q data.zip -d DATA
     - pwd -P
     - ls -l
+    - ls -l DATA
     # legacy directory name
-    - mv tests/cicd_data/work/ka1176/caroline/gitlab/wave-wind-model-emulator tests/cicd_data/work/ka1176/caroline/gitlab/wind-wave-model-emulator
+    - mv DATA/tests/cicd_data/work/ka1176/caroline/gitlab/wave-wind-model-emulator DATA/tests/cicd_data/work/ka1176/caroline/gitlab/wind-wave-model-emulator
     - echo "This runs the deep learning pipeline for various experiments."
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml"
     - HYDRA_FULL_ERROR=1 uv run ./src/train.py --config-path="../configs/cicd" --config-name="cicd_train_target.yaml" data.node_idx_csv="tests/cicd_data/node_idx.csv"
