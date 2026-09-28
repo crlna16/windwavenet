@@ -66,11 +66,12 @@ unit-tests:   # This job runs in the test stage.
     # install the development environment
     - uv sync --quiet --group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
+    - wget -q -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p tests/cicd_data
     - unzip -q data.zip -d tests/cicd_data
     - pwd -P
-    - mv tests/cicd_data/work/ka1176/caroline/gitlab/wind-wave-model-emulator/tests/cicd_data/cicd.zarr tests/cicd_data/cicd.zarr
+    # legacy directory name
+    - mv tests/cicd_data/work/ka1176/caroline/gitlab/wave-wind-model-emulator/tests/cicd_data/cicd.zarr tests/cicd_data/cicd.zarr
     - uv run pytest --cov-report term --cov=src tests/
   only:
     - merge_requests
@@ -86,7 +87,7 @@ deep-learning-pipeline: # runs in test
     # install the project, without the development group, mimicking production environment
     - uv sync --quiet --no-group dev --active --frozen
     # download dummy data
-    - wget -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
+    - wget -q -O data.zip "https://share.hereon.de/index.php/s/RkmL384GM2cA6bC/download"
     - mkdir -p DATA
     - unzip -q data.zip -d DATA
     - pwd -P
