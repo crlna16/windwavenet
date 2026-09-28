@@ -246,6 +246,60 @@ def compute_edge_weights(
     return torch.from_numpy(weights)
 
 
+def compute_local_mean_edge_length(
+    edge_index: torch.Tensor,
+    subgraph_nodes: np.ndarray,
+    node_x: np.ndarray,
+    node_y: np.ndarray,
+) -> torch.Tensor:
+    """Compute the mean edge length to neighbours, per node, in a sub-graph.
+
+    Uses the same local/global indexing as :func:`compute_edge_weights`:
+    ``edge_index`` holds *local* indices into *subgraph_nodes*, which in
+    turn maps local index -> global 0-indexed node position. Self-loops
+    (``src_local == dst_local``) are excluded before averaging. Nodes with
+    no non-self-loop neighbours get a mean length of 0.0.
+
+    Args:
+        edge_index: ``(2, n_edges)`` tensor of *local* node indices
+            (includes self-loops).
+        subgraph_nodes: Sorted array of *global* 0-indexed node positions
+            that maps local index -> global position.
+        node_x: Full-domain node x-coordinates.
+        node_y: Full-domain node y-coordinates.
+
+    Returns:
+        ``(n_nodes,)`` 1-D float tensor, indexed by local node index (i.e.
+        aligned with *subgraph_nodes*), giving each node's mean distance to
+        its neighbours.
+    """
+    src_local = edge_index[0].numpy()
+    dst_local = edge_index[1].numpy()
+
+    not_self_loop = src_local != dst_local
+    src_local = src_local[not_self_loop]
+    dst_local = dst_local[not_self_loop]
+
+    src_global = subgraph_nodes[src_local]
+    dst_global = subgraph_nodes[dst_local]
+
+    dx = node_x[src_global] - node_x[dst_global]
+    dy = node_y[src_global] - node_y[dst_global]
+    lengths = np.sqrt(dx * dx + dy * dy).astype(np.float32)
+
+    n_nodes = len(subgraph_nodes)
+    length_sums = np.zeros(n_nodes, dtype=np.float64)
+    neighbour_counts = np.zeros(n_nodes, dtype=np.int64)
+    np.add.at(length_sums, src_local, lengths)
+    np.add.at(neighbour_counts, src_local, 1)
+
+    mean_lengths = np.zeros(n_nodes, dtype=np.float32)
+    has_neighbours = neighbour_counts > 0
+    mean_lengths[has_neighbours] = (length_sums[has_neighbours] / neighbour_counts[has_neighbours]).astype(np.float32)
+
+    return torch.from_numpy(mean_lengths)
+
+
 # ---------------------------------------------------------------------------
 # Domain partitioning (for full-domain prediction)
 # ---------------------------------------------------------------------------
