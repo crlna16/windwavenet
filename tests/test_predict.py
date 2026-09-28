@@ -75,8 +75,8 @@ def mock_model_loading(mock_model):
     fake_module = MagicMock()
     fake_module.WWMEmulator.load_from_checkpoint.return_value = mock_model
     with (
-        patch("src.predict.importlib.import_module", return_value=fake_module),
-        patch("src.predict.hydra.utils.instantiate", return_value=MagicMock()),
+        patch("src.utils.predict_utils.importlib.import_module", return_value=fake_module),
+        patch("src.utils.predict_utils.hydra.utils.instantiate", return_value=MagicMock()),
     ):
         yield mock_model
 
@@ -198,8 +198,8 @@ def test_predict_with_delta_target(
     fake_module.WWMEmulator.load_from_checkpoint.return_value = mock_model
 
     with (
-        patch("src.predict.importlib.import_module", return_value=fake_module),
-        patch("src.predict.hydra.utils.instantiate", return_value=MagicMock()),
+        patch("src.utils.predict_utils.importlib.import_module", return_value=fake_module),
+        patch("src.utils.predict_utils.hydra.utils.instantiate", return_value=MagicMock()),
     ):
         result = predict(cfg)
 
@@ -269,8 +269,8 @@ def test_predict_with_multiple_targets(
     fake_module.WWMEmulator.load_from_checkpoint.return_value = mock_model
 
     with (
-        patch("src.predict.importlib.import_module", return_value=fake_module),
-        patch("src.predict.hydra.utils.instantiate", return_value=MagicMock()),
+        patch("src.utils.predict_utils.importlib.import_module", return_value=fake_module),
+        patch("src.utils.predict_utils.hydra.utils.instantiate", return_value=MagicMock()),
     ):
         result = predict(cfg)
 
@@ -293,8 +293,8 @@ def test_predict_unscales_target_when_also_feature(
         patch("src.predict.du.open_and_slice_dataset", return_value=(mock_dataset, 24)),
         patch("src.predict.du.preprocess_variables", return_value=(mock_dataset, 5)),
         patch("src.predict.du.scale_variables", return_value=(mock_dataset, scaling_params)),
-        patch("src.predict.importlib.import_module", return_value=fake_module),
-        patch("src.predict.hydra.utils.instantiate", return_value=MagicMock()),
+        patch("src.utils.predict_utils.importlib.import_module", return_value=fake_module),
+        patch("src.utils.predict_utils.hydra.utils.instantiate", return_value=MagicMock()),
     ):
         minimal_predict_config.data.features = ["sigWaveHeight", "windSpeedX"]
         result = predict(minimal_predict_config)
