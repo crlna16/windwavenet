@@ -35,11 +35,9 @@ Key capabilities:
   output constraints: `semipositive` (ReLU), `positive` (softplus),
   `angle_deg` (mod 360), `angle_rad` (mod 2π), `sigmoid`, and the paired
   `unit_circle` constraint for `sin_*`/`cos_*` direction pairs.
-- **Circular error metrics** for angular targets and **binned RMSE** over
-  configurable value ranges (`target_bins`).
-- **Sample weighting** for imbalanced regression (`histogram`)
 - **Graph models over the SCHISM mesh** with physical edge-length encoding
   via inverse-distance edge weights.
+- **Sample weighting** for imbalanced regression (`histogram`)
 - **Evaluation modes**: teacher-forced one-step testing, full-domain
   prediction, and pseudo-coupled autoregressive rollout.
 - **Reproducible experiments** via Hydra `experiment=` configs under
