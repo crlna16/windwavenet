@@ -82,6 +82,7 @@ class ExperimentSpec:
     family: str  # "dense", "lstm", "gat", "gat_vn", or "gat_lstm_vn"
     seq_len: Optional[int] = None
     max_nodes: Optional[int] = None
+    noise: Optional[bool] = False  # Noise used in training
 
 
 EXPERIMENTS: List[ExperimentSpec] = [
@@ -177,6 +178,27 @@ EXPERIMENTS: List[ExperimentSpec] = [
         family="gat_lstm_vn",
         seq_len=48,
         max_nodes=50,
+    ),
+    ExperimentSpec(
+        label="lstm-6-noise",
+        config_name="predict_lstm",
+        experiment="swh_1h_lstm",
+        ckpt_path="logs/train/swh_1h_lstm/runs/2026-09-24_01-05-59/wwm-emulator-hourly-final/"
+        "szoflniv/checkpoints/epoch=18-step=68856.ckpt",
+        family="lstm",
+        seq_len=6,
+        noise=True,
+    ),
+    ExperimentSpec(
+        label="gat-lstm-vn-6-500-noise",
+        config_name="predict_gcn",
+        experiment="swh_1h_gat-lstm-vn",
+        ckpt_path="logs/train/swh_1h_gat-vn/runs/2026-09-23_21-18-18/wwm-emulator-hourly-final/"
+        "08yj69md/checkpoints/epoch=8-step=130689.ckpt",
+        family="gat_lstm_vn",
+        seq_len=6,
+        max_nodes=500,
+        noise=True,
     ),
 ]
 
