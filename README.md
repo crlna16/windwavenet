@@ -57,6 +57,10 @@ To install the package
 pip install -e .
 ```
 
+## Trained models
+
+Availabel with descriptive model cards in the [Model Registry](https://codebase.helmholtz.cloud/hereon-ksn/wind-wave-model-emulator/-/ml/models).
+
 ## Logs
 
 The project is tracked online at [https://wandb.ai/wwm-emulator/](https://wandb.ai/wwm-emulator/).
