@@ -99,6 +99,10 @@ python src/rollout.py experiment=swh_1h_gat-lstm-vn ckpt_path=<ckpt>
 The available experiment configs (see `configs/experiment/`) cover single-target
 `swh_1h_*` and multi-target `multi_1h_*` variants for each backbone.
 
+## Export to torchscript
+
+Use `src/export_torchscript.py` and `scripts/create_torchscript.sh` to create torchscript models from the trained model checkpoints.
+
 # Technical notes
 
 ## API Documentation

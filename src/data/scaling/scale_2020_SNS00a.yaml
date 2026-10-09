@@ -59,4 +59,4 @@ prev_dissRateDepBreaking:
   std: 0.5715
 prev_rollerDissRate:
   mean: 0.0000
-  std: 0.0000
+  std: 1.0
