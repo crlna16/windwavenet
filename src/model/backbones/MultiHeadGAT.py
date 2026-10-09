@@ -96,6 +96,7 @@ class MultiHeadGAT(nn.Module):
                     heads=heads,
                     concat=True,
                     add_self_loops=True,
+                    fill_value=1.0,
                     edge_dim=edge_dim,
                     dropout=attn_dropout,
                 )
