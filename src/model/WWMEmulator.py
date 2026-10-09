@@ -31,6 +31,7 @@ class WWMEmulator(L.LightningModule):
     # jointly inside _apply_output_constraints; the lambda here is a no-op sentinel.
     CONSTRAINT_FUNCTIONS = {
         "semipositive": lambda x: torch.relu(x),
+        "seminegative": lambda x: -torch.relu(-x),
         "positive": lambda x: F.softplus(x),
         "angle_deg": lambda x: torch.remainder(x, 360.0),
         "angle_rad": lambda x: torch.remainder(x, 2.0 * math.pi),
