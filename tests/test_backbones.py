@@ -158,6 +158,28 @@ class TestLSTMNet:
             output = model(x)
             assert output.shape == (2, 3)
 
+    def test_default_decoder_is_single_linear(self):
+        """Default decoder stays a single Linear so older checkpoints load."""
+        model = LSTMNet(input_dim=10, output_dim=3)
+        assert isinstance(model.fc, torch.nn.Linear)
+        assert {k for k in model.state_dict() if k.startswith("fc.")} == {"fc.weight", "fc.bias"}
+
+    def test_forward_mlp_decoder(self):
+        """Test forward pass with the optional hidden layer in the decoder."""
+        model = LSTMNet(input_dim=10, output_dim=3, mlp_decoder=True)
+        assert model.fc[0].out_features == 64
+        x = torch.randn(8, 5, 10)
+        output = model(x)
+        assert output.shape == (8, 3)
+
+    def test_forward_mlp_decoder_bidirectional(self):
+        """Test the MLP decoder with a custom width on a bidirectional LSTM."""
+        model = LSTMNet(input_dim=10, output_dim=3, bidirectional=True, mlp_decoder=True, decoder_hidden_dim=32)
+        assert model.fc[0].in_features == 2 * model.hidden_dim
+        x = torch.randn(8, 5, 10)
+        output = model(x)
+        assert output.shape == (8, 3)
+
 
 def _make_graph_data(n_nodes=20, seq_len=5, n_features=10, n_edges=40):
     """Create a mock PyG Data object with sequential node features."""

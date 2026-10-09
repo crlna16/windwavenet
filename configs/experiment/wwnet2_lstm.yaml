@@ -76,6 +76,8 @@ model:
     num_layers: 1
     dropout: 0.0
     bidirectional: false
+    mlp_decoder: false       # true: Linear -> ReLU -> Linear decoder instead of a single Linear
+    decoder_hidden_dim: 64   # only used if mlp_decoder is true
 
   optimizer:
     lr: 0.002

@@ -23,6 +23,8 @@ class LSTMNet(nn.Module):
         num_layers: int = 2,
         dropout: float = 0.1,
         bidirectional: bool = False,
+        mlp_decoder: bool = False,
+        decoder_hidden_dim: int = 64,
     ):
         """Initialize the LSTM network.
 
@@ -35,6 +37,11 @@ class LSTMNet(nn.Module):
                      Only applied if num_layers > 1; with a single layer the
                      value is ignored and a warning is emitted.
             bidirectional: If True, use bidirectional LSTM (default: False).
+            mlp_decoder: If True, decode the last hidden state with
+                Linear -> ReLU -> Linear instead of a single Linear layer
+                (default: False, which keeps older checkpoints loadable).
+            decoder_hidden_dim: Width of the decoder's hidden layer; only used
+                if mlp_decoder is True (default: 64).
         """
         super().__init__()
 
@@ -62,7 +69,12 @@ class LSTMNet(nn.Module):
 
         # Output projection: map from LSTM hidden state to output
         fc_input_dim = hidden_dim * self.num_directions
-        self.fc = nn.Linear(fc_input_dim, output_dim)
+        if mlp_decoder:
+            self.fc = nn.Sequential(
+                nn.Linear(fc_input_dim, decoder_hidden_dim), nn.ReLU(), nn.Linear(decoder_hidden_dim, output_dim)
+            )
+        else:
+            self.fc = nn.Linear(fc_input_dim, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the network.
