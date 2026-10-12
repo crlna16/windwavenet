@@ -845,6 +845,15 @@ class TestMultiRangeHelpers:
         # Range 1 (indices 0-4): starts 0, 1, 2. Range 2 (indices 5-8): starts 5, 6.
         np.testing.assert_array_equal(starts, np.array([0, 1, 2, 5, 6]))
 
+    def test_valid_sequence_starts_skip_empty_ranges(self):
+        starts = du.compute_valid_sequence_starts([0, 5, 0, 4], seq_len=3)
+        np.testing.assert_array_equal(starts, np.array([0, 1, 2, 5, 6]))
+        assert len(du.compute_valid_sequence_starts([0], seq_len=3)) == 0
+
+    def test_valid_sequence_starts_rejects_short_range(self):
+        with pytest.raises(ValueError, match="does not fit"):
+            du.compute_valid_sequence_starts([5, 2], seq_len=3)
+
     def test_valid_sequence_starts_raise_on_short_range(self):
         with pytest.raises(ValueError, match="seq_len=3 does not fit"):
             du.compute_valid_sequence_starts([5, 2], seq_len=3)
