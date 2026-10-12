@@ -90,11 +90,15 @@ def compute_valid_sequence_starts(range_lengths: List[int], seq_len: int) -> np.
         Array of valid start indices into the concatenated time axis.
 
     Raises:
-        ValueError: If any range is shorter than *seq_len*.
+        ValueError: If any non-empty range is shorter than *seq_len*.
+            Empty ranges (zero time steps) are skipped.
     """
     starts: List[int] = []
     offset = 0
     for i, length in enumerate(range_lengths):
+        if length == 0:
+            # Day range without any data in the store: contributes no windows.
+            continue
         if length < seq_len:
             raise ValueError(
                 f"Day range {i} has only {length} time steps after preprocessing; seq_len={seq_len} does not fit."
@@ -102,6 +106,22 @@ def compute_valid_sequence_starts(range_lengths: List[int], seq_len: int) -> np.
         starts.extend(range(offset, offset + length - seq_len + 1))
         offset += length
     return np.asarray(starts, dtype=np.int64)
+
+
+def describe_time_range(ds: xr.Dataset) -> str:
+    """Describe the datetime range covered by a dataset, for log messages.
+
+    Args:
+        ds: xarray Dataset with a ``time`` coordinate.
+
+    Returns:
+        ``"<first> to <last> (<n> time steps)"``, or ``"no time steps"`` if
+        the dataset is empty along time.
+    """
+    n_time = ds.sizes["time"]
+    if n_time == 0:
+        return "no time steps"
+    return f"{ds.time.values[0]} to {ds.time.values[-1]} ({n_time} time steps)"
 
 
 def open_and_slice_dataset(
@@ -149,7 +169,7 @@ def open_and_slice_dataset(
             f"store covers {time_index[0]} to {time_index[-1]}."
         )
     else:
-        log.info(f"Loaded dataset with times ranging from {ds.time.values[0]} to {ds.time.values[-1]}.")
+        log.info(f"Day range {list(data_range)}: loaded slice covering {describe_time_range(ds)}.")
     return ds, samples_per_day
 
 
@@ -298,8 +318,11 @@ def remove_first_timestep_if_nan(dataset: xr.Dataset) -> xr.Dataset:
     Returns:
         Dataset with the first time step removed.
     """
-    log.info("Removing first time step (NaN from shift/diff operations)")
-    return dataset.isel(time=slice(1, None))
+    dataset = dataset.isel(time=slice(1, None))
+    log.info(
+        f"Removed first time step (NaN from shift/diff operations); slice now covers {describe_time_range(dataset)}."
+    )
+    return dataset
 
 
 def preprocess_variables(
@@ -415,6 +438,7 @@ def open_and_preprocess_dataset(
         ds = xr.concat(processed, dim="time", data_vars="minimal", coords="minimal", compat="override")
         log.info(f"Concatenated {len(processed)} day ranges with {lengths} time steps each.")
 
+    log.info(f"Preprocessed dataset for day ranges {ranges} covers {describe_time_range(ds)}.")
     return ds, samples_per_day, n_nodes, lengths
 
 
