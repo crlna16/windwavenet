@@ -7,9 +7,9 @@ experiment_name: "wwnet2_lstm"
 data:
   _target_: src.data.SequenceWWMDataModule.SequenceWWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_SNS_RUN00a_LevanteJP.zarr
-  train_days: [30, 40] #train_days: [[1, 152], [214, 305]]
-  val_days: [41, 50]   #val_days: [[153, 182], [306, 335]]
-  test_days: [51, 60]  #test_days: [[183, 213], [336, 366]]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
