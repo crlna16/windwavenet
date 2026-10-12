@@ -109,12 +109,18 @@ def open_and_slice_dataset(
 ) -> Tuple[xr.Dataset, int]:
     """Open a Zarr dataset and slice to the requested day range.
 
-    Both ends of the range are inclusive: ``[1, 2]`` selects days 1 and 2
-    (i.e. ``2 * samples_per_day`` time steps).
+    Days are calendar days of the year of the store's first time stamp, not
+    positions in the store: day 1 is January 1 and day 5 is January 5,
+    regardless of which dates the store actually covers.  Both ends of the
+    range are inclusive: ``[1, 2]`` selects January 1 and 2 (i.e.
+    ``2 * samples_per_day`` time steps if both days are fully present).
+    Days missing from the store are simply not returned, so a range without
+    any data yields a dataset with zero time steps.
 
     Args:
         data_dir: Path to the Zarr store.
-        data_range: Day range as ``[start_day, end_day]`` (1-indexed, inclusive).
+        data_range: Day range as ``[start_day, end_day]`` (1-indexed day of
+            year, inclusive).
         chunks: If not ``None``, open the store dask-backed with these chunks
             (``{}`` uses the native zarr chunking). Keeps the whole
             preprocessing/scaling pipeline lazy so that only the slices that
@@ -128,10 +134,22 @@ def open_and_slice_dataset(
     time_delta = ds.time.values[1] - ds.time.values[0]
     samples_per_day = int(pd.Timedelta(days=1) / time_delta)
     log.info(f"Dataset has {samples_per_day} samples per day.")
-    start_idx = (data_range[0] - 1) * samples_per_day
-    end_idx = data_range[1] * samples_per_day
+    # Half-open calendar window [start_time, end_time), located on the time
+    # axis by value so that stores not starting on January 1 select correctly.
+    time_index = ds.indexes["time"]
+    year_start = pd.Timestamp(year=time_index[0].year, month=1, day=1)
+    start_time = year_start + pd.Timedelta(days=data_range[0] - 1)
+    end_time = year_start + pd.Timedelta(days=data_range[1])
+    start_idx = time_index.searchsorted(start_time, side="left")
+    end_idx = time_index.searchsorted(end_time, side="left")
     ds = ds.isel(time=slice(start_idx, end_idx))
-    log.info(f"Loaded dataset with times ranging from {ds.time.values[0]} to {ds.time.values[-1]}.")
+    if ds.sizes["time"] == 0:
+        log.warning(
+            f"Day range {list(data_range)} ({start_time} to {end_time}) contains no data; "
+            f"store covers {time_index[0]} to {time_index[-1]}."
+        )
+    else:
+        log.info(f"Loaded dataset with times ranging from {ds.time.values[0]} to {ds.time.values[-1]}.")
     return ds, samples_per_day
 
 
