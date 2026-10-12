@@ -792,6 +792,54 @@ class TestMultiRangeHelpers:
         with pytest.raises(ValueError, match="start <= end"):
             du.normalize_day_ranges([5, 2])
 
+    @pytest.fixture
+    def offset_start_zarr(self, tmp_path):
+        """Hourly Zarr store covering January 3-6 only (does not start on January 1)."""
+        import pandas as pd
+
+        time = pd.date_range("2020-01-03", periods=4 * 24, freq="h")
+        ds = xr.Dataset(
+            {"U10": (["time", "nSCHISM_hgrid_node"], np.zeros((len(time), 2), dtype=np.float32))},
+            coords={"time": time, "nSCHISM_hgrid_node": np.arange(2)},
+        )
+        zarr_path = tmp_path / "offset.zarr"
+        ds.to_zarr(zarr_path)
+        return zarr_path
+
+    def test_slice_uses_calendar_days(self, offset_start_zarr):
+        """Day 5 is January 5 even though the store starts on January 3."""
+        import pandas as pd
+
+        ds, samples_per_day = du.open_and_slice_dataset(offset_start_zarr, [5, 5])
+        assert samples_per_day == 24
+        assert ds.sizes["time"] == 24
+        assert pd.Timestamp(ds.time.values[0]) == pd.Timestamp("2020-01-05 00:00")
+        assert pd.Timestamp(ds.time.values[-1]) == pd.Timestamp("2020-01-05 23:00")
+
+    def test_slice_partially_covered_range(self, offset_start_zarr):
+        """Only the days present in the store are returned."""
+        import pandas as pd
+
+        ds, _ = du.open_and_slice_dataset(offset_start_zarr, [1, 3])
+        assert ds.sizes["time"] == 24
+        assert pd.Timestamp(ds.time.values[0]) == pd.Timestamp("2020-01-03 00:00")
+
+    @pytest.mark.parametrize("day_range", [[1, 2], [7, 10]])
+    def test_slice_empty_range(self, offset_start_zarr, day_range):
+        """Ranges before or after the store's coverage yield zero time steps."""
+        ds, samples_per_day = du.open_and_slice_dataset(offset_start_zarr, day_range)
+        assert samples_per_day == 24
+        assert ds.sizes["time"] == 0
+
+    def test_preprocess_skips_empty_range(self, offset_start_zarr):
+        """An empty range contributes zero time steps to the concatenated dataset."""
+        ds, _, n_nodes, lengths = du.open_and_preprocess_dataset(
+            offset_start_zarr, [[1, 2], [4, 4]], features=["prev_U10"], targets=["delta_U10"]
+        )
+        assert lengths == [0, 23]
+        assert ds.sizes["time"] == 23
+        assert n_nodes == 2
+
     def test_valid_sequence_starts_skip_gaps(self):
         starts = du.compute_valid_sequence_starts([5, 4], seq_len=3)
         # Range 1 (indices 0-4): starts 0, 1, 2. Range 2 (indices 5-8): starts 5, 6.
