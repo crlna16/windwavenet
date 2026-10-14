@@ -4,59 +4,59 @@
 # SPDX-License-Identifier: MIT
 
 windSpeedX:
-  mean: 3.1055
-  std: 6.3701
+  mean: 2.5715
+  std: 5.8386
 windSpeedY:
-  mean: 1.6503
-  std: 5.5730
+  mean: 0.5571
+  std: 5.3825
 elevation:
-  mean: 0.3104
-  std: 1.1318
+  mean: 0.2524
+  std: 1.1245
 depthAverageVelX:
-  mean: -0.0044
-  std: 0.3857
+  mean: -0.0078
+  std: 0.3868
 depthAverageVelY:
-  mean: 0.0243
-  std: 0.3046
+  mean: 0.0181
+  std: 0.3050
 prev_sigWaveHeight:
-  mean: 0.8494
-  std: 0.9912
+  mean: 0.7186
+  std: 0.8929
 prev_peakPeriod:
-  mean: 4.4093
-  std: 2.4442
+  mean: 4.1168
+  std: 2.2651
 prev_meanWavePeriod:
-  mean: 3.8137
-  std: 1.7655
+  mean: 3.5995
+  std: 1.6455
 prev_meanWaveDirection:
-  mean: 200.9378
-  std: 114.0577
+  mean: 201.0986
+  std: 119.1997
 meanDirSpreading:
-  mean: 26.8224
-  std: 14.7863
+  mean: 26.4985
+  std: 14.7989
 depth:
   mean: 14.2043
   std: 14.6055
 prev_continuousPeakPeriod:
-  mean: 4.4935
-  std: 2.6877
+  mean: 4.1670
+  std: 2.5227
 prev_dominantDirection:
-  mean: 204.3625
-  std: 116.1093
+  mean: 203.4346
+  std: 120.7296
 prev_rmsOrbitalVelocity:
-  mean: 0.0993
-  std: 0.1549
+  mean: 0.0814
+  std: 0.1393
 prev_bottomExcursionPerio:
-  mean: 0.1108
-  std: 0.1979
+  mean: 0.0873
+  std: 0.1730
 prev_peakPhaseVel:
-  mean: 5.8141
-  std: 3.6984
+  mean: 5.4900
+  std: 3.5102
 prev_peakWaveLength:
-  mean: 34.6953
-  std: 31.6810
+  mean: 30.5961
+  std: 28.8516
 prev_dissRateDepBreaking:
-  mean: -0.0494
-  std: 0.5715
+  mean: -0.0378
+  std: 0.4854
 prev_rollerDissRate:
   mean: 0.0000
-  std: 1.0
+  std: 1.0000
