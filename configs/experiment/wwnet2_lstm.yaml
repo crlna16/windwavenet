@@ -7,9 +7,9 @@ experiment_name: "wwnet2_lstm"
 data:
   _target_: src.data.SequenceWWMDataModule.SequenceWWMDataModule
   data_dir: /work/ka1176/shared_data/2025-wwm-emulator-schism/processed_SNS_RUN00a_LevanteJP.zarr
-  train_days: [30, 40] #train_days: [[1, 152], [214, 305]]
-  val_days: [41, 50]   #val_days: [[153, 182], [306, 335]]
-  test_days: [51, 60]  #test_days: [[183, 213], [336, 366]]
+  train_days: [[1, 152], [214, 305]]
+  val_days: [[153, 182], [306, 335]]
+  test_days: [[183, 213], [336, 366]]
   features:
     - windSpeedX
     - windSpeedY
@@ -30,7 +30,7 @@ data:
     - prev_peakPhaseVel
     - prev_peakWaveLength
     - prev_dissRateDepBreaking
-    - prev_rollerDissRate
+    #- prev_rollerDissRate
   targets:
     - sigWaveHeight
     - sin_meanWaveDirection
@@ -45,7 +45,7 @@ data:
     - peakPhaseVel
     - peakWaveLength
     - dissRateDepBreaking
-    - rollerDissRate
+    #- rollerDissRate
 
   seq_len: 6
   sample_weight_strategy: histogram
@@ -70,13 +70,13 @@ model:
 
   backbone:
     _target_: src.model.backbones.LSTMNet.LSTMNet
-    input_dim: 20
-    output_dim: 14
+    input_dim: 19
+    output_dim: 13
     hidden_dim: 128
     num_layers: 1
     dropout: 0.0
     bidirectional: false
-    mlp_decoder: false       # true: Linear -> ReLU -> Linear decoder instead of a single Linear
+    mlp_decoder: true # true: Linear -> ReLU -> Linear decoder instead of a single Linear
     decoder_hidden_dim: 64   # only used if mlp_decoder is true
 
   optimizer:
