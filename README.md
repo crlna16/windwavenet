@@ -32,7 +32,8 @@ supports several model families that share one data/preprocessing pipeline:
 Key capabilities:
 
 - **Multi-target prediction** with per-variable loss weights and per-variable
-  output constraints: `semipositive` (ReLU), `positive` (softplus),
+  output constraints: `semipositive` (ReLU), `seminegative` (−ReLU(−x)),
+  `positive` (softplus), `negative` (−softplus(−x)),
   `angle_deg` (mod 360), `angle_rad` (mod 2π), `sigmoid`, and the paired
   `unit_circle` constraint for `sin_*`/`cos_*` direction pairs.
 - **Graph models over the SCHISM mesh** with physical edge-length encoding

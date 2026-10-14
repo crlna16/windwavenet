@@ -104,8 +104,9 @@ model:
   target_bins: null
 
   # Optional: constrain the output range of specific targets
-  # Supported types: semipositive (ReLU), positive (softplus), angle_deg (mod 360),
-  #                  angle_rad (mod 2*pi), sigmoid ((0,1))
+  # Supported types: semipositive (ReLU), seminegative (-ReLU(-x)), positive (softplus),
+  #                  negative (-softplus(-x)), angle_deg (mod 360), angle_rad (mod 2*pi),
+  #                  sigmoid ((0,1)), unit_circle (paired sin_*/cos_*)
   # Example: output_constraints: {sigWaveHeight: semipositive, meanWaveDirection: angle_deg}
   output_constraints: null
 

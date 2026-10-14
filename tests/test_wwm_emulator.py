@@ -371,3 +371,59 @@ class TestUnitCircleConstraint:
         preds = torch.tensor([[3.0]])
         constrained = emulator._apply_output_constraints(preds)
         assert constrained[0, 0].item() == pytest.approx(3.0)
+
+    def test_unit_circle_zero_input_has_finite_gradient(self, mock_optimizer):
+        """A (0, 0) raw pair must not produce NaN gradients."""
+        backbone = MLP(input_dim=2, output_dim=2)
+        emulator = WWMEmulator(
+            backbone=backbone,
+            target_names=["sin_meanWaveDirection", "cos_meanWaveDirection"],
+            optimizer=mock_optimizer,
+            output_constraints={
+                "sin_meanWaveDirection": "unit_circle",
+                "cos_meanWaveDirection": "unit_circle",
+            },
+        )
+        preds = torch.zeros(1, 2, requires_grad=True)
+        constrained = emulator._apply_output_constraints(preds)
+        constrained.sum().backward()
+        assert torch.isfinite(preds.grad).all()
+
+
+class TestSignConstraints:
+    """Test suite for the semipositive/seminegative/positive/negative constraints."""
+
+    @pytest.fixture
+    def mock_optimizer(self):
+        return lambda params: torch.optim.Adam(params, lr=0.001)
+
+    def _emulator(self, constraint, mock_optimizer):
+        return WWMEmulator(
+            backbone=MLP(input_dim=1, output_dim=1),
+            target_names=["dissRateDepBreaking"],
+            optimizer=mock_optimizer,
+            output_constraints={"dissRateDepBreaking": constraint},
+        )
+
+    def test_negative_is_strictly_negative(self, mock_optimizer):
+        """negative maps any input to (-inf, 0)."""
+        emulator = self._emulator("negative", mock_optimizer)
+        preds = torch.tensor([[-5.0], [0.0], [5.0]])
+        constrained = emulator._apply_output_constraints(preds)
+        assert (constrained < 0).all()
+        np.testing.assert_allclose(constrained[0, 0].item(), -5.0, atol=1e-2)
+
+    def test_negative_keeps_gradient_where_seminegative_does_not(self, mock_optimizer):
+        """For a positive raw output, seminegative has zero gradient, negative does not."""
+        for constraint, expect_grad in [("seminegative", False), ("negative", True)]:
+            emulator = self._emulator(constraint, mock_optimizer)
+            preds = torch.tensor([[2.0]], requires_grad=True)
+            emulator._apply_output_constraints(preds).sum().backward()
+            assert (preds.grad.abs().item() > 0) == expect_grad
+
+    def test_positive_is_strictly_positive(self, mock_optimizer):
+        """positive maps any input to (0, inf)."""
+        emulator = self._emulator("positive", mock_optimizer)
+        preds = torch.tensor([[-5.0], [0.0], [5.0]])
+        constrained = emulator._apply_output_constraints(preds)
+        assert (constrained > 0).all()

@@ -89,20 +89,23 @@ model:
   #prev_noise_std:
   #  sigWaveHeight: 0.002
 
+  # Softplus-based constraints (positive/negative) instead of the ReLU-based
+  # semipositive/seminegative: a ReLU output that is clamped for every sample
+  # has zero gradient and stays stuck at 0 (seen for dissRateDepBreaking).
   output_constraints:
-    sigWaveHeight: semipositive
+    sigWaveHeight: positive
     sin_meanWaveDirection: unit_circle
     cos_meanWaveDirection: unit_circle
-    meanWavePeriod: semipositive
-    peakPeriod: semipositive
-    continuousPeakPeriod: semipositive
+    meanWavePeriod: positive
+    peakPeriod: positive
+    continuousPeakPeriod: positive
     sin_dominantDirection: unit_circle
     cos_dominantDirection: unit_circle
-    rmsOrbitalVelocity: semipositive
-    bottomExcursionPerio: semipositive # sic!
-    peakPhaseVel: semipositive
-    peakWaveLength: semipositive
-    dissRateDepBreaking: seminegative
+    rmsOrbitalVelocity: positive
+    bottomExcursionPerio: positive # sic!
+    peakPhaseVel: positive
+    peakWaveLength: positive
+    dissRateDepBreaking: negative
     # rollerDissRate: null
 
   # Targets are not scaled (unlike features), and their raw variances differ a

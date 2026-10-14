@@ -33,6 +33,7 @@ class WWMEmulator(L.LightningModule):
         "semipositive": lambda x: torch.relu(x),
         "seminegative": lambda x: -torch.relu(-x),
         "positive": lambda x: F.softplus(x),
+        "negative": lambda x: -F.softplus(-x),
         "angle_deg": lambda x: torch.remainder(x, 360.0),
         "angle_rad": lambda x: torch.remainder(x, 2.0 * math.pi),
         "sigmoid": lambda x: torch.sigmoid(x),
@@ -62,8 +63,12 @@ class WWMEmulator(L.LightningModule):
             target_bins: Optional dict mapping target names to bin edges for binned metrics.
                         E.g., {'sigWaveHeight': [-1.0, 0.0, 0.5]} creates bins: <-1, [-1,0), [0,0.5), >=0.5
             output_constraints: Optional dict mapping target names to constraint types.
-                        Supported types: 'semipositive' (ReLU, >=0), 'positive' (softplus, >0),
-                        'angle_deg' (mod 360), 'angle_rad' (mod 2*pi), 'sigmoid' ((0,1)).
+                        Supported types: 'semipositive' (ReLU, >=0), 'seminegative' (-ReLU(-x), <=0),
+                        'positive' (softplus, >0), 'negative' (-softplus(-x), <0),
+                        'angle_deg' (mod 360), 'angle_rad' (mod 2*pi), 'sigmoid' ((0,1)),
+                        'unit_circle' (paired sin_*/cos_* projection onto the unit circle).
+                        The ReLU variants have zero gradient once clamped and can get stuck
+                        at 0; the softplus variants keep a gradient everywhere.
                         E.g., {'sigWaveHeight': 'semipositive', 'meanWaveDirection': 'angle_deg'}
             focal_gamma: Kept for legacy so that existing ckpts can be loaded.
             prev_noise_std: Optional dict mapping target names to a noise sigma in
@@ -156,8 +161,9 @@ class WWMEmulator(L.LightningModule):
     def _apply_output_constraints(self, preds: torch.Tensor) -> torch.Tensor:
         """Apply output constraints to predictions.
 
-        Individual constraints (``semipositive``, ``positive``, ``angle_deg``,
-        ``angle_rad``, ``sigmoid``) are applied per-target channel.
+        Individual constraints (``semipositive``, ``seminegative``, ``positive``,
+        ``negative``, ``angle_deg``, ``angle_rad``, ``sigmoid``) are applied
+        per-target channel.
 
         ``unit_circle`` is a *paired* constraint: for every ``sin_*`` /
         ``cos_*`` target pair that both carry the ``unit_circle`` constraint,
@@ -208,7 +214,9 @@ class WWMEmulator(L.LightningModule):
                     and self.output_constraints.get(partner) == "unit_circle"
                 ):
                     j = name_to_idx[partner]
-                    norm = torch.sqrt(preds[:, i] ** 2 + preds[:, j] ** 2).clamp(min=1e-8)
+                    # Clamp before the sqrt: clamping after it leaves sqrt's backward
+                    # at 0/0 = NaN when both raw outputs are exactly zero.
+                    norm = torch.sqrt((preds[:, i] ** 2 + preds[:, j] ** 2).clamp(min=1e-16))
                     sin_normalized = preds[:, i] / norm
                     cos_normalized = preds[:, j] / norm
                     result.append(sin_normalized.unsqueeze(-1))
