@@ -100,9 +100,19 @@ python src/rollout.py experiment=swh_1h_gat-lstm-vn ckpt_path=<ckpt>
 The available experiment configs (see `configs/experiment/`) cover single-target
 `swh_1h_*` and multi-target `multi_1h_*` variants for each backbone.
 
+To re-train on a new SCHISM run, a new grid or with additional variables, follow
+[RETRAINING.md](RETRAINING.md).
+
 ## Export to torchscript
 
-Use `src/export_torchscript.py` and `scripts/create_torchscript.sh` to create torchscript models from the trained model checkpoints.
+Use `src/export_torchscript.py` to create TorchScript models from trained checkpoints:
+
+```bash
+python src/export_torchscript.py --experiment <experiment> --ckpt-path <ckpt> [--override data.seq_len=48]
+```
+
+Without `--experiment`, it exports the predefined final SWH-1h checkpoints (`scripts/create_torchscripts.sh`).
+See [RETRAINING.md](RETRAINING.md) for how the export fits into the full workflow.
 
 # Technical notes
 

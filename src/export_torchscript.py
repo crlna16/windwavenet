@@ -3,11 +3,13 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Export the final SWH-1h checkpoints to TorchScript.
+"""Export trained checkpoints to TorchScript.
 
-Covers the same 10 checkpoints as ``scripts/submit_test_swh_1h_array.sh``
-(DenseNet, LSTM x2 sequence lengths, MultiHeadGAT, MultiHeadGATVN x2 sub-graph
-sizes, MultiHeadGATLSTMVN x2 sequence lengths x2 sub-graph sizes). For each
+Either exports one checkpoint given on the command line (``--experiment`` +
+``--ckpt-path``), or the final SWH-1h checkpoints listed in ``EXPERIMENTS``
+(the same as ``scripts/submit_test_swh_1h_array.sh``: DenseNet, LSTM x2
+sequence lengths, MultiHeadGAT, MultiHeadGATVN x2 sub-graph sizes,
+MultiHeadGATLSTMVN x2 sequence lengths x2 sub-graph sizes). For each
 checkpoint this script:
 
 1. Builds the experiment's Hydra config and loads the real trained checkpoint,
@@ -30,8 +32,20 @@ checkpoint this script:
    (never seen during tracing), to catch tensors that got silently baked in
    as trace-time constants instead of staying dynamic inputs.
 
+The model family and the base Hydra config are derived from the experiment's
+``data._target_``. Settings that were overridden on the command line at
+training time (e.g. ``data.seq_len=48``) must be passed again with
+``--override``, otherwise the backbone is rebuilt with the wrong shape.
+
 Usage::
 
+    # one checkpoint
+    python src/export_torchscript.py --experiment wwnet2_lstm \\
+        --ckpt-path "logs/train/wwnet2_lstm/runs/<date>/.../checkpoints/<file>.ckpt"
+    python src/export_torchscript.py --experiment swh_1h_lstm --ckpt-path <ckpt> \\
+        --label lstm-48 --override data.seq_len=48
+
+    # the predefined SWH-1h checkpoints
     python src/export_torchscript.py
     python src/export_torchscript.py --labels densenet lstm-6
     python src/export_torchscript.py --output-dir checkpoints/torchscript --device cpu
@@ -39,7 +53,7 @@ Usage::
 
 import argparse
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
@@ -48,7 +62,7 @@ import hydra
 import torch
 import torch.nn as nn
 from lightning_utilities.core.rank_zero import rank_zero_only
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from src.data import dataset_utils as du
 from src.model.WWMEmulator import WWMEmulator
@@ -83,6 +97,46 @@ class ExperimentSpec:
     seq_len: Optional[int] = None
     max_nodes: Optional[int] = None
     noise: Optional[bool] = False  # Noise used in training
+    extra_overrides: List[str] = field(default_factory=list)  # further Hydra overrides, applied last
+
+
+# Data module class -> (base Hydra config, export family). "gat" covers both the
+# plain GAT and the virtual-node variant: their export inputs are identical.
+_FAMILY_BY_DATAMODULE = {
+    "WWMDataModule": ("predict", "dense"),
+    "SequenceWWMDataModule": ("predict_lstm", "lstm"),
+    "GraphWWMDataModule": ("predict_gcn", "gat"),
+    "CenterHistoryGraphWWMDataModule": ("predict_gcn", "gat_lstm_vn"),
+}
+
+
+def spec_from_experiment(
+    experiment: str, ckpt_path: str, label: Optional[str], overrides: List[str], repo_root: Path
+) -> ExperimentSpec:
+    """Builds an ``ExperimentSpec`` for one checkpoint given on the command line.
+
+    The base config and export family are derived from the experiment's ``data._target_``.
+    """
+    exp_file = repo_root / "configs" / "experiment" / f"{experiment}.yaml"
+    if not exp_file.is_file():
+        raise FileNotFoundError(f"Experiment config not found: {exp_file}")
+    target = OmegaConf.select(OmegaConf.load(exp_file), "data._target_")
+    if target is None:
+        raise ValueError(f"{exp_file} does not set data._target_; cannot tell the model family.")
+    datamodule = str(target).rsplit(".", 1)[-1]
+    if datamodule not in _FAMILY_BY_DATAMODULE:
+        raise ValueError(
+            f"Export not supported for data module '{datamodule}'. Supported: {sorted(_FAMILY_BY_DATAMODULE)}"
+        )
+    config_name, family = _FAMILY_BY_DATAMODULE[datamodule]
+    return ExperimentSpec(
+        label=label or experiment,
+        config_name=config_name,
+        experiment=experiment,
+        ckpt_path=ckpt_path,
+        family=family,
+        extra_overrides=list(overrides),
+    )
 
 
 EXPERIMENTS: List[ExperimentSpec] = [
@@ -386,9 +440,6 @@ def build_overrides(spec: ExperimentSpec, repo_root: Path) -> List[str]:
         f"ckpt_path='{ckpt_abs}'",
         "data.num_workers=0",
         "data.persistent_workers=false",
-        # Dataset structure is time-invariant and seq_len maxes out at 48h, so a 5-day slice of the
-        # configured test range is enough for tracing/verification without loading the full 2 months.
-        "data.test_days=[336,341]",
         # Trace on batch size 1: predict_gcn.yaml keys this as a top-level "batch_size_graphs",
         # while predict/predict_lstm.yaml key it under "data.batch_size".
         "batch_size_graphs=1" if spec.config_name == "predict_gcn" else "data.batch_size=1",
@@ -398,7 +449,21 @@ def build_overrides(spec: ExperimentSpec, repo_root: Path) -> List[str]:
         overrides.append(f"data.seq_len={spec.seq_len}")
     if spec.max_nodes is not None:
         overrides.append(f"data.max_nodes={spec.max_nodes}")
+    overrides.extend(spec.extra_overrides)
     return overrides
+
+
+def limit_test_days(cfg: DictConfig, spec: ExperimentSpec, n_days: int = 6) -> None:
+    """Restricts ``cfg.data.test_days`` to the first ``n_days`` days of the first test range.
+
+    Dataset structure is time-invariant and seq_len maxes out at 48h, so a few days of the
+    configured test range are enough for tracing/verification without loading the full range.
+    Skipped if ``data.test_days`` was overridden explicitly.
+    """
+    if any(o.startswith("data.test_days=") for o in spec.extra_overrides):
+        return
+    start, end = du.normalize_day_ranges(OmegaConf.to_container(cfg.data.test_days))[0]
+    cfg.data.test_days = [start, min(end, start + n_days - 1)]
 
 
 def _unwrap_batch(batch: Any) -> Any:
@@ -527,10 +592,38 @@ def export_one(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
+        "--experiment",
+        type=str,
+        default=None,
+        help="Experiment config name (configs/experiment/<name>.yaml) of a single checkpoint to export. "
+        "Requires --ckpt-path.",
+    )
+    parser.add_argument(
+        "--ckpt-path",
+        type=str,
+        default=None,
+        help="Checkpoint to export with --experiment, absolute or relative to the repository root.",
+    )
+    parser.add_argument(
+        "--label",
+        type=str,
+        default=None,
+        help="Name of the exported file (<label>.pt) with --experiment (default: the experiment name).",
+    )
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Extra Hydra override for --experiment, e.g. --override data.seq_len=48. Repeatable. "
+        "Pass every override that was used on the command line at training time.",
+    )
+    parser.add_argument(
         "--labels",
         nargs="*",
         default=None,
-        help=f"Subset of experiment labels to export (default: all). Choices: {[s.label for s in EXPERIMENTS]}",
+        help=f"Subset of the predefined experiment labels to export (default: all, unless --experiment is "
+        f"given). Choices: {[s.label for s in EXPERIMENTS]}",
     )
     parser.add_argument(
         "--output-dir",
@@ -571,7 +664,15 @@ def main() -> None:
         device = torch.device("cpu")
 
     specs = EXPERIMENTS
-    if args.labels:
+    if args.experiment is not None or args.ckpt_path is not None:
+        if args.experiment is None or args.ckpt_path is None:
+            raise ValueError("--experiment and --ckpt-path must be given together.")
+        if args.labels:
+            raise ValueError("--labels selects predefined experiments; it cannot be combined with --experiment.")
+        specs = [spec_from_experiment(args.experiment, args.ckpt_path, args.label, args.override, repo_root)]
+    elif args.label is not None or args.override:
+        raise ValueError("--label and --override only apply together with --experiment.")
+    elif args.labels:
         wanted = set(args.labels)
         known = {s.label for s in EXPERIMENTS}
         unknown = wanted - known
@@ -591,6 +692,7 @@ def main() -> None:
         overrides = build_overrides(spec, repo_root)
         with hydra.initialize(version_base="1.3", config_path="../configs"):
             cfg = hydra.compose(config_name=spec.config_name, overrides=overrides)
+        limit_test_days(cfg, spec)
 
         results[spec.label] = export_one(spec, cfg, device, output_dir, args.atol, args.rtol, args.num_verify_batches)
 
