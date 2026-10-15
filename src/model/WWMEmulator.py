@@ -51,6 +51,7 @@ class WWMEmulator(L.LightningModule):
         output_constraints: Optional[Dict[str, str]] = None,
         focal_gamma: Optional[bool] = True,
         prev_noise_std: Optional[Dict[str, float]] = None,
+        prev_noise_constrain: bool = False,
     ) -> None:
         """Initialize the WWM Emulator.
 
@@ -78,6 +79,11 @@ class WWMEmulator(L.LightningModule):
                         +/- 0.08 m. Makes the model robust to error in its own
                         fed-back predictions at rollout time; set sigma from the
                         model's measured one-step RMSE. None (default) disables it.
+            prev_noise_constrain: If True, the noised ``prev_*`` values are pushed back
+                        into the range of the model's own predictions: clamped to the
+                        sign/sigmoid range of ``output_constraints`` and, for
+                        ``unit_circle`` sin/cos pairs, projected back onto the circle.
+                        False (default) keeps the unconstrained noise of earlier runs.
 
         Note:
             Sample weights are now computed and stored in the dataset. Configure them via the data module
@@ -99,6 +105,7 @@ class WWMEmulator(L.LightningModule):
 
         # Built in on_fit_start once the datamodule's feedback_map exists.
         self.prev_noise_std = prev_noise_std
+        self.prev_noise_constrain = prev_noise_constrain
         self._prev_noise = None
 
         # Initialize loss weights (default to 1.0 for all targets)
@@ -247,7 +254,11 @@ class WWMEmulator(L.LightningModule):
     def on_fit_start(self) -> None:
         """Build the ``prev_*`` noise injector from the datamodule's feedback map."""
         super().on_fit_start()
-        self._prev_noise = build_prev_noise_injector(getattr(self.trainer, "datamodule", None), self.prev_noise_std)
+        self._prev_noise = build_prev_noise_injector(
+            getattr(self.trainer, "datamodule", None),
+            self.prev_noise_std,
+            self.output_constraints if self.prev_noise_constrain else None,
+        )
 
     def _add_prev_noise(self, x: torch.Tensor) -> torch.Tensor:
         """Perturb the ``prev_*`` channels of ``x`` if noise injection is active and we are training.

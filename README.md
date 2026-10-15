@@ -171,6 +171,13 @@ Sigma is given in physical units and divided by the feature's std from
 from the model's measured one-step validation RMSE: that makes the corrupted
 input distribution resemble what the model actually meets at lead 1.
 
+With `model.prev_noise_constrain: true`, the noised values are pushed back into
+the range of the model's own predictions, which is what they are at rollout
+time: channels whose target has a `positive`/`semipositive`,
+`negative`/`seminegative` or `sigmoid` output constraint are clamped to that
+range, and `sin_*`/`cos_*` pairs with `unit_circle` are projected back onto the
+unit circle. The default (`false`) keeps the unconstrained noise of earlier runs.
+
 This is a cheap (~1x-cost) way to make the model robust to compounding rollout
 error, without the T x cost of rolling out multiple steps during training and
 feeding back the model's own (detached) predictions. That autoregressive

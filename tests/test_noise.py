@@ -82,6 +82,79 @@ class TestPrevNoiseInjector:
         assert not injector
 
 
+CIRCLE_FEATURES = ["windSpeedX", "prev_sigWaveHeight", "prev_sin_meanWaveDirection", "prev_cos_meanWaveDirection"]
+# prev_sigWaveHeight: mean 1.0, std 0.5; sin/cos unscaled (mean 0, std 1)
+CIRCLE_FEEDBACK_MAP = [(1, 0, 1.0, 0.5), (2, 1, 0.0, 1.0), (3, 2, 0.0, 1.0)]
+CONSTRAINTS = {
+    "sigWaveHeight": "positive",
+    "sin_meanWaveDirection": "unit_circle",
+    "cos_meanWaveDirection": "unit_circle",
+}
+
+
+class TestConstrainedNoise:
+    def _injector(self, constraints=CONSTRAINTS, noise_std=None):
+        noise_std = noise_std or {"sigWaveHeight": 2.0, "sin_meanWaveDirection": 0.5, "cos_meanWaveDirection": 0.5}
+        return PrevNoiseInjector(CIRCLE_FEATURES, noise_std, CIRCLE_FEEDBACK_MAP, constraints)
+
+    def _clean_batch(self, n=10_000):
+        x = torch.zeros(n, 4)
+        x[:, 1] = (0.2 - 1.0) / 0.5  # 0.2 m of wave height, z-scored
+        x[:, 2], x[:, 3] = 0.6, 0.8
+        return x
+
+    def test_positive_channel_is_clamped_at_zero(self):
+        """Large noise on a small wave height must not produce negative physical values."""
+        torch.manual_seed(0)
+        out = self._injector()(self._clean_batch())
+        swh = out[:, 1] * 0.5 + 1.0
+        assert swh.min().item() == pytest.approx(0.0, abs=1e-6)
+        assert (swh > 0).any()
+
+    def test_negative_channel_is_clamped_at_zero(self):
+        torch.manual_seed(0)
+        injector = self._injector(constraints={"sigWaveHeight": "negative"})
+        swh = injector(self._clean_batch())[:, 1] * 0.5 + 1.0
+        assert swh.max().item() == pytest.approx(0.0, abs=1e-6)
+
+    def test_sin_cos_pair_stays_on_unit_circle(self):
+        torch.manual_seed(0)
+        out = self._injector()(self._clean_batch())
+        norm = (out[:, 2] ** 2 + out[:, 3] ** 2).sqrt()
+        torch.testing.assert_close(norm, torch.ones_like(norm))
+        assert not torch.allclose(out[:, 2], torch.full_like(out[:, 2], 0.6))
+
+    def test_pair_is_projected_when_only_one_channel_is_noised(self):
+        torch.manual_seed(0)
+        out = self._injector(noise_std={"sin_meanWaveDirection": 0.5})(self._clean_batch())
+        norm = (out[:, 2] ** 2 + out[:, 3] ** 2).sqrt()
+        torch.testing.assert_close(norm, torch.ones_like(norm))
+
+    def test_sequence_input(self):
+        torch.manual_seed(0)
+        x = self._clean_batch(64).unsqueeze(1).repeat(1, 6, 1)
+        out = self._injector()(x)
+        assert out.shape == x.shape
+        assert (out[..., 1] * 0.5 + 1.0).min().item() >= -1e-6
+
+    def test_without_constraints_noise_is_unconstrained(self):
+        """Default behaviour of earlier runs: no clamping, no projection."""
+        torch.manual_seed(0)
+        injector = self._injector(constraints=None)
+        assert not injector.circle_pairs
+        out = injector(self._clean_batch())
+        assert (out[:, 1] * 0.5 + 1.0).min().item() < 0
+        norm = (out[:, 2] ** 2 + out[:, 3] ** 2).sqrt()
+        assert not torch.allclose(norm, torch.ones_like(norm))
+
+    def test_clean_channels_are_untouched(self):
+        torch.manual_seed(0)
+        x = self._clean_batch()
+        x[:, 0] = torch.randn(x.shape[0])
+        out = self._injector()(x)
+        assert torch.equal(out[:, 0], x[:, 0])
+
+
 class TestBuildPrevNoiseInjector:
     def test_none_when_disabled(self):
         assert build_prev_noise_injector(_FakeDataModule(), None) is None
@@ -103,6 +176,10 @@ class TestBuildPrevNoiseInjector:
 
     def test_resolves_to_nothing_returns_none(self):
         assert build_prev_noise_injector(_FakeDataModule(), {"meanWavePeriod": 0.2}) is None
+
+    def test_output_constraints_are_passed_through(self):
+        injector = build_prev_noise_injector(_FakeDataModule(), {"sigWaveHeight": 0.1}, {"sigWaveHeight": "positive"})
+        assert injector.lower.item() == pytest.approx((0.0 - 1.0) / 0.5)
 
 
 class _StubTrainer:
