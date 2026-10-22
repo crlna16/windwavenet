@@ -56,7 +56,7 @@ VARIABLES = list(VALUE_BINS)
 # meanWaveDirection is an angle: use wraparound-aware error instead of plain subtraction
 CIRCULAR_VARIABLES = {"meanWaveDirection"}
 
-PREDICT_FINAL_DIR = Path("/work/ka1176/caroline/gitlab/wind-wave-model-emulator/logs/predict_2020")
+PREDICT_FINAL_DIR = Path("/work/ka1176/caroline/gitlab/wind-wave-model-emulator/logs/predict_final")
 GROUND_TRUTH_ZARR = "/work/ka1176/shared_data/2025-wwm-emulator-schism/processed_RUN04b_JUWELS_wpile.zarr"
 BOUNDARY_NODES_CSV = REPO_ROOT / "src/data/node_selection/boundary_nodes.csv"
 OUTPUT_DIR = Path(__file__).resolve().parent / "metrics"
@@ -71,15 +71,15 @@ WINTER_START = "2020-12-03"
 CHUNKS = "auto"
 
 
-def find_complete_experiments(predict_final_dir: Path):
+def find_complete_experiments(predict_final_dir: Path, summer_file=SUMMER_FILE, winter_file=WINTER_FILE):
     """Yield (experiment_name, summer_path, winter_path) for folders that have both prediction files."""
     for exp_dir in sorted(p for p in predict_final_dir.iterdir() if p.is_dir()):
-        summer_path = exp_dir / SUMMER_FILE
-        winter_path = exp_dir / WINTER_FILE
+        summer_path = exp_dir / summer_file
+        winter_path = exp_dir / winter_file
         if summer_path.exists() and winter_path.exists():
             yield exp_dir.name, summer_path, winter_path
         else:
-            print(f"Skipping '{exp_dir.name}': missing {SUMMER_FILE} and/or {WINTER_FILE}")
+            print(f"Skipping '{exp_dir.name}': missing {summer_file} and/or {winter_file}")
 
 
 def build_period_dataset(exp_name: str, nc_path: Path, period_start: str, chunks=CHUNKS) -> "tuple[xr.Dataset, list]":
@@ -124,21 +124,21 @@ def rmse_bias(ds: xr.Dataset, exp_name: str, variable: str, circular: bool = Fal
     return {"rmse": float(np.sqrt(np.nanmean(error**2))), "bias": float(np.nanmean(error))}
 
 
-def main(predict_final_dir: Path = PREDICT_FINAL_DIR, output_dir: Path = OUTPUT_DIR):
+def main(predict_final_dir: Path = PREDICT_FINAL_DIR, output_dir: Path = OUTPUT_DIR, summer_file: str = SUMMER_FILE, winter_file: str=WINTER_FILE, summer_start: str=SUMMER_START, winter_start: str=WINTER_START):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = []
     binned_value_dfs = []
     binned_change_dfs = []
 
-    for exp_name, summer_path, winter_path in find_complete_experiments(predict_final_dir):
+    for exp_name, summer_path, winter_path in find_complete_experiments(predict_final_dir, summer_file=summer_file, winter_file=winter_file):
         print(f"Processing '{exp_name}' ...")
-        ds_summer, summer_vars = build_period_dataset(exp_name, summer_path, SUMMER_START)
-        ds_winter, winter_vars = build_period_dataset(exp_name, winter_path, WINTER_START)
+        ds_summer, summer_vars = build_period_dataset(exp_name, summer_path, summer_start)
+        ds_winter, winter_vars = build_period_dataset(exp_name, winter_path, winter_start)
         # only keep variables available in both periods, so ds_total stays consistent
         variables = [v for v in VARIABLES if v in summer_vars and v in winter_vars]
-        if VARIABLE not in variables:
-            raise RuntimeError(f"Required variable '{VARIABLE}' not found for experiment '{exp_name}'")
+        #if VARIABLE not in variables:
+        #    raise RuntimeError(f"Required variable '{VARIABLE}' not found for experiment '{exp_name}'")
         ds_summer = ds_summer[variables]
         ds_winter = ds_winter[variables]
         # NOTE: ds_total joins two non-contiguous periods (summer/winter), so the single
@@ -185,5 +185,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--predict-final-dir", type=Path, default=PREDICT_FINAL_DIR)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--summer-file", type=str, default=SUMMER_FILE)
+    parser.add_argument("--winter-file", type=str, default=WINTER_FILE)
+    parser.add_argument("--summer-start", type=str, default=SUMMER_START)
+    parser.add_argument("--winter-start", type=str, default=WINTER_START)
     args = parser.parse_args()
-    main(predict_final_dir=args.predict_final_dir, output_dir=args.output_dir)
+    main(predict_final_dir=args.predict_final_dir, output_dir=args.output_dir, summer_file=args.summer_file, winter_file=args.winter_file, summer_start=args.summer_start, winter_start=args.winter_start)
