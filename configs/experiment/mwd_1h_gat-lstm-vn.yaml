@@ -34,7 +34,7 @@ data:
   persistent_workers: true
   max_nodes: 500
   edge_weight_scale: 2000.0
-  seq_len: 24
+  seq_len: 6
 
 model:
   _target_: src.model.GraphWWMEmulator.GraphWWMEmulator
